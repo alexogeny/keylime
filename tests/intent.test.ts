@@ -70,3 +70,23 @@ test("routes gait and injury prompts to biomechanics skill", () => {
   expect(route.primaryIntent).toBe("running_biomechanics");
   expect(route.suggestedSkills).toContain("running-biomechanics");
 });
+
+test("adds research capability for freshness on shoe catalog intents", () => {
+  const route = classifyIntent("tell me about the latest brooks ghost");
+
+  expect(route.primaryIntent).toBe("running_shoes");
+  expect(route.temporal.freshnessRequested).toBe(true);
+  expect(route.temporal.explicitResearchRequested).toBe(false);
+  expect(route.capabilityGroups).toContain("shoes");
+  expect(route.capabilityGroups).toContain("research");
+  expect(route.capabilityGroups).toContain("fetch");
+});
+
+test("explicit research requests hijack primary intent but keep shoe tools as secondary", () => {
+  const route = classifyIntent("web search the latest brooks ghost and cite sources");
+
+  expect(route.primaryIntent).toBe("research");
+  expect(route.temporal.explicitResearchRequested).toBe(true);
+  expect(route.capabilityGroups).toContain("research");
+  expect(route.capabilityGroups).toContain("shoes");
+});

@@ -30,6 +30,11 @@ export type CapabilityGroup =
   | "personal"
   | "safety";
 
+export type TemporalContext = {
+  freshnessRequested: boolean;
+  explicitResearchRequested: boolean;
+};
+
 export type IntentRoute = {
   primaryIntent: IntentId;
   secondaryIntents: IntentId[];
@@ -37,6 +42,7 @@ export type IntentRoute = {
   scores: Partial<Record<IntentId, number>>;
   capabilityGroups: CapabilityGroup[];
   suggestedSkills: string[];
+  temporal: TemporalContext;
   prompt: string;
   ts: number;
 };
@@ -181,6 +187,11 @@ const PROFILES: IntentProfile[] = [
 
 const STOP = new Set(["the", "and", "for", "this", "that", "with", "have", "please", "can", "you", "into", "from", "would", "could"]);
 
+const FRESHNESS_KEYWORDS = new Set(["latest", "newest", "current", "recent", "released", "release", "upcoming", "updated", "2025", "2026", "2027"]);
+const FRESHNESS_PHRASES = ["just released", "most recent", "up to date", "up-to-date", "new version", "latest version", "current version", "release date"];
+const EXPLICIT_RESEARCH_PHRASES = ["web search", "search the web", "research this", "find sources", "cite sources", "compare sources", "look this up online", "check online"];
+const EXPLICIT_RESEARCH_KEYWORDS = new Set(["research", "web", "sources", "cite", "citation", "online"]);
+
 function normalize(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9_+.#\s/-]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -214,6 +225,17 @@ function uniq<T>(items: T[]): T[] {
   return [...new Set(items)];
 }
 
+function temporalContext(raw: string, tokens: Set<string>): TemporalContext {
+  const freshnessRequested = [...FRESHNESS_KEYWORDS].some(k => tokens.has(k)) || FRESHNESS_PHRASES.some(p => raw.includes(p));
+  const explicitResearchRequested = [...EXPLICIT_RESEARCH_KEYWORDS].some(k => tokens.has(k)) || EXPLICIT_RESEARCH_PHRASES.some(p => raw.includes(p));
+  return { freshnessRequested, explicitResearchRequested };
+}
+
+function shouldAddFreshnessResearch(primaryIntent: IntentId, temporal: TemporalContext): boolean {
+  if (!temporal.freshnessRequested || temporal.explicitResearchRequested) return false;
+  return ["running_shoes"].includes(primaryIntent);
+}
+
 export function classifyIntent(prompt: string): IntentRoute {
   const raw = normalize(prompt);
   const tokens = tokensFor(prompt);
@@ -222,14 +244,18 @@ export function classifyIntent(prompt: string): IntentRoute {
     .sort((a, b) => b.score - a.score);
 
   const matched = scored.filter(s => s.score >= s.profile.minScore);
-  const primary = matched[0]?.profile ?? PROFILES.find(p => p.id === "coding")!;
-  const secondary = matched.slice(1, 4).map(s => s.profile.id);
+  const temporal = temporalContext(raw, tokens);
+  const researchProfile = PROFILES.find(p => p.id === "research")!;
+  const inferredPrimary = matched[0]?.profile ?? PROFILES.find(p => p.id === "coding")!;
+  const primary = temporal.explicitResearchRequested ? researchProfile : inferredPrimary;
+  const secondary = matched.filter(s => s.profile.id !== primary.id).slice(0, 4).map(s => s.profile.id);
   const bestScore = matched[0]?.score ?? 0;
   const confidence = Math.max(0.15, Math.min(0.95, bestScore / 12));
 
   const capabilityGroups = uniq([
     ...primary.capabilityGroups,
-    ...matched.slice(1, 3).flatMap(s => s.profile.capabilityGroups),
+    ...matched.filter(s => s.profile.id !== primary.id).slice(0, 3).flatMap(s => s.profile.capabilityGroups),
+    ...(shouldAddFreshnessResearch(primary.id, temporal) ? ["research" as CapabilityGroup, "fetch" as CapabilityGroup] : []),
   ]);
   const suggestedSkills = uniq(matched.flatMap(s => s.profile.skills));
   const scores = Object.fromEntries(scored.filter(s => s.score > 0).map(s => [s.profile.id, s.score])) as Partial<Record<IntentId, number>>;
@@ -242,6 +268,7 @@ export function classifyIntent(prompt: string): IntentRoute {
       scores,
       capabilityGroups: ["readonly", "memory-lite"],
       suggestedSkills: [],
+      temporal,
       prompt,
       ts: Date.now(),
     };
@@ -254,6 +281,7 @@ export function classifyIntent(prompt: string): IntentRoute {
     scores,
     capabilityGroups,
     suggestedSkills,
+    temporal,
     prompt,
     ts: Date.now(),
   };

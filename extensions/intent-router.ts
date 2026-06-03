@@ -96,6 +96,11 @@ function reminderText(): string {
     `Intent router: ${routeSummary(route)}.`,
   ];
 
+  if (route.temporal.freshnessRequested) {
+    lines.push(researchEnabled()
+      ? "Freshness requested: verify local/catalog knowledge against current sources when relevant."
+      : "Freshness requested, but research/web tools are disabled; state when an answer is local/catalog-only.");
+  }
   if (!researchEnabled()) lines.push("Research/web tools disabled: no provider key detected or KEYLIME_DISABLE_RESEARCH=1.");
   if (route.suggestedSkills.length > 0) lines.push(`Relevant skill(s): ${route.suggestedSkills.map(s => `/skill:${s}`).join(", ")}. Load only if needed.`);
 
