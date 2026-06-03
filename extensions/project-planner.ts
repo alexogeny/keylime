@@ -264,27 +264,22 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "save_project_plan",
     label:       "Save Project Plan",
-    description: "Create or fully update the project plan for the current repository. Stores tech stack, coding principles, feature list, and initial questions in .pi/project.json.",
-    promptSnippet: "Create or update the project plan (stack, features, principles)",
-    promptGuidelines: [
-      "Call save_project_plan at the start of a new project or when the plan changes significantly.",
-      "Include all features upfront even if implementation is phased — tddStatus starts as 'pending'.",
-    ],
+    description: "Create or replace .pi/project.json with stack, principles, features, and questions.",
+    promptSnippet: "Create/update the project plan",
+    promptGuidelines: ["Use for new projects or major plan changes."],
     parameters: Type.Object({
       name:        Type.String({ description: "Project name" }),
       description: Type.String({ description: "One paragraph describing what the project does and for whom" }),
       stack: Type.Object({
-        language:       Type.String({ description: "Primary language, e.g. TypeScript, Python, Rust" }),
-        runtime:        Type.Optional(Type.String({ description: "Runtime, e.g. Node.js 22, Deno, Bun" })),
-        framework:      Type.Optional(Type.String({ description: "Backend framework, e.g. Fastify, Django, Axum" })),
-        testFramework:  Type.Optional(Type.String({ description: "Test framework, e.g. Vitest, pytest, cargo test" })),
-        uiFramework:    Type.Optional(Type.String({ description: "UI framework, e.g. React, SvelteKit, HTMX" })),
-        database:       Type.Optional(Type.String({ description: "Database, e.g. PostgreSQL, SQLite, Redis" })),
-        other:          Type.Optional(Type.Array(Type.String(), { description: "Other tools, e.g. [\"Zod\", \"Drizzle\", \"Tailwind\"]" })),
+        language:       Type.String({ description: "Primary language" }),
+        runtime:        Type.Optional(Type.String({ description: "Runtime" })),
+        framework:      Type.Optional(Type.String({ description: "Backend framework" })),
+        testFramework:  Type.Optional(Type.String({ description: "Test framework" })),
+        uiFramework:    Type.Optional(Type.String({ description: "UI framework" })),
+        database:       Type.Optional(Type.String({ description: "Database" })),
+        other:          Type.Optional(Type.Array(Type.String(), { description: "Other tools" })),
       }),
-      principles: Type.Array(Type.String(), {
-        description: "Coding principles, e.g. [\"Functional — pure functions, immutable data\", \"TDD — red→green→refactor\", \"No premature abstraction\"]",
-      }),
+      principles: Type.Array(Type.String(), { description: "Coding principles" }),
       features: Type.Array(
         Type.Object({
           name:               Type.String(),
@@ -364,12 +359,9 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "update_feature_tdd",
     label:       "Update Feature TDD Status",
-    description: "Advance a feature through the TDD cycle: pending → red (test written, failing) → green (tests pass) → refactored (clean) → done (committed). Call at each stage transition.",
-    promptSnippet: "Record TDD cycle progress for a feature (red→green→refactored→done)",
-    promptGuidelines: [
-      "Call update_feature_tdd whenever a feature transitions to a new TDD stage.",
-      "Use 'red' after writing a failing test, 'green' after the minimal passing code, 'refactored' after cleanup, 'done' after committing.",
-    ],
+    description: "Advance a feature TDD status.",
+    promptSnippet: "Record TDD progress",
+    promptGuidelines: ["Use at red, green, refactored, and done transitions."],
     parameters: Type.Object({
       feature_name: Type.String({ description: "Feature name (partial match OK)" }),
       tdd_status:   StringEnum(["red", "green", "refactored", "done"] as const, {
@@ -428,13 +420,9 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "log_decision",
     label:       "Log Architectural Decision",
-    description: "Record an architectural decision in MADR format. Writes a numbered ADR .md file to docs/decisions/ in the repo AND records it in the project plan. Use for decisions that cannot be read from the code itself.",
-    promptSnippet: "Record an architectural decision (MADR format) with status, consequences, and alternatives",
-    promptGuidelines: [
-      "Call log_decision when making a non-trivial technical choice: library selection, data model, API design, auth strategy, etc.",
-      "Decisions readable directly from the code do NOT need an ADR — document the WHY, not the WHAT.",
-      "Always include consequences — what becomes easier, harder, or constrained by this decision.",
-    ],
+    description: "Write an ADR and store it in the project plan.",
+    promptSnippet: "Record an architectural decision",
+    promptGuidelines: ["Use for non-trivial choices; document why and consequences."],
     parameters: Type.Object({
       topic:        Type.String({ description: "Short title, e.g. 'Use Zod for validation', 'PostgreSQL over SQLite'" }),
       status:       StringEnum(["proposed", "accepted", "superseded", "deprecated"] as const, {
@@ -529,8 +517,8 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "manage_question",
     label:       "Manage Clarifying Question",
-    description: "Add an open question to the project plan, or record an answer to an existing one. Use to track requirements that need clarification.",
-    promptSnippet: "Add or answer clarifying questions in the project plan",
+    description: "Add or answer a project question.",
+    promptSnippet: "Manage project questions",
     parameters: Type.Object({
       action:   StringEnum(["add", "answer"] as const),
       question: Type.String({ description: "The question text (for add), or partial match of existing question (for answer)" }),

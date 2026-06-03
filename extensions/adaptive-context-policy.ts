@@ -71,7 +71,18 @@ function buildInjection(snapshot: PolicySnapshot): string {
 }
 
 export default function adaptiveContextPolicyExtension(pi: ExtensionAPI) {
+  const enabled = process.env.KEYLIME_ENABLE_ADAPTIVE_POLICY === "1";
   let lastSnapshot: PolicySnapshot | null = null;
+
+  if (!enabled) {
+    pi.registerCommand("ace-status", {
+      description: "Show adaptive context policy state",
+      handler: async (_args, ctx) => {
+        ctx.ui.notify("Adaptive context policy is disabled. Turn-context-composer handles context budgets. Set KEYLIME_ENABLE_ADAPTIVE_POLICY=1 to enable ACE hints.", "info");
+      },
+    });
+    return;
+  }
 
   function readRecentTrajectorySignals(ctx: any): { issues: string[]; badCount: number } {
     const entries = ctx.sessionManager.getEntries().filter(

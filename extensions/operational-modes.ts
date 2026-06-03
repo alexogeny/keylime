@@ -116,6 +116,7 @@ const MODE_CONFIG: Record<Mode, ModeConfig> = {
 
 export default function operationalModesExtension(pi: ExtensionAPI) {
   let currentMode: Mode = "CONVERSATIONAL";
+  let modeLocked = false;
 
   // ── Status helpers ──────────────────────────────────────────────────────────
 
@@ -127,15 +128,21 @@ export default function operationalModesExtension(pi: ExtensionAPI) {
     ctx.ui.setStatus("mode", label);
   }
 
-  function setMode(mode: Mode, ctx: ExtensionContext): void {
+  function setMode(mode: Mode, ctx: ExtensionContext): boolean {
+    if (modeLocked) {
+      ctx.ui.notify("Mode is locked for this chat. Start a new chat to change modes.", "warning");
+      return false;
+    }
     currentMode = mode;
     pi.appendEntry("operational-mode", { mode, ts: Date.now() });
     applyStatus(ctx);
+    return true;
   }
 
   // ── Restore mode from session on startup / reload ──────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    modeLocked = false;
     const entries = ctx.sessionManager.getEntries();
     // Find the most recent mode entry
     const modeEntries = entries
@@ -155,6 +162,7 @@ export default function operationalModesExtension(pi: ExtensionAPI) {
   // ── System prompt injection ─────────────────────────────────────────────────
 
   pi.on("before_agent_start", async (event, _ctx) => {
+    modeLocked = true;
     const injection = MODE_CONFIG[currentMode].injection;
     if (!injection) return; // unconstrained mode
     return { systemPrompt: event.systemPrompt + `\n\n${injection}` };
@@ -168,7 +176,7 @@ export default function operationalModesExtension(pi: ExtensionAPI) {
       const idx     = MODES.indexOf(currentMode);
       const nextIdx = (idx + 1) % MODES.length;
       const next    = MODES[nextIdx];
-      setMode(next, ctx);
+      if (!setMode(next, ctx)) return;
       ctx.ui.notify(`Mode: ${MODE_CONFIG[next].icon} ${MODE_CONFIG[next].label} — ${MODE_CONFIG[next].description}`, "info");
     },
   });
@@ -202,7 +210,7 @@ export default function operationalModesExtension(pi: ExtensionAPI) {
         return;
       }
 
-      setMode(arg, ctx);
+      if (!setMode(arg, ctx)) return;
       ctx.ui.notify(`${MODE_CONFIG[arg].icon} ${arg} — ${MODE_CONFIG[arg].description}`, "info");
     },
   });

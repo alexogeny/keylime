@@ -56,6 +56,18 @@ const DEFAULT_WEIGHTS: EvalWeights = {
 };
 
 export default function trajectoryEvalExtension(pi: ExtensionAPI) {
+  const enabled = process.env.KEYLIME_ENABLE_TRAJECTORY === "1";
+
+  if (!enabled) {
+    pi.registerCommand("traj-status", {
+      description: "Show trajectory evaluator status",
+      handler: async (_args, ctx) => {
+        ctx.ui.notify("Trajectory evaluator is disabled. Set KEYLIME_ENABLE_TRAJECTORY=1 to enable it.", "info");
+      },
+    });
+    return;
+  }
+
   let currentId = "";
   let activeSteps: TrajectoryStep[] = [];
   let weights: EvalWeights = { ...DEFAULT_WEIGHTS };

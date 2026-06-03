@@ -50,17 +50,17 @@ function providerKeyPresent(): boolean {
   return Boolean(process.env.TAVILY_API_KEY || process.env.SERPER_API_KEY || process.env.BING_API_KEY);
 }
 
-function researchEnabled(): boolean {
+export function researchEnabled(): boolean {
   if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
   if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
   return providerKeyPresent();
 }
 
-function shoesEnabled(): boolean {
+export function shoesEnabled(): boolean {
   return process.env.KEYLIME_DISABLE_SHOES !== "1";
 }
 
-function enabledGroups(groups: CapabilityGroup[]): CapabilityGroup[] {
+export function enabledGroups(groups: CapabilityGroup[]): CapabilityGroup[] {
   return groups.filter(group => {
     if (group === "research") return researchEnabled();
     if (group === "shoes") return shoesEnabled();
@@ -68,7 +68,7 @@ function enabledGroups(groups: CapabilityGroup[]): CapabilityGroup[] {
   });
 }
 
-function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): string[] {
+export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): string[] {
   const available = new Set(pi.getAllTools().map(tool => tool.name));
   const desired = new Set<string>();
 
