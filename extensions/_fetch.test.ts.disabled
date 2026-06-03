@@ -1,0 +1,71 @@
+import { describe, it, expect, mock } from "bun:test";
+
+mock.module("typebox", () => ({
+  Type: {
+    Object: (x: unknown) => x,
+    String: (x: unknown) => x,
+    Number: (x: unknown) => x,
+    Optional: (x: unknown) => x,
+    Union: (x: unknown) => x,
+    Literal: (x: unknown) => x,
+  },
+}));
+
+const { __testables } = await import("./fetch");
+
+describe("fetch extension helpers", () => {
+  it("detects challenge markers from html", () => {
+    const html = "<html><title>Just a moment...</title><body>verify you are human</body></html>";
+    const headers = new Headers();
+    const marker = __testables.detectChallenge(html, headers);
+    expect(marker).toBe("just a moment");
+  });
+
+  it("detects challenge from cf-mitigated header", () => {
+    const headers = new Headers({ "cf-mitigated": "challenge" });
+    const marker = __testables.detectChallenge("<html><body>ok</body></html>", headers);
+    expect(marker).toBe("cf-mitigated:challenge");
+  });
+
+  it("maps outcomes to expected classifications", () => {
+    expect(__testables.classifyFromOutcome("ok")).toBe("ok_content");
+    expect(__testables.classifyFromOutcome("challenge_detected")).toBe("challenge_page");
+    expect(__testables.classifyFromOutcome("blocked_http_status")).toBe("blocked");
+    expect(__testables.classifyFromOutcome("non_html_content")).toBe("blocked");
+    expect(__testables.classifyFromOutcome("timeout")).toBe("timeout");
+    expect(__testables.classifyFromOutcome("network_error")).toBe("soft_error");
+    expect(__testables.classifyFromOutcome("parse_failed")).toBe("soft_error");
+  });
+
+  it("scores rich article-like content higher than thin pages", () => {
+    const richHtml = "<html><head><title>Research Article</title></head><body><article><p>" + "word ".repeat(400) + "</p></article></body></html>";
+    const thinHtml = "<html><head><title>x</title></head><body>hi</body></html>";
+
+    const rich = __testables.scoreContentQuality("Research Article", "line\n" + "content ".repeat(220), richHtml);
+    const thin = __testables.scoreContentQuality("x", "hi", thinHtml);
+
+    expect(rich.score).toBeGreaterThan(0.6);
+    expect(thin.score).toBeLessThan(0.35);
+  });
+
+  it("filters skip domains/extensions out of extracted search urls", () => {
+    const text = [
+      "1) source",
+      "   https://example.com/post",
+      "2) youtube",
+      "   https://www.youtube.com/watch?v=123",
+      "3) pdf",
+      "   https://example.com/file.pdf",
+    ].join("\n");
+
+    const urls = __testables.extractSearchResultUrls(text);
+    expect(urls).toEqual(["https://example.com/post"]);
+  });
+
+  it("picks deterministic realistic browser UA from pool", () => {
+    const ua1 = __testables.pickUserAgent("https://example.com/a");
+    const ua2 = __testables.pickUserAgent("https://example.com/a");
+    expect(ua1).toBe(ua2);
+    expect(__testables.BROWSER_UAS.includes(ua1)).toBe(true);
+  });
+});

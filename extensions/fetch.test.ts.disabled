@@ -1,0 +1,43 @@
+import { describe, it, expect, mock } from "bun:test";
+
+mock.module("typebox", () => ({
+  Type: {
+    Object: (x: unknown) => x,
+    String: (x: unknown) => x,
+    Number: (x: unknown) => x,
+    Optional: (x: unknown) => x,
+    Union: (x: unknown) => x,
+    Literal: (x: unknown) => x,
+    Boolean: (x: unknown) => x,
+    Array: (x: unknown) => x,
+  },
+}));
+
+const { __testables } = await import("./fetch");
+
+describe("fetch extension helpers", () => {
+  it("decodes cloudflare cfemail payload", () => {
+    const decoded = __testables.decodeCloudflareEmailHex("30595e565f705b5f5c5440515b1e535f5d1e5145");
+    expect(decoded).toBe("info@koldpak.com.au");
+  });
+
+  it("deobfuscates cfemail anchors and protected placeholders", () => {
+    const html = '<h1>Contact us: <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="30595e565f705b5f5c5440515b1e535f5d1e5145">[email&#160;protected]</a></h1>';
+    const out = __testables.deobfuscateHtml(html);
+    expect(out.decodedEmails).toEqual(["info@koldpak.com.au"]);
+    expect(out.html.includes("info@koldpak.com.au")).toBe(true);
+    expect(out.html.includes("protected")).toBe(false);
+  });
+
+  it("decodes common html entities and numeric codepoints", () => {
+    const decoded = __testables.decodeHtmlEntities("A&amp;B &#64; &#x2E;");
+    expect(decoded).toBe("A&B @ .");
+  });
+
+  it("detects challenge markers from html", () => {
+    const html = "<html><title>Just a moment...</title><body>verify you are human</body></html>";
+    const headers = new Headers();
+    const marker = __testables.detectChallenge(html, headers);
+    expect(marker).toBe("just a moment");
+  });
+});
