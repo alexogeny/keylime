@@ -68,8 +68,12 @@ export function enabledGroups(groups: CapabilityGroup[]): CapabilityGroup[] {
   });
 }
 
+function toolName(tool: any): string | undefined {
+  return typeof tool === "string" ? tool : tool?.name;
+}
+
 export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): string[] {
-  const available = new Set(pi.getAllTools().map(tool => tool.name));
+  const available = new Set(pi.getAllTools().map(toolName).filter(Boolean) as string[]);
   const desired = new Set<string>();
 
   for (const group of enabledGroups(groups)) {
@@ -79,7 +83,8 @@ export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): st
   // Preserve non-domain tools from other extensions/providers. Domain tools are
   // explicitly governed by intent so they do not pollute the prompt every turn.
   for (const tool of pi.getActiveTools()) {
-    if (!DOMAIN_TOOLS.has(tool.name)) desired.add(tool.name);
+    const name = toolName(tool);
+    if (name && !DOMAIN_TOOLS.has(name)) desired.add(name);
   }
 
   return [...desired].filter(name => available.has(name)).sort();
@@ -154,7 +159,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
         `  confidence: ${Math.round(route.confidence * 100)}%`,
         `  research enabled: ${researchEnabled() ? "yes" : "no"}`,
         `  shoes enabled: ${shoesEnabled() ? "yes" : "no"}`,
-        `  active tools: ${pi.getActiveTools().map(t => t.name).sort().join(", ")}`,
+        `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
       ].join("\n"), "info");
     },
   });

@@ -10,6 +10,7 @@ export type IntentId =
   | "memory"
   | "personal"
   | "running_shoes"
+  | "running_biomechanics"
   | "python_engineering"
   | "rust_systems"
   | "rust_shell_emulator"
@@ -42,8 +43,12 @@ export type IntentRoute = {
 
 type IntentProfile = {
   id: IntentId;
+  /** Multi-word prompt fragments, e.g. "failing test" or "brooks ghost". */
   phrases: string[];
+  /** Single-token signals matched after tokenization. */
   keywords: string[];
+  /** Domain entities/model names that should boost an intent without being skill hints. */
+  entities?: string[];
   negativeKeywords?: string[];
   capabilityGroups: CapabilityGroup[];
   skills: string[];
@@ -61,7 +66,7 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "refactor",
-    phrases: ["refactor this", "clean this up", "restructure", "split this module", "extract function", "without changing behaviour", "without changing behavior", "simplify this", "make this cleaner", "remove duplication", "break up this file", "rename this", "tidy this", "clean architecture"],
+    phrases: ["refactor this", "clean this up", "split this module", "extract function", "without changing behaviour", "without changing behavior", "simplify this", "make this cleaner", "remove duplication", "break up this file", "rename this", "tidy this", "clean architecture"],
     keywords: ["refactor", "refactoring", "clean", "cleanup", "tidy", "restructure", "reorganize", "reorganise", "rename", "extract", "simplify", "debt", "duplication", "duplicate", "abstraction", "behaviour", "behavior"],
     capabilityGroups: ["core", "repo", "coding", "project", "safety"],
     skills: ["refactor"],
@@ -85,7 +90,7 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "rust_shell_emulator",
-    phrases: ["shell emulator", "terminal emulator", "pty", "pseudo terminal", "job control", "ansi parser", "vt100", "posix shell", "word expansion", "process group", "foreground job", "terminal escape"],
+    phrases: ["shell emulator", "terminal emulator", "pseudo terminal", "job control", "ansi parser", "posix shell", "word expansion", "process group", "foreground job", "terminal escape"],
     keywords: ["rust", "shell", "terminal", "pty", "tty", "ansi", "vt100", "parser", "lexing", "ast", "expansion", "job", "jobs", "signal", "signals", "process", "processes", "posix", "termios"],
     capabilityGroups: ["core", "repo", "coding", "project", "safety"],
     skills: ["rust-shell-emulator"],
@@ -109,8 +114,8 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "coding",
-    phrases: ["build it", "implement", "add feature", "change this code", "edit the file", "write tests", "fix tests", "can you build", "can you implement", "make the change", "update the code", "add tests", "write code", "wire this up", "ship this", "proceed", "next phase"],
-    keywords: ["code", "implement", "implementation", "build", "edit", "file", "files", "test", "tests", "repo", "repository", "function", "class", "module", "typescript", "javascript", "node", "bun", "python", "rust", "fix", "change", "update"],
+    phrases: ["build it", "add feature", "change this code", "edit the file", "write tests", "fix tests", "can you build", "can you implement", "make the change", "update the code", "add tests", "write code", "wire this up", "ship this", "next phase"],
+    keywords: ["code", "implement", "implementation", "build", "edit", "file", "files", "test", "tests", "repo", "repository", "function", "class", "module", "typescript", "javascript", "node", "bun", "python", "rust", "fix", "change", "update", "proceed"],
     capabilityGroups: ["core", "repo", "coding", "project", "safety", "memory-lite"],
     skills: [],
     minScore: 3,
@@ -125,7 +130,7 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "planning",
-    phrases: ["plan out", "how would we", "architecture plan", "design the approach", "break this down", "what is left", "what should we do", "next steps", "implementation plan", "migration plan", "rollout plan", "tradeoffs", "pros and cons"],
+    phrases: ["plan out", "how would we", "architecture plan", "design the approach", "break this down", "what is left", "what should we do", "next steps", "implementation plan", "migration plan", "rollout plan", "pros and cons"],
     keywords: ["plan", "planning", "architecture", "approach", "design", "roadmap", "phase", "phases", "strategy", "tradeoff", "tradeoffs", "sequence", "prioritize", "prioritise"],
     capabilityGroups: ["readonly", "repo", "project", "memory-lite"],
     skills: ["clarify"],
@@ -133,7 +138,7 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "research",
-    phrases: ["web search", "research this", "current information", "latest", "look up", "find sources", "read this url", "pasted url", "search the web", "find current", "compare sources", "cite sources", "official docs", "read the docs", "fetch this", "open this link"],
+    phrases: ["web search", "research this", "current information", "look up", "find sources", "read this url", "pasted url", "search the web", "find current", "compare sources", "cite sources", "official docs", "read the docs", "fetch this", "open this link"],
     keywords: ["research", "search", "web", "current", "latest", "source", "sources", "cite", "citation", "tavily", "serper", "bing", "url", "http", "https", "docs", "documentation", "link", "links", "article", "paper", "reference"],
     capabilityGroups: ["readonly", "research", "fetch", "memory-lite"],
     skills: [],
@@ -156,11 +161,20 @@ const PROFILES: IntentProfile[] = [
     minScore: 3,
   },
   {
-    id: "running_shoes",
-    phrases: ["running shoes", "shoe rotation", "heel drop", "stack height", "pronation", "gait analysis", "daily trainer", "tempo shoe", "race shoe", "carbon plate", "super shoe", "stability shoe", "max cushion", "wide fit", "shoe recommendation"],
-    keywords: ["shoe", "shoes", "trainer", "trainers", "running", "runner", "drop", "stack", "midsole", "outsole", "foam", "plate", "carbon", "pronation", "supination", "gait", "stability", "cushion", "hoka", "saucony", "asics", "nike", "adidas", "brooks", "newbalance", "puma"],
+    id: "running_biomechanics",
+    phrases: ["gait analysis", "running form", "foot strike", "injury prevention", "shin splints", "plantar fasciitis", "heel pain", "knee pain"],
+    keywords: ["gait", "form", "pronation", "supination", "strike", "cadence", "overstride", "injury", "pain", "biomechanics", "stability"],
     capabilityGroups: ["shoes", "memory-lite"],
     skills: ["running-biomechanics"],
+    minScore: 3,
+  },
+  {
+    id: "running_shoes",
+    phrases: ["running shoes", "shoe rotation", "heel drop", "stack height", "daily trainer", "tempo shoe", "race shoe", "carbon plate", "super shoe", "stability shoe", "max cushion", "wide fit", "shoe recommendation", "brooks ghost", "ghost max", "brooks glycerin", "brooks adrenaline", "hoka clifton", "hoka bondi", "saucony ride", "saucony triumph", "asics gel nimbus", "asics novablast", "nike pegasus", "new balance 1080"],
+    keywords: ["shoe", "shoes", "trainer", "trainers", "running", "runner", "drop", "stack", "midsole", "outsole", "foam", "plate", "carbon", "cushion"],
+    entities: ["hoka", "saucony", "asics", "nike", "adidas", "brooks", "ghost", "glycerin", "adrenaline", "hyperion", "new balance", "newbalance", "puma", "pegasus", "clifton", "bondi", "novablast", "nimbus", "kayano", "1080", "880"],
+    capabilityGroups: ["shoes", "memory-lite"],
+    skills: [],
     minScore: 3,
   },
 ];
@@ -177,16 +191,19 @@ function tokensFor(text: string): Set<string> {
 
 function scoreProfile(profile: IntentProfile, raw: string, tokens: Set<string>): number {
   let score = 0;
+
   for (const phrase of profile.phrases) {
-    if (raw.includes(phrase)) score += 4;
+    if (phrase.includes(" ") && raw.includes(phrase)) score += 4;
   }
+
   for (const keyword of profile.keywords) {
-    if (keyword.includes(" ")) {
-      if (raw.includes(keyword)) score += 2;
-    } else if (tokens.has(keyword)) {
-      score += 1;
-    }
+    if (tokens.has(keyword)) score += 1;
   }
+
+  for (const entity of profile.entities ?? []) {
+    if (entity.includes(" ") ? raw.includes(entity) : tokens.has(entity)) score += 2;
+  }
+
   for (const keyword of profile.negativeKeywords ?? []) {
     if (tokens.has(keyword) || raw.includes(keyword)) score -= 2;
   }

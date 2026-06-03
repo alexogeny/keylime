@@ -11,12 +11,11 @@ describe("classifyIntent", () => {
     expect(route.suggestedSkills).toContain("python-eng");
   });
 
-  test("routes shoe questions to shoe capability", () => {
+  test("routes shoe spec questions to shoe tools without forcing biomechanics skill", () => {
     const route = classifyIntent("compare running shoes with 8mm heel drop for pronation");
 
-    expect(route.primaryIntent).toBe("running_shoes");
     expect(route.capabilityGroups).toContain("shoes");
-    expect(route.suggestedSkills).toContain("running-biomechanics");
+    expect(route.suggestedSkills).toEqual([]);
   });
 
   test("routes ordinary implementation requests to coding", () => {
@@ -54,4 +53,20 @@ test("routes docs and URL prompts to research/fetch", () => {
 
   expect(route.primaryIntent).toBe("research");
   expect(route.capabilityGroups).toContain("fetch");
+});
+
+
+test("routes latest shoe model prompts to shoe lookup not research", () => {
+  const route = classifyIntent("tell me about the latest brooks ghost");
+
+  expect(route.primaryIntent).toBe("running_shoes");
+  expect(route.capabilityGroups).toContain("shoes");
+  expect(route.suggestedSkills).toEqual([]);
+});
+
+test("routes gait and injury prompts to biomechanics skill", () => {
+  const route = classifyIntent("can you analyze my pronation and knee pain from my gait");
+
+  expect(route.primaryIntent).toBe("running_biomechanics");
+  expect(route.suggestedSkills).toContain("running-biomechanics");
 });
