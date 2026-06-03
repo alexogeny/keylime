@@ -11,6 +11,7 @@ export type TextMatch = {
   line: number;
   column: number;
   text: string;
+  lineText: string;
   before: string[];
   after: string[];
 };
@@ -52,18 +53,20 @@ function lineColumnAt(text: string, index: number): { line: number; column: numb
   return { line: lineIdx + 1, column: index - starts[lineIdx] + 1 };
 }
 
-function contextForLine(text: string, line: number, contextLines: number): { before: string[]; after: string[] } {
+function contextForLine(text: string, line: number, contextLines: number): { lineText: string; before: string[]; after: string[] } {
   const lines = text.split("\n");
   const idx = line - 1;
   return {
+    lineText: lines[idx] ?? "",
     before: lines.slice(Math.max(0, idx - contextLines), idx),
     after: lines.slice(idx + 1, Math.min(lines.length, idx + 1 + contextLines)),
   };
 }
 
 export function inspectTextMatches(text: string, options: MatchOptions): TextMatch[] {
-  const contextLines = options.contextLines ?? 2;
-  const maxMatches = options.maxMatches ?? 20;
+  if (options.query.length === 0) throw new Error("query must not be empty");
+  const contextLines = Math.max(0, options.contextLines ?? 2);
+  const maxMatches = Math.max(1, options.maxMatches ?? 20);
   const matches: TextMatch[] = [];
 
   if (options.regex) {
@@ -95,6 +98,7 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
 
 function exactReplacement(text: string, edit: ReplacementEdit): ReplacementPlan {
   if (edit.oldText === undefined) throw new Error(`oldText is required for exact replacement in ${edit.path}`);
+  if (edit.oldText.length === 0) throw new Error(`oldText must not be empty in ${edit.path}`);
   const occurrences = text.split(edit.oldText).length - 1;
   if (occurrences === 0) throw new Error(`No match for oldText in ${edit.path}`);
   if (occurrences > 1 && !edit.replaceAll) throw new Error(`oldText matched ${occurrences} times in ${edit.path}; set replaceAll=true or use a more specific oldText`);
@@ -104,6 +108,7 @@ function exactReplacement(text: string, edit: ReplacementEdit): ReplacementPlan 
 
 function regexReplacement(text: string, edit: ReplacementEdit): ReplacementPlan {
   if (!edit.regex) throw new Error(`regex is required for regex replacement in ${edit.path}`);
+  if (edit.regex.length === 0) throw new Error(`regex must not be empty in ${edit.path}`);
   const flags = edit.flags ?? "g";
   const re = new RegExp(edit.regex, flags.includes("g") ? flags : `${flags}g`);
   const occurrences = [...text.matchAll(re)].length;

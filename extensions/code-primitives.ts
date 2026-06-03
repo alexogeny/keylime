@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { inspectTextMatches, planReplacement, summarizePlan, type ReplacementEdit } from "./shared/code-primitives";
 
 export default function codePrimitivesExtension(pi: ExtensionAPI) {
@@ -18,8 +19,9 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       context_lines: Type.Optional(Type.Number({ description: "Context lines" })),
       max_matches: Type.Optional(Type.Number({ description: "Max matches" })),
     }),
-    async execute(_id, params) {
-      const text = await readFile(params.path, "utf8");
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolve(ctx.cwd, params.path);
+      const text = await readFile(path, "utf8");
       const matches = inspectTextMatches(text, {
         query: params.query,
         regex: params.regex,
@@ -31,7 +33,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const lines = matches.flatMap(match => [
         `${params.path}:${match.line}:${match.column} ${match.text}`,
         ...match.before.map(line => `  ${line}`),
-        `> ${match.text}`,
+        `> ${match.lineText}`,
         ...match.after.map(line => `  ${line}`),
       ]);
 
@@ -59,12 +61,14 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         replaceAll: Type.Optional(Type.Boolean({ description: "Replace all matches" })),
       }), { description: "Edits" }),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal, _onUpdate, ctx) {
       const dryRun = params.dry_run ?? false;
       const plans = [];
 
-      for (const edit of params.edits as ReplacementEdit[]) {
-        const before = await readFile(edit.path, "utf8");
+      for (const rawEdit of params.edits as ReplacementEdit[]) {
+        const path = resolve(ctx.cwd, rawEdit.path);
+        const edit = { ...rawEdit, path };
+        const before = await readFile(path, "utf8");
         plans.push(planReplacement(before, edit));
       }
 
