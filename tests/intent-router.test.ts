@@ -53,3 +53,25 @@ describe("research gating", () => {
     else process.env.KEYLIME_DISABLE_RESEARCH = old;
   });
 });
+
+describe("router reminders", () => {
+  test("freshness with disabled research puts the warning first", async () => {
+    const { classifyIntent, setCurrentRoute } = await import("../extensions/shared/intent");
+    const { reminderText } = await import("../extensions/intent-router");
+    const oldDisable = process.env.KEYLIME_DISABLE_RESEARCH;
+    const oldEnable = process.env.KEYLIME_ENABLE_RESEARCH;
+    process.env.KEYLIME_DISABLE_RESEARCH = "1";
+    delete process.env.KEYLIME_ENABLE_RESEARCH;
+
+    setCurrentRoute(classifyIntent("tell me about the latest brooks ghost"));
+    const text = reminderText();
+
+    expect(text.split("\n")[0]).toContain("Freshness requested but web research is DISABLED");
+    expect(text).toContain("local/catalog-only");
+
+    if (oldDisable === undefined) delete process.env.KEYLIME_DISABLE_RESEARCH;
+    else process.env.KEYLIME_DISABLE_RESEARCH = oldDisable;
+    if (oldEnable === undefined) delete process.env.KEYLIME_ENABLE_RESEARCH;
+    else process.env.KEYLIME_ENABLE_RESEARCH = oldEnable;
+  });
+});

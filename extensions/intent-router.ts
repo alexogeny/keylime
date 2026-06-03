@@ -90,19 +90,24 @@ export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): st
   return [...desired].filter(name => available.has(name)).sort();
 }
 
-function reminderText(): string {
+export function reminderText(): string {
   const route = getCurrentRoute();
-  const lines = [
-    `Intent router: ${routeSummary(route)}.`,
-  ];
+  const researchOn = researchEnabled();
+  const lines: string[] = [];
 
-  if (route.temporal.freshnessRequested) {
-    lines.push(researchEnabled()
-      ? "Freshness requested: verify local/catalog knowledge against current sources when relevant."
-      : "Freshness requested, but research/web tools are disabled; state when an answer is local/catalog-only.");
+  if (route.temporal.freshnessRequested && !researchOn) {
+    lines.push("Freshness requested but web research is DISABLED: do not claim this is latest/current; say answer is local/catalog-only.");
+  } else if (route.temporal.freshnessRequested) {
+    lines.push("Freshness requested: verify local/catalog knowledge against current sources before claiming latest/current.");
+  } else if (!researchOn && route.capabilityGroups.includes("research")) {
+    lines.push("Research requested but web tools are disabled: say so if it affects the answer.");
   }
-  if (!researchEnabled()) lines.push("Research/web tools disabled: no provider key detected or KEYLIME_DISABLE_RESEARCH=1.");
-  if (route.suggestedSkills.length > 0) lines.push(`Relevant skill(s): ${route.suggestedSkills.map(s => `/skill:${s}`).join(", ")}. Load only if needed.`);
+
+  lines.push(`Intent: ${route.primaryIntent}; tools: ${enabledGroups(route.capabilityGroups).join(", ") || "none"}.`);
+
+  if (route.suggestedSkills.length > 0) {
+    lines.push(`Skill hint: ${route.suggestedSkills.map(s => `/skill:${s}`).join(", ")} only if materially useful.`);
+  }
 
   return lines.join("\n");
 }
@@ -111,7 +116,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
   registerContextProvider({
     id: "intent-router",
     priority: 100,
-    maxChars: 360,
+    maxChars: 520,
     build: () => reminderText(),
   });
 
