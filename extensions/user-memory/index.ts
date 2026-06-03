@@ -1856,7 +1856,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     const stableMems = [...unique.values()]
       .map(m => ({ m, conf: decayedConfidence(m, now) }))
       .sort((a, b) => b.conf - a.conf)
-      .slice(0, 12)  // allow room for pinned profile + baseline + top prefs
+      .slice(0, 5)  // keep the stable system prompt tight; volatile recall handles the rest
       .map(x => x.m);
 
     if (stableMems.length === 0) return "";

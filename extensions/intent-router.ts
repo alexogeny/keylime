@@ -1,0 +1,178 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, type CapabilityGroup } from "./shared/intent";
+
+const STATUS_KEY = "intent";
+
+const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = {
+  core: ["read", "bash", "edit", "write", "code_search"],
+  readonly: ["read", "bash", "code_search", "fetch_url"],
+  coding: ["read", "bash", "edit", "write", "code_search"],
+  repo: ["code_search"],
+  project: ["save_project_plan", "update_feature_tdd", "log_decision", "manage_question"],
+  memory: ["remember", "recall_memories", "update_memory", "forget_memory", "list_memories", "recall_entity", "list_entities"],
+  "memory-lite": ["remember", "recall_memories", "recall_entity"],
+  research: ["recall_web_knowledge", "list_search_history", "get_search_entry", "web_search", "save_search_knowledge", "research_topic"],
+  fetch: ["fetch_url"],
+  shoes: ["lookup_shoe", "find_shoes_by_spec", "compare_shoes", "shoe_catalog_stats", "add_shoe", "query_shoes"],
+  personal: ["remember", "recall_memories", "recall_entity"],
+  safety: [],
+};
+
+const DOMAIN_TOOLS = new Set([
+  "read",
+  "bash",
+  "edit",
+  "write",
+  ...CAPABILITY_TOOLS.project,
+  ...CAPABILITY_TOOLS.memory,
+  ...CAPABILITY_TOOLS.research,
+  ...CAPABILITY_TOOLS.shoes,
+  "fetch_url",
+  "code_search",
+]);
+
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block: any) => block?.type === "text")
+    .map((block: any) => block.text as string)
+    .join("\n");
+}
+
+function lastUserPrompt(messages: any[]): string {
+  const msg = [...messages].reverse().find((m: any) => m?.role === "user");
+  return msg ? textFromContent(msg.content) : "";
+}
+
+function providerKeyPresent(): boolean {
+  return Boolean(process.env.TAVILY_API_KEY || process.env.SERPER_API_KEY || process.env.BING_API_KEY);
+}
+
+function researchEnabled(): boolean {
+  if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
+  if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
+  return providerKeyPresent();
+}
+
+function shoesEnabled(): boolean {
+  return process.env.KEYLIME_DISABLE_SHOES !== "1";
+}
+
+function enabledGroups(groups: CapabilityGroup[]): CapabilityGroup[] {
+  return groups.filter(group => {
+    if (group === "research") return researchEnabled();
+    if (group === "shoes") return shoesEnabled();
+    return true;
+  });
+}
+
+function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): string[] {
+  const available = new Set(pi.getAllTools().map(tool => tool.name));
+  const desired = new Set<string>();
+
+  for (const group of enabledGroups(groups)) {
+    for (const name of CAPABILITY_TOOLS[group]) desired.add(name);
+  }
+
+  // Preserve non-domain tools from other extensions/providers. Domain tools are
+  // explicitly governed by intent so they do not pollute the prompt every turn.
+  for (const tool of pi.getActiveTools()) {
+    if (!DOMAIN_TOOLS.has(tool.name)) desired.add(tool.name);
+  }
+
+  return [...desired].filter(name => available.has(name)).sort();
+}
+
+function appendReminder(messages: any[], text: string): any[] {
+  const result = [...messages];
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (result[i]?.role !== "user") continue;
+    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
+    const msg = result[i];
+    if (typeof msg.content === "string") {
+      result[i] = { ...msg, content: msg.content + suffix };
+      return result;
+    }
+    if (Array.isArray(msg.content)) {
+      const blocks = [...msg.content];
+      const lastText = blocks.findLastIndex((block: any) => block?.type === "text");
+      if (lastText >= 0) {
+        blocks[lastText] = { ...blocks[lastText], text: `${blocks[lastText].text}${suffix}` };
+      } else {
+        blocks.push({ type: "text", text: suffix });
+      }
+      result[i] = { ...msg, content: blocks };
+      return result;
+    }
+  }
+  return result;
+}
+
+function reminderText(): string {
+  const route = getCurrentRoute();
+  const lines = [
+    `Intent router: ${routeSummary(route)}.`,
+  ];
+
+  if (!researchEnabled()) lines.push("Research/web tools disabled: no provider key detected or KEYLIME_DISABLE_RESEARCH=1.");
+  if (route.suggestedSkills.length > 0) lines.push(`Relevant skill(s): ${route.suggestedSkills.map(s => `/skill:${s}`).join(", ")}. Load only if needed.`);
+
+  return lines.join("\n");
+}
+
+export default function intentRouterExtension(pi: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "intent:—"));
+  });
+
+  pi.on("input", async (event, ctx) => {
+    if (event.source === "extension") return { action: "continue" };
+
+    const route = classifyIntent(event.text ?? "");
+    setCurrentRoute(route);
+
+    const activeTools = activeToolNames(pi, route.capabilityGroups);
+    pi.setActiveTools(activeTools);
+
+    ctx.ui.setStatus(
+      STATUS_KEY,
+      ctx.ui.theme.fg("dim", `${route.primaryIntent}:${enabledGroups(route.capabilityGroups).join("+")}`),
+    );
+
+    return { action: "continue" };
+  });
+
+  pi.on("context", async (event, ctx) => {
+    const messages = event.messages as any[];
+    const prompt = lastUserPrompt(messages);
+
+    // Tool results can cause additional context passes without a new input event.
+    // Reclassify here for reminder accuracy, but tool visibility was already set
+    // during input so the provider prompt sees the right active schema set.
+    if (prompt.trim()) setCurrentRoute(classifyIntent(prompt));
+
+    const route = getCurrentRoute();
+    ctx.ui.setStatus(
+      STATUS_KEY,
+      ctx.ui.theme.fg("dim", `${route.primaryIntent}:${enabledGroups(route.capabilityGroups).join("+")}`),
+    );
+
+    return { messages: appendReminder(messages, reminderText()) };
+  });
+
+  pi.registerCommand("intent-status", {
+    description: "Show current intent routing state and active tool count",
+    handler: async (_args, ctx) => {
+      const route = getCurrentRoute();
+      ctx.ui.notify([
+        "Intent Router",
+        `  ${routeSummary(route)}`,
+        `  confidence: ${Math.round(route.confidence * 100)}%`,
+        `  research enabled: ${researchEnabled() ? "yes" : "no"}`,
+        `  shoes enabled: ${shoesEnabled() ? "yes" : "no"}`,
+        `  active tools: ${pi.getActiveTools().map(t => t.name).sort().join(", ")}`,
+      ].join("\n"), "info");
+    },
+  });
+}

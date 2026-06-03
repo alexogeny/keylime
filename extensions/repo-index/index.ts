@@ -360,7 +360,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
   let lastInjectedSkeleton = "";
 
   pi.on("before_agent_start", async (event, ctx) => {
-    if (ctx.cwd !== state.cwd) await rebuildIndex(ctx.cwd);
+    if (ctx.cwd !== state.cwd || state.dirty) await rebuildIndex(ctx.cwd);
     if (!state.skeleton)       return;
     if (state.skeleton === lastInjectedSkeleton) {
       // Content is identical — inject anyway (system prompt is rebuilt every turn

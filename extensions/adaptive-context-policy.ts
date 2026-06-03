@@ -53,20 +53,44 @@ function inferAdaptiveRules(level: PolicyLevel, recentBadLabels: string[]): stri
   return rules;
 }
 
+function appendReminder(messages: any[], text: string): any[] {
+  const result = [...messages];
+  for (let i = result.length - 1; i >= 0; i--) {
+    if (result[i]?.role !== "user") continue;
+    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
+    const msg = result[i];
+    if (typeof msg.content === "string") {
+      result[i] = { ...msg, content: msg.content + suffix };
+      return result;
+    }
+    if (Array.isArray(msg.content)) {
+      const blocks = [...msg.content];
+      const lastText = blocks.findLastIndex((block: any) => block?.type === "text");
+      if (lastText >= 0) {
+        blocks[lastText] = { ...blocks[lastText], text: `${blocks[lastText].text}${suffix}` };
+      } else {
+        blocks.push({ type: "text", text: suffix });
+      }
+      result[i] = { ...msg, content: blocks };
+      return result;
+    }
+  }
+  return result;
+}
+
 function buildInjection(snapshot: PolicySnapshot): string {
   const lines = [
-    "## ADAPTIVE CONTEXT POLICY ACTIVE",
-    `Context pressure: ${snapshot.contextPercent}% (${snapshot.level.toUpperCase()})`,
-    "Pinned constraints (never drop):",
-    ...snapshot.pinned.map(p => `- ${p}`),
+    `Context policy: ${snapshot.contextPercent}% ${snapshot.level}.`,
   ];
 
   if (snapshot.adaptiveRules.length > 0) {
-    lines.push("Adaptive rules for this turn:");
-    lines.push(...snapshot.adaptiveRules.map(r => `- ${r}`));
+    lines.push(...snapshot.adaptiveRules.slice(0, 3).map(r => `- ${r}`));
   }
 
-  lines.push("At the end of your response, include a brief 'Context actions' note: kept/compressed/dropped/retrieved.");
+  if (snapshot.level !== "low") {
+    lines.push("Keep only goal, active files, blockers, and evidence in working context.");
+  }
+
   return lines.join("\n");
 }
 
@@ -104,7 +128,7 @@ export default function adaptiveContextPolicyExtension(pi: ExtensionAPI) {
     setStatus(ctx, lastSnapshot);
   });
 
-  pi.on("before_agent_start", async (event, ctx) => {
+  pi.on("context", async (event, ctx) => {
     const usage = ctx.getContextUsage?.();
     const percent = usage?.percent ?? (usage?.tokens && usage?.contextWindow ? Math.round((usage.tokens / usage.contextWindow) * 100) : 0);
     const level = calcLevel(percent || 0);
@@ -128,12 +152,12 @@ export default function adaptiveContextPolicyExtension(pi: ExtensionAPI) {
       snapshot.adaptiveRules.push("Temporarily raise evidence bar: include at least two citations before decisive claims.");
     }
 
+    const changed = !lastSnapshot || lastSnapshot.level !== snapshot.level || lastSnapshot.reason !== snapshot.reason;
     lastSnapshot = snapshot;
-    pi.appendEntry("adaptive-context-policy", snapshot);
+    if (changed) pi.appendEntry("adaptive-context-policy", snapshot);
     setStatus(ctx, snapshot);
 
-    const injection = buildInjection(snapshot);
-    return { systemPrompt: event.systemPrompt + "\n\n" + injection };
+    return { messages: appendReminder(event.messages as any[], buildInjection(snapshot)) };
   });
 
   pi.registerCommand("ace-status", {

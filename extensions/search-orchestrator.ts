@@ -24,6 +24,7 @@ import { readFile, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { isCapabilityActive } from "./shared/intent";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -77,8 +78,14 @@ async function getStats(): Promise<{
 }
 
 function hasTools(pi: ExtensionAPI, ...names: string[]): boolean {
-  const active = new Set(pi.getAllTools().map(t => t.name));
+  const active = new Set(pi.getActiveTools().map(t => t.name));
   return names.every(n => active.has(n));
+}
+
+function researchProviderAvailable(): boolean {
+  if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
+  if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
+  return Boolean(process.env.TAVILY_API_KEY || process.env.SERPER_API_KEY || process.env.BING_API_KEY);
 }
 
 // ─── Extension ────────────────────────────────────────────────────────────────
@@ -120,6 +127,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
   // Volatile KB stats are injected via the `context` event as a system-reminder.
 
   pi.on("before_agent_start", async (event, _ctx) => {
+    if (!isCapabilityActive("research") || !researchProviderAvailable()) return;
     const hasSearch = hasTools(pi, "web_search");
     const hasMemory = hasTools(pi, "recall_web_knowledge");
     if (!hasSearch && !hasMemory) return;
@@ -152,6 +160,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
   // the cached system-prompt prefix.
 
   pi.on("context", async (event, _ctx) => {
+    if (!isCapabilityActive("research") || !researchProviderAvailable()) return;
     const hasSearch = hasTools(pi, "web_search");
     const hasMemory = hasTools(pi, "recall_web_knowledge");
     if (!hasSearch && !hasMemory) return;

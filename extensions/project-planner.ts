@@ -29,6 +29,7 @@ import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
+import { isCapabilityActive } from "./shared/intent";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -220,6 +221,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
   //   feature TDD statuses, open questions
 
   pi.on("before_agent_start", async (event, ctx) => {
+    if (!isCapabilityActive("project")) return;
     const plan = await loadProject(ctx.cwd);
     if (!plan) return;
 
@@ -260,6 +262,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
   // TDD cycles progress, so they live here (ephemeral) not in the system prompt.
 
   pi.on("context", async (event, ctx) => {
+    if (!isCapabilityActive("project")) return;
     const plan = await loadProject(ctx.cwd);
     if (!plan) return;
 
