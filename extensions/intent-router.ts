@@ -5,10 +5,10 @@ import { registerContextProvider } from "./shared/turn-context";
 const STATUS_KEY = "intent";
 
 const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = {
-  core: ["read", "bash", "edit", "write", "code_search"],
-  readonly: ["read", "bash", "code_search", "fetch_url"],
-  coding: ["read", "bash", "edit", "write", "code_search"],
-  repo: ["code_search"],
+  core: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "apply_code_replacements"],
+  readonly: ["read", "bash", "code_search", "fetch_url", "inspect_text_matches"],
+  coding: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "apply_code_replacements"],
+  repo: ["code_search", "inspect_text_matches"],
   project: ["save_project_plan", "update_feature_tdd", "log_decision", "manage_question"],
   memory: ["remember", "recall_memories", "update_memory", "forget_memory", "list_memories", "recall_entity", "list_entities"],
   "memory-lite": ["remember", "recall_memories", "recall_entity"],
@@ -30,6 +30,8 @@ const DOMAIN_TOOLS = new Set([
   ...CAPABILITY_TOOLS.shoes,
   "fetch_url",
   "code_search",
+  "inspect_text_matches",
+  "apply_code_replacements",
 ]);
 
 function textFromContent(content: unknown): string {
