@@ -34,3 +34,24 @@ describe("classifyIntent", () => {
     expect(route.capabilityGroups).toEqual(["readonly", "memory-lite"]);
   });
 });
+
+test("routes prompt/cache extension review to review", () => {
+  const route = classifyIntent("review these extensions for prompt pollution and cache invalidation");
+
+  expect(route.primaryIntent).toBe("review");
+  expect(route.capabilityGroups).toContain("repo");
+});
+
+test("routes Rust shell emulator work to shell skill", () => {
+  const route = classifyIntent("fix the pty job control in this rust shell emulator");
+
+  expect(route.primaryIntent).toBe("rust_shell_emulator");
+  expect(route.suggestedSkills).toContain("rust-shell-emulator");
+});
+
+test("routes docs and URL prompts to research/fetch", () => {
+  const route = classifyIntent("read this url and compare it with the official docs");
+
+  expect(route.primaryIntent).toBe("research");
+  expect(route.capabilityGroups).toContain("fetch");
+});

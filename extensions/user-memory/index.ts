@@ -1096,29 +1096,21 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "remember",
     label:       "Remember",
-    description: [
-      "Store a new memory about the user. Call this whenever you learn something worth remembering:",
-      "tool preferences, personal facts, upcoming events, goals, skills, or project context.",
-      "Automatically deduplicates — if a very similar memory already exists it updates instead of creating a duplicate.",
-    ].join(" "),
-    promptSnippet: "Store a persistent memory about the user (preferences, facts, events, goals, skills, context)",
-    promptGuidelines: [
-      "Use remember whenever the user reveals a preference (e.g. 'I use Bun not npm'), states a fact about themselves, mentions an upcoming event with a date, describes a goal, or provides project context that should persist across sessions.",
-      "Use remember proactively — don't wait to be asked. If the user mentions a marathon date, their preferred stack, a favourite book, their TDD workflow preference, or any personal detail, call remember immediately.",
-      "For events with a specific date, set temporal=true, provide a date_ref (ISO date string or natural language), and set expires_at to the event's unix timestamp.",
-    ],
+    description: "Store a durable user memory with deduplication.",
+    promptSnippet: "Remember a user preference, fact, event, goal, skill, or context",
+    promptGuidelines: ["Use for durable preferences/facts/events/goals/project context."],
     parameters: Type.Object({
-      content:      Type.String({ description: "The memory to store — one clear, specific sentence" }),
+      content:      Type.String({ description: "Memory text" }),
       category:     Type.Union([
         Type.Literal("preference"), Type.Literal("fact"), Type.Literal("event"),
         Type.Literal("goal"),       Type.Literal("skill"), Type.Literal("context"),
-      ], { description: "preference | fact | event | goal | skill | context" }),
-      subcategory:  Type.Optional(Type.String({ description: "Freeform subcategory, e.g. 'tooling', 'running', 'reading'" })),
-      tags:         Type.Optional(Type.Array(Type.String(), { description: "Searchable tags" })),
-      temporal:     Type.Optional(Type.Boolean({ description: "Is this time-bound? (default false)" })),
-      date_ref:     Type.Optional(Type.String({ description: "Human-readable date reference, e.g. '2026-08-15', 'every Monday'" })),
-      expires_at:   Type.Optional(Type.Number({ description: "Unix ms — when this memory expires (e.g. after an event)" })),
-      confidence:   Type.Optional(Type.Number({ description: "Initial confidence 0–1 (default 1.0)" })),
+      ], { description: "Category" }),
+      subcategory:  Type.Optional(Type.String({ description: "Subcategory" })),
+      tags:         Type.Optional(Type.Array(Type.String(), { description: "Tags" })),
+      temporal:     Type.Optional(Type.Boolean({ description: "Time-bound" })),
+      date_ref:     Type.Optional(Type.String({ description: "Date reference" })),
+      expires_at:   Type.Optional(Type.Number({ description: "Expiry unix ms" })),
+      confidence:   Type.Optional(Type.Number({ description: "Confidence 0-1" })),
       expiry_tier:  Type.Optional(Type.String({ description: "How long to keep: '2d' (today), '7d' (this week), '30d' (this month), or omit for permanent" })),
     }),
 
@@ -1257,17 +1249,15 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "recall_memories",
     label:       "Recall Memories",
-    description: "Hybrid BM25+cosine search over the persistent user memory store. Use when you need to check what you know about the user on a specific topic.",
+    description: "Search user memories.",
     promptSnippet: "Search persistent memories about the user by topic",
-    promptGuidelines: [
-      "Use recall_memories when you need to check a specific fact about the user — don't rely on what was injected in the system prompt for nuanced detail.",
-    ],
+    promptGuidelines: ["Use for specific user-context lookup."],
     parameters: Type.Object({
       query:    Type.String({ description: "What to look up" }),
-      top_k:    Type.Optional(Type.Number({ description: "Max results (default 8)", minimum: 1, maximum: 20 })),
-      category: Type.Optional(Type.String({ description: "Filter to a category: preference | fact | event | goal | skill | context" })),
-      tags:     Type.Optional(Type.Array(Type.String(), { description: "Filter to memories with ANY of these tags" })),
-      include_expired: Type.Optional(Type.Boolean({ description: "Include expired memories (default false)" })),
+      top_k:    Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 20 })),
+      category: Type.Optional(Type.String({ description: "Category" })),
+      tags:     Type.Optional(Type.Array(Type.String(), { description: "Tags" })),
+      include_expired: Type.Optional(Type.Boolean({ description: "Include expired" })),
     }),
 
     async execute(_id, params, _signal) {
@@ -1318,7 +1308,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "update_memory",
     label:       "Update Memory",
-    description: "Correct, extend, or supersede an existing memory by its ID prefix. Use when a preference changes or a fact needs updating.",
+    description: "Update a memory by id prefix.",
     promptSnippet: "Correct or extend an existing memory by ID",
     promptGuidelines: [
       "Use update_memory when the user explicitly corrects something you remembered (e.g. 'actually I switched to pnpm') or provides an update to an existing fact.",
@@ -1370,7 +1360,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "forget_memory",
     label:       "Forget Memory",
-    description: "Delete a specific memory by ID prefix, or expire it immediately.",
+    description: "Forget a memory by id prefix.",
     promptSnippet: "Delete or expire a memory by ID",
     parameters: Type.Object({
       id_prefix: Type.String({ description: "First 8+ characters of the memory ID" }),
@@ -1398,14 +1388,14 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "list_memories",
     label:       "List Memories",
-    description: "Browse all stored memories with optional category/tag/temporal filters.",
+    description: "List user memories.",
     promptSnippet: "Browse all stored memories about the user",
     parameters: Type.Object({
       category:   Type.Optional(Type.String({ description: "Filter by category" })),
       tag:        Type.Optional(Type.String({ description: "Filter by tag" })),
       temporal:   Type.Optional(Type.Boolean({ description: "Only show temporal/event memories" })),
       upcoming:   Type.Optional(Type.Boolean({ description: "Only show memories with a future expiry date" })),
-      limit:      Type.Optional(Type.Number({ description: "Max to show (default 30)", minimum: 1, maximum: 100 })),
+      limit:      Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 100 })),
     }),
 
     async execute(_id, params, _signal) {
@@ -1461,13 +1451,11 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "recall_entity",
     label:       "Recall Entity",
-    description: "Look up a named entity (person, org, system) and retrieve all memories linked to it. Use when the user mentions 'my relative', 'my partner', 'their manager', etc.",
-    promptSnippet: "Look up a named entity and all memories linked to it",
-    promptGuidelines: [
-      "Use recall_entity when the user mentions a specific person, relationship role (mum, boss, partner), or system by name — to pull all context associated with that entity.",
-    ],
+    description: "Recall memories linked to a named entity.",
+    promptSnippet: "Recall entity memory",
+    promptGuidelines: ["Use for named people, orgs, roles, places, or systems."],
     parameters: Type.Object({
-      name: Type.String({ description: "Name or alias of the entity (e.g. 'mum', 'partner', 'manager', 'team')" }),
+      name: Type.String({ description: "Entity name" }),
     }),
 
     async execute(_id, params, _signal) {
@@ -1512,11 +1500,11 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "list_entities",
     label:       "List Entities",
-    description: "Show all known entities in the memory graph with their types, mention counts, and linked memory IDs.",
-    promptSnippet: "Show all known entities in the memory graph",
+    description: "List memory entities.",
+    promptSnippet: "List memory entities",
     parameters: Type.Object({
-      type:  Type.Optional(Type.String({ description: "Filter by entity type: person | organization | system | place | role" })),
-      limit: Type.Optional(Type.Number({ description: "Max to show (default 30)", minimum: 1, maximum: 100 })),
+      type:  Type.Optional(Type.String({ description: "Entity type" })),
+      limit: Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 100 })),
     }),
 
     async execute(_id, params, _signal) {

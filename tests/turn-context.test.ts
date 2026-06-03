@@ -48,3 +48,15 @@ describe("turn context composer", () => {
     expect(result.messages[0].content).toContain("[trimmed]");
   });
 });
+
+test("uses a tighter total budget under high context pressure", async () => {
+  clearContextProviders();
+  registerContextProvider({ id: "a", priority: 3, maxChars: 800, build: () => "a".repeat(800) });
+  registerContextProvider({ id: "b", priority: 2, maxChars: 800, build: () => "b".repeat(800) });
+  registerContextProvider({ id: "c", priority: 1, maxChars: 800, build: () => "c".repeat(800) });
+
+  const result = await composeTurnContext(ctx(90), messages("hello"));
+
+  expect(result.providerIds.length).toBeLessThan(3);
+  expect(result.messages[0].content.length).toBeLessThan(1_100);
+});

@@ -68,14 +68,14 @@ export function registerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "lookup_shoe",
     label: "Look Up Shoe",
-    description: "Search the running shoe catalog by brand, model, version, year, or any combination. Returns matching shoes with full specs.",
-    promptSnippet: "Search shoe catalog by brand, model, version, year",
-    promptGuidelines: ["Use lookup_shoe to find running shoe specs before reasoning about biomechanical fit or comparing options."],
+    description: "Search running shoes by brand/model/version/year.",
+    promptSnippet: "Search shoe catalog",
+    promptGuidelines: ["Use for specific shoe specs."],
     parameters: Type.Object({
-      query:  Type.String({ description: 'e.g. "New Balance 1080 v15", "HOKA Clifton", "stability max cushion 2025"' }),
-      top_k:  Type.Optional(Type.Number({ description: "Max results (default 5, max 20)", minimum: 1, maximum: 20 })),
-      detail: Type.Optional(Type.Boolean({ description: "Include features and notes (default false)" })),
-      gender: Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Show men's or women's specs (default: men's reference)" })),
+      query:  Type.String({ description: 'Query' }),
+      top_k:  Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 20 })),
+      detail: Type.Optional(Type.Boolean({ description: "Details" })),
+      gender: Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
     async execute(_id, params) {
       const gender = params.gender as Gender | undefined;
@@ -93,41 +93,34 @@ export function registerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "find_shoes_by_spec",
     label: "Find Shoes by Spec",
-    description: [
-      "Filter the shoe catalog by specs (drop, stack, weight, price, category, plate, surface, year, etc.).",
-      "Supports a natural_query field for plain-English filters like '8mm drop without carbon plate from 2025-2026'.",
-      "Combine with structured fields for precise filtering.",
-    ].join(" "),
-    promptSnippet: "Filter shoes by drop, stack, plate, category, year, surface, weight, price",
-    promptGuidelines: [
-      "Use find_shoes_by_spec with natural_query for plain-English queries like '8mm drop plateless 2025 2026'.",
-      "Combine natural_query with explicit fields for maximum precision.",
-    ],
+    description: "Filter shoes by specs.",
+    promptSnippet: "Filter shoes by spec",
+    promptGuidelines: ["Use natural_query or structured filters."],
     parameters: Type.Object({
       natural_query: Type.Optional(Type.String({
-        description: 'Plain-English filter, e.g. "8mm drop without carbon plate 2025 2026" or "max cushion stability under $170"',
+        description: "Natural query",
       })),
-      brand:            Type.Optional(Type.String({ description: "Brand name (partial match)" })),
-      category:         Type.Optional(StringEnum(["neutral", "stability", "motion-control"] as const, { description: "Support category" })),
-      cushion:          Type.Optional(StringEnum(["minimal", "low", "moderate", "high", "max"] as const, { description: "Cushion level" })),
-      drop:             Type.Optional(Type.Number({ description: "Exact drop in mm (±0.5mm tolerance)" })),
-      min_drop:         Type.Optional(Type.Number({ description: "Minimum drop in mm" })),
-      max_drop:         Type.Optional(Type.Number({ description: "Maximum drop in mm" })),
-      min_heel_stack:   Type.Optional(Type.Number({ description: "Minimum heel stack in mm" })),
-      max_heel_stack:   Type.Optional(Type.Number({ description: "Maximum heel stack in mm" })),
-      max_weight_grams: Type.Optional(Type.Number({ description: "Maximum weight in grams" })),
-      max_msrp:         Type.Optional(Type.Number({ description: "Maximum MSRP in USD" })),
+      brand:            Type.Optional(Type.String({ description: "Brand" })),
+      category:         Type.Optional(StringEnum(["neutral", "stability", "motion-control"] as const, { description: "Category" })),
+      cushion:          Type.Optional(StringEnum(["minimal", "low", "moderate", "high", "max"] as const, { description: "Cushion" })),
+      drop:             Type.Optional(Type.Number({ description: "Drop mm" })),
+      min_drop:         Type.Optional(Type.Number({ description: "Min drop" })),
+      max_drop:         Type.Optional(Type.Number({ description: "Max drop" })),
+      min_heel_stack:   Type.Optional(Type.Number({ description: "Min heel stack" })),
+      max_heel_stack:   Type.Optional(Type.Number({ description: "Max heel stack" })),
+      max_weight_grams: Type.Optional(Type.Number({ description: "Max weight" })),
+      max_msrp:         Type.Optional(Type.Number({ description: "Max MSRP" })),
       use_case:         Type.Optional(Type.String({ description: "daily-trainer | long-run | tempo | race | recovery | trail | walking | track" })),
       surface:          Type.Optional(Type.String({ description: "road | trail | track | treadmill" })),
       year_min:         Type.Optional(Type.Number({ description: "Minimum release year" })),
       year_max:         Type.Optional(Type.Number({ description: "Maximum release year" })),
-      no_plate:         Type.Optional(Type.Boolean({ description: "If true, exclude all plated shoes" })),
-      plate_required:   Type.Optional(Type.Boolean({ description: "If true, only plated shoes" })),
+      no_plate:         Type.Optional(Type.Boolean({ description: "Exclude plates" })),
+      plate_required:   Type.Optional(Type.Boolean({ description: "Require plate" })),
       plate_material:   Type.Optional(Type.String({ description: "carbon | nylon | fiberglass | carbon-composite | air" })),
-      rocker:           Type.Optional(Type.Boolean({ description: "Filter by rocker geometry presence" })),
-      sort_by:          Type.Optional(StringEnum(["year", "drop", "stack", "weight", "price"] as const, { description: "Sort results (default: year desc)" })),
-      detail:           Type.Optional(Type.Boolean({ description: "Include full notes and features (default true)" })),
-      gender:           Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Show men's or women's specs" })),
+      rocker:           Type.Optional(Type.Boolean({ description: "Rocker" })),
+      sort_by:          Type.Optional(StringEnum(["year", "drop", "stack", "weight", "price"] as const, { description: "Sort" })),
+      detail:           Type.Optional(Type.Boolean({ description: "Details" })),
+      gender:           Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
 
     async execute(_id, params) {
@@ -165,11 +158,11 @@ export function registerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "compare_shoes",
     label: "Compare Shoes",
-    description: "Side-by-side comparison of 2–6 running shoes. Highlights stack, drop, weight, foam, plate, and use-case differences.",
-    promptSnippet: "Side-by-side spec comparison of multiple running shoes",
+    description: "Compare 2-6 shoes.",
+    promptSnippet: "Compare shoe specs",
     parameters: Type.Object({
-      shoes: Type.Array(Type.String({ description: 'e.g. "New Balance 1080 v15", "HOKA Clifton 10"' }), {
-        minItems: 2, maxItems: 6, description: "2–6 shoe names to compare",
+      shoes: Type.Array(Type.String({ description: 'Shoe name' }), {
+        minItems: 2, maxItems: 6, description: "Shoe names",
       }),
     }),
 
@@ -230,7 +223,7 @@ export function registerTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "shoe_catalog_stats",
     label: "Shoe Catalog Stats",
-    description: "Overview of the shoe database: variant counts, brands, categories, plate/plateless breakdown.",
+    description: "Shoe catalog statistics.",
     promptSnippet: "Overview of the shoe catalog",
     parameters: Type.Object({}),
 
@@ -434,9 +427,9 @@ export function registerTools(pi: ExtensionAPI): void {
     parameters: Type.Object({
       query:   Type.String({ description: "Plain-English query describing the shoes you want" }),
       top_k:   Type.Optional(Type.Number({ description: "Max results (default 10)", minimum: 1, maximum: 30 })),
-      detail:  Type.Optional(Type.Boolean({ description: "Include full notes (default true)" })),
-      sort_by: Type.Optional(StringEnum(["relevance", "year", "drop", "stack", "weight", "price"] as const, { description: "Sort order (default: relevance)" })),
-      gender:  Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Show men's or women's specs" })),
+      detail:  Type.Optional(Type.Boolean({ description: "Include notes" })),
+      sort_by: Type.Optional(StringEnum(["relevance", "year", "drop", "stack", "weight", "price"] as const, { description: "Sort" })),
+      gender:  Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
 
     async execute(_id, params) {

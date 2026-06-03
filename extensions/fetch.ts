@@ -656,26 +656,18 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "fetch_url",
     label: "Fetch URL",
-    description:
-      "Fetch a web page and return its cleaned text content, title, and same-domain links. " +
-      "Use after web_search to read full source content before save_search_knowledge. " +
-      "Also use to read documentation, GitHub READMEs, error pages, or any URL the user pastes.",
-    promptSnippet: "Fetch and read a web page (docs, GitHub, articles, etc.)",
-    promptGuidelines: [
-      "Use fetch_url on the top 1–2 sources after web_search before calling save_search_knowledge to get full content.",
-      "Use fetch_url when the user pastes a URL that needs to be read.",
-      "Use fetch_url during /skill:debug to read error documentation or related GitHub issues.",
-      "Use fetch_url during /skill:repo-map to read the project README and linked docs.",
-    ],
+    description: "Fetch a web page and return cleaned text, title, and same-domain links.",
+    promptSnippet: "Fetch/read a URL",
+    promptGuidelines: ["Use for docs, GitHub READMEs, pasted URLs, or source pages."],
     parameters: Type.Object({
-      url: Type.String({ description: "Full URL to fetch (https://...)" }),
-      maxChars: Type.Optional(Type.Number({ description: "Max characters of content to return (default 3000)" })),
+      url: Type.String({ description: "URL" }),
+      maxChars: Type.Optional(Type.Number({ description: "Max chars" })),
       fallback: Type.Optional(Type.Union([
         Type.Literal("none"),
         Type.Literal("retry_only"),
         Type.Literal("alt_headers"),
         Type.Literal("browser"),
-      ], { description: "Fallback policy: none, retry_only (default), alt_headers, browser" })),
+      ], { description: "Fallback policy" })),
     }),
     async execute(_toolCallId, params, _signal, onUpdate) {
       onUpdate?.({ content: [{ type: "text", text: `Fetching ${params.url}...` }] });
@@ -725,6 +717,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_result", async (event, ctx) => {
+    if (process.env.KEYLIME_AUTO_FETCH_SEARCH_RESULTS !== "1") return;
     if (event.toolName !== "web_search") return;
 
     const resultText = event.content

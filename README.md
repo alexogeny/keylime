@@ -57,7 +57,7 @@ Then restart Pi.
 ## What is included
 
 - **Skills**: `blue-team`, `clarify`, `debug`, `memory-validate`, `novel-craft`, `novel-plan`, `novel-review`, `novel-write`, `python-engineering`, `red-team`, `refactor`, `repo-map`, `running-biomechanics`, `rust-shell-emulator`, `rust-systems`, `saas-naming`, `tweet-craft`, `ui-design`
-- **Extensions**: `adaptive-context-policy`, `cache-guard`, `context-health`, `danger-guard`, `dynamic-skills`, `fetch`, `git-checkpoint`, `intent-router`, `memory-manager`, `operational-modes`, `project-planner`, `search-memory`, `search-orchestrator`, `signal-footer`, `trajectory-eval`, `turn-context-composer`, `usage-tracker`, `web-search`, `repo-index/`, `shoe-database/`, `user-memory/` and related package/test files
+- **Extensions**: `adaptive-context-policy`, `cache-guard`, `context-health`, `danger-guard`, `fetch`, `git-checkpoint`, `intent-router`, `memory-manager`, `operational-modes`, `project-planner`, `search-memory`, `search-orchestrator`, `signal-footer`, `trajectory-eval`, `turn-context-composer`, `usage-tracker`, `web-search`, `repo-index/`, `shoe-database/`, `user-memory/` and related package/test files
 
 ## Source docs used for extraction
 

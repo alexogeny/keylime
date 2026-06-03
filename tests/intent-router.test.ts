@@ -38,3 +38,18 @@ describe("activeToolNames", () => {
     expect(tools).not.toContain("web_search");
   });
 });
+
+describe("research gating", () => {
+  test("research tools are disabled when explicitly disabled", () => {
+    const old = process.env.KEYLIME_DISABLE_RESEARCH;
+    process.env.KEYLIME_DISABLE_RESEARCH = "1";
+    const tools = activeToolNames(pi(["custom_safe_tool"]), ["research", "fetch", "memory-lite"]);
+
+    expect(tools).toContain("fetch_url");
+    expect(tools).not.toContain("web_search");
+    expect(tools).not.toContain("research_topic");
+
+    if (old === undefined) delete process.env.KEYLIME_DISABLE_RESEARCH;
+    else process.env.KEYLIME_DISABLE_RESEARCH = old;
+  });
+});

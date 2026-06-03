@@ -256,23 +256,16 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "recall_web_knowledge",
     label:       "Recall Web Knowledge",
-    description: [
-      "BM25-ranked search over the web-search knowledge base.",
-      "Use this BEFORE calling web_search to check if relevant information was already retrieved.",
-      "Returns ranked summaries, key facts, and sources.",
-    ].join(" "),
-    promptSnippet: "Search memory of past web research before making new web searches",
-    promptGuidelines: [
-      "Use recall_web_knowledge before web_search to check whether the topic has been researched recently.",
-      "recall_web_knowledge ranks results by BM25 relevance over saved summaries, key facts, and source snippets.",
-    ],
+    description: "Search saved web-research knowledge.",
+    promptSnippet: "Recall past web research",
+    promptGuidelines: ["Use before web_search when research is active."],
     parameters: Type.Object({
-      query:        Type.String({ description: "Topic or question to look up in past research" }),
-      top_k:        Type.Optional(Type.Number({ description: "Results to return (default 5, max 20)", minimum: 1, maximum: 20 })),
-      tags:         Type.Optional(Type.Array(Type.String(), { description: "Filter to entries with ALL these tags" })),
-      categories:   Type.Optional(Type.Array(Type.String(), { description: "Filter to entries with ANY of these categories" })),
-      max_age_days: Type.Optional(Type.Number({ description: "Only include entries newer than N days" })),
-      only_distilled: Type.Optional(Type.Boolean({ description: "If true, skip entries without saved knowledge (default true)" })),
+      query:        Type.String({ description: "Query" }),
+      top_k:        Type.Optional(Type.Number({ description: "Result count", minimum: 1, maximum: 20 })),
+      tags:         Type.Optional(Type.Array(Type.String(), { description: "Tags" })),
+      categories:   Type.Optional(Type.Array(Type.String(), { description: "Categories" })),
+      max_age_days: Type.Optional(Type.Number({ description: "Max age days" })),
+      only_distilled: Type.Optional(Type.Boolean({ description: "Require distilled entries" })),
     }),
 
     async execute(_id, params, _signal) {
@@ -387,13 +380,13 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "list_search_history",
     label:       "List Search History",
-    description: "Browse all past web searches with optional tag/category/status filters. Shows metadata and summaries.",
-    promptSnippet: "List past web searches with metadata",
+    description: "List saved web searches.",
+    promptSnippet: "List web-search history",
     parameters: Type.Object({
-      limit:         Type.Optional(Type.Number({ description: "Max entries to show (default 20)", minimum: 1, maximum: 100 })),
-      tag:           Type.Optional(Type.String({ description: "Filter by a specific tag" })),
-      category:      Type.Optional(Type.String({ description: "Filter by a specific category" })),
-      only_distilled: Type.Optional(Type.Boolean({ description: "Only show searches with saved knowledge (default false)" })),
+      limit:         Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 100 })),
+      tag:           Type.Optional(Type.String({ description: "Tag" })),
+      category:      Type.Optional(Type.String({ description: "Category" })),
+      only_distilled: Type.Optional(Type.Boolean({ description: "Only distilled" })),
     }),
 
     async execute(_id, params, _signal) {
@@ -452,11 +445,11 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "get_search_entry",
     label:       "Get Search Entry",
-    description: "Fetch the full raw + distilled data for a specific search_id.",
-    promptSnippet: "Retrieve full detail for a specific past search by ID",
+    description: "Get a saved search by id.",
+    promptSnippet: "Get web-search entry",
     parameters: Type.Object({
-      search_id:   Type.String({ description: "The search_id to fetch" }),
-      include_raw: Type.Optional(Type.Boolean({ description: "Include raw search result snippets (default false)" })),
+      search_id:   Type.String({ description: "Search id" }),
+      include_raw: Type.Optional(Type.Boolean({ description: "Include raw results" })),
     }),
 
     async execute(_id, params, _signal) {

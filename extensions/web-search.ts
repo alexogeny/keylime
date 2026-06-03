@@ -218,20 +218,13 @@ export default function webSearchExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "web_search",
     label:       "Web Search",
-    description: [
-      "Perform a live web search and persist raw results.",
-      "Returns structured results with a search_id.",
-      "After reviewing results, call save_search_knowledge to persist distilled insights.",
-    ].join(" "),
-    promptSnippet: "Search the web for up-to-date information on any topic",
-    promptGuidelines: [
-      "Use web_search for current events, recent releases, or anything that may have changed since training data.",
-      "After reviewing web_search results, always call save_search_knowledge to persist your distilled understanding.",
-    ],
+    description: "Live web search; returns results plus a search_id.",
+    promptSnippet: "Search the web",
+    promptGuidelines: ["Use only for current or external information."],
     parameters: Type.Object({
-      query:       Type.String({ description: "Specific search query — be precise for better results" }),
+      query:       Type.String({ description: "Search query" }),
       num_results: Type.Optional(Type.Number({
-        description: "Results to fetch (default 8, max 20)",
+        description: "Result count",
         minimum: 1, maximum: 20,
       })),
     }),
@@ -325,27 +318,23 @@ export default function webSearchExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "save_search_knowledge",
     label:       "Save Search Knowledge",
-    description: [
-      "Persist distilled understanding from a web_search call.",
-      "Stores summary, key facts, tags, categories and source ratings.",
-      "This builds the searchable knowledge base used by recall_web_knowledge.",
-    ].join(" "),
-    promptSnippet: "Persist distilled web-search insights to the knowledge base",
+    description: "Save distilled knowledge from a web_search result.",
+    promptSnippet: "Save web-search knowledge",
     parameters: Type.Object({
-      search_id:  Type.String({ description: "The search_id returned by web_search" }),
-      summary:    Type.String({ description: "Concise summary of key findings (2–4 sentences)" }),
-      key_facts:  Type.Array(Type.String(), { description: "3–10 concrete facts extracted from results" }),
+      search_id:  Type.String({ description: "web_search id" }),
+      summary:    Type.String({ description: "Summary" }),
+      key_facts:  Type.Array(Type.String(), { description: "Key facts" }),
       tags:       Type.Array(Type.String(), { description: "Lowercase topic tags, e.g. [\"llm\", \"python\", \"openai\"]" }),
       categories: Type.Array(Type.String(), {
         description: "Content categories, e.g. [\"technology\", \"news\", \"tutorial\", \"research\", \"product\", \"science\"]",
       }),
       sources: Type.Array(
         Type.Object({
-          title:     Type.String({ description: "Page title" }),
-          url:       Type.String({ description: "Page URL" }),
+          title:     Type.String({ description: "Title" }),
+          url:       Type.String({ description: "URL" }),
           relevance: StringEnum(["high", "medium", "low"] as const),
         }),
-        { description: "Top sources with relevance ratings" }
+        { description: "Sources" }
       ),
     }),
 
