@@ -30,6 +30,7 @@ import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { isCapabilityActive } from "./shared/intent";
+import { registerContextProvider } from "./shared/turn-context";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -180,39 +181,14 @@ function renderPlan(p: ProjectPlan): string {
 
 // ─── Extension ────────────────────────────────────────────────────────────────
 
-// ─── Context helpers ──────────────────────────────────────────────────────────
-
-function appendReminder(messages: any[], text: string): any[] {
-  const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i]?.role !== "user") continue;
-    const msg    = result[i];
-    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
-    if (typeof msg.content === "string") {
-      result[i] = { ...msg, content: msg.content + suffix };
-    } else if (Array.isArray(msg.content)) {
-      const blocks  = [...msg.content];
-      const lastTxt = blocks.findLastIndex((b: any) => b?.type === "text");
-      if (lastTxt >= 0) {
-        blocks[lastTxt] = { ...blocks[lastTxt], text: blocks[lastTxt].text + suffix };
-      } else {
-        blocks.push({ type: "text", text: suffix });
-      }
-      result[i] = { ...msg, content: blocks };
-    }
-    return result;
-  }
-  return result;
-}
-
 export default function projectPlannerExtension(pi: ExtensionAPI) {
 
   // ── System-prompt injection (STATIC content only) ──────────────────────────
   //
   // CACHE NOTE: feature TDD statuses and open questions change frequently.
   // They used to sit inside this system-prompt block, breaking the KV cache on
-  // every status update. They are now injected via the `context` event below as
-  // an ephemeral <system-reminder> appended to the last user message.
+  // every status update. They are now routed through turn-context-composer as
+  // capped volatile context.
   //
   // What stays here (stable for the life of the project):
   //   project name, description, stack, principles, TDD guide, skill guidance
@@ -257,26 +233,31 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
     return { systemPrompt: event.systemPrompt + block };
   });
 
-  // ── Context injection: volatile feature status + open questions ──────────────
-  // Fires before each LLM call. The feature list and open questions change as
-  // TDD cycles progress, so they live here (ephemeral) not in the system prompt.
+  // ── Context provider: volatile feature status + open questions ──────────────
+  // Feature state changes frequently, so turn-context-composer injects a capped
+  // per-turn summary only when project capability is active.
 
-  pi.on("context", async (event, ctx) => {
-    if (!isCapabilityActive("project")) return;
-    const plan = await loadProject(ctx.cwd);
-    if (!plan) return;
+  registerContextProvider({
+    id: "project-planner",
+    priority: 70,
+    maxChars: 420,
+    applies: () => isCapabilityActive("project"),
+    build: async ({ ctx }) => {
+      const plan = await loadProject(ctx.cwd);
+      if (!plan) return null;
 
-    const openQ = plan.questions.filter(q => q.status === "open");
+      const openQ = plan.questions.filter(q => q.status === "open");
+      const active = plan.features.filter(f => f.tddStatus !== "pending").slice(0, 6);
+      const pendingCount = plan.features.filter(f => f.tddStatus === "pending").length;
+      const shown = active.length > 0 ? active : plan.features.slice(0, 4);
 
-    const lines = [
-      `Features:`,
-      ...plan.features.map(f => `  ${TDD_ICON[f.tddStatus]} ${f.name} [${f.tddStatus}]`),
-      openQ.length
-        ? `\nOpen questions (answer before implementing):\n${openQ.map(q => `  ? ${q.question}`).join("\n")}`
-        : "",
-    ].filter(l => l !== "").join("\n");
-
-    return { messages: appendReminder(event.messages as any[], lines) };
+      return [
+        `Project: ${plan.name}`,
+        shown.length ? `Features:\n${shown.map(f => `  ${TDD_ICON[f.tddStatus]} ${f.name} [${f.tddStatus}]`).join("\n")}` : "",
+        pendingCount > shown.filter(f => f.tddStatus === "pending").length ? `  … ${pendingCount} pending hidden` : "",
+        openQ.length ? `Open questions:\n${openQ.slice(0, 3).map(q => `  ? ${q.question}`).join("\n")}` : "",
+      ].filter(Boolean).join("\n");
+    },
   });
 
   // ── Tool: save_project_plan ──────────────────────────────────────────────────

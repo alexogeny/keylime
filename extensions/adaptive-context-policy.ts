@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerContextProvider } from "./shared/turn-context";
 
 type PolicyLevel = "low" | "medium" | "high";
 
@@ -53,31 +54,6 @@ function inferAdaptiveRules(level: PolicyLevel, recentBadLabels: string[]): stri
   return rules;
 }
 
-function appendReminder(messages: any[], text: string): any[] {
-  const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i]?.role !== "user") continue;
-    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
-    const msg = result[i];
-    if (typeof msg.content === "string") {
-      result[i] = { ...msg, content: msg.content + suffix };
-      return result;
-    }
-    if (Array.isArray(msg.content)) {
-      const blocks = [...msg.content];
-      const lastText = blocks.findLastIndex((block: any) => block?.type === "text");
-      if (lastText >= 0) {
-        blocks[lastText] = { ...blocks[lastText], text: `${blocks[lastText].text}${suffix}` };
-      } else {
-        blocks.push({ type: "text", text: suffix });
-      }
-      result[i] = { ...msg, content: blocks };
-      return result;
-    }
-  }
-  return result;
-}
-
 function buildInjection(snapshot: PolicySnapshot): string {
   const lines = [
     `Context policy: ${snapshot.contextPercent}% ${snapshot.level}.`,
@@ -128,36 +104,41 @@ export default function adaptiveContextPolicyExtension(pi: ExtensionAPI) {
     setStatus(ctx, lastSnapshot);
   });
 
-  pi.on("context", async (event, ctx) => {
-    const usage = ctx.getContextUsage?.();
-    const percent = usage?.percent ?? (usage?.tokens && usage?.contextWindow ? Math.round((usage.tokens / usage.contextWindow) * 100) : 0);
-    const level = calcLevel(percent || 0);
-    const { issues, badCount } = readRecentTrajectorySignals(ctx);
+  registerContextProvider({
+    id: "adaptive-context-policy",
+    priority: 90,
+    maxChars: 420,
+    build: async ({ ctx }) => {
+      const usage = ctx.getContextUsage?.();
+      const percent = usage?.percent ?? (usage?.tokens && usage?.contextWindow ? Math.round((usage.tokens / usage.contextWindow) * 100) : 0);
+      const level = calcLevel(percent || 0);
+      const { issues, badCount } = readRecentTrajectorySignals(ctx);
 
-    const snapshot: PolicySnapshot = {
-      ts: Date.now(),
-      level,
-      contextPercent: percent || 0,
-      pinned: buildPinnedConstraints(),
-      adaptiveRules: inferAdaptiveRules(level, issues),
-      reason: `${issues.length ? `recent_issues:${issues.join(",")}` : "usage_only"}${badCount > 0 ? `;bad_grades:${badCount}` : ""}`,
-    };
+      const snapshot: PolicySnapshot = {
+        ts: Date.now(),
+        level,
+        contextPercent: percent || 0,
+        pinned: buildPinnedConstraints(),
+        adaptiveRules: inferAdaptiveRules(level, issues),
+        reason: `${issues.length ? `recent_issues:${issues.join(",")}` : "usage_only"}${badCount > 0 ? `;bad_grades:${badCount}` : ""}`,
+      };
 
-    if (badCount >= 2) {
-      snapshot.adaptiveRules.push("Recent bad trajectory grades detected: force a mini-replan before side-effectful actions.");
-      snapshot.adaptiveRules.push("Ask one clarifying question when uncertainty is high instead of guessing.");
-    }
+      if (badCount >= 2) {
+        snapshot.adaptiveRules.push("Recent bad trajectory grades detected: force a mini-replan before side-effectful actions.");
+        snapshot.adaptiveRules.push("Ask one clarifying question when uncertainty is high instead of guessing.");
+      }
 
-    if (badCount >= 4) {
-      snapshot.adaptiveRules.push("Temporarily raise evidence bar: include at least two citations before decisive claims.");
-    }
+      if (badCount >= 4) {
+        snapshot.adaptiveRules.push("Temporarily raise evidence bar: include at least two citations before decisive claims.");
+      }
 
-    const changed = !lastSnapshot || lastSnapshot.level !== snapshot.level || lastSnapshot.reason !== snapshot.reason;
-    lastSnapshot = snapshot;
-    if (changed) pi.appendEntry("adaptive-context-policy", snapshot);
-    setStatus(ctx, snapshot);
+      const changed = !lastSnapshot || lastSnapshot.level !== snapshot.level || lastSnapshot.reason !== snapshot.reason;
+      lastSnapshot = snapshot;
+      if (changed) pi.appendEntry("adaptive-context-policy", snapshot);
+      setStatus(ctx, snapshot);
 
-    return { messages: appendReminder(event.messages as any[], buildInjection(snapshot)) };
+      return buildInjection(snapshot);
+    },
   });
 
   pi.registerCommand("ace-status", {

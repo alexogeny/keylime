@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, type CapabilityGroup } from "./shared/intent";
+import { registerContextProvider } from "./shared/turn-context";
 
 const STATUS_KEY = "intent";
 
@@ -84,31 +85,6 @@ function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): string[] 
   return [...desired].filter(name => available.has(name)).sort();
 }
 
-function appendReminder(messages: any[], text: string): any[] {
-  const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i]?.role !== "user") continue;
-    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
-    const msg = result[i];
-    if (typeof msg.content === "string") {
-      result[i] = { ...msg, content: msg.content + suffix };
-      return result;
-    }
-    if (Array.isArray(msg.content)) {
-      const blocks = [...msg.content];
-      const lastText = blocks.findLastIndex((block: any) => block?.type === "text");
-      if (lastText >= 0) {
-        blocks[lastText] = { ...blocks[lastText], text: `${blocks[lastText].text}${suffix}` };
-      } else {
-        blocks.push({ type: "text", text: suffix });
-      }
-      result[i] = { ...msg, content: blocks };
-      return result;
-    }
-  }
-  return result;
-}
-
 function reminderText(): string {
   const route = getCurrentRoute();
   const lines = [
@@ -122,6 +98,13 @@ function reminderText(): string {
 }
 
 export default function intentRouterExtension(pi: ExtensionAPI) {
+  registerContextProvider({
+    id: "intent-router",
+    priority: 100,
+    maxChars: 360,
+    build: () => reminderText(),
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "intent:—"));
   });
@@ -158,7 +141,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
       ctx.ui.theme.fg("dim", `${route.primaryIntent}:${enabledGroups(route.capabilityGroups).join("+")}`),
     );
 
-    return { messages: appendReminder(messages, reminderText()) };
+    return;
   });
 
   pi.registerCommand("intent-status", {

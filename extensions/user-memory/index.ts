@@ -33,6 +33,7 @@ import { Type } from "typebox";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { registerContextProvider } from "../shared/turn-context";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import {
@@ -483,34 +484,6 @@ function extractMsgText(content: unknown): string {
       .join("\n");
   }
   return "";
-}
-
-/**
- * Appends `text` as a <system-reminder> block to the last user message in the
- * messages array. Returns a new array — ephemeral, not stored in session.
- */
-function appendReminder(messages: any[], text: string): any[] {
-  const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i]?.role !== "user") continue;
-    const msg    = result[i];
-    const policy = "When answering personal-profile questions (name, age, body stats, preferences), treat the facts below as authoritative session memory unless the user corrects them.";
-    const suffix = `\n\n<system-reminder>\n${policy}\n\n${text}\n</system-reminder>`;
-    if (typeof msg.content === "string") {
-      result[i] = { ...msg, content: msg.content + suffix };
-    } else if (Array.isArray(msg.content)) {
-      const blocks  = [...msg.content];
-      const lastTxt = blocks.findLastIndex((b: any) => b?.type === "text");
-      if (lastTxt >= 0) {
-        blocks[lastTxt] = { ...blocks[lastTxt], text: blocks[lastTxt].text + suffix };
-      } else {
-        blocks.push({ type: "text", text: suffix });
-      }
-      result[i] = { ...msg, content: blocks };
-    }
-    return result;
-  }
-  return result;
 }
 
 // ─── Signal Detection Pipeline ──────────────────────────────────────────────────
@@ -1809,10 +1782,10 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   //                        rebuilt when a new memory is stored (store version bump).
   //                        Stable → cached → free to process on subsequent turns.
   //
-  //  context event       → VOLATILE: pending hints, clarifications, upcoming events,
-  //                        entity matches, BM25 hits for the current prompt.
-  //                        Injected as <system-reminder> appended to the last user
-  //                        message — ephemeral, never stored, never breaks the cache.
+  //  turn-context provider → VOLATILE: pending hints, clarifications, upcoming
+  //                          events, entity matches, BM25 hits for the prompt.
+  //                          Composed with other providers into one capped
+  //                          reminder, never stored, never breaks the cache.
   //
   //  Session ledger      → Tracks which memory IDs have been injected this session.
   //                        After a memory has been injected 3+ times without a direct
@@ -1887,124 +1860,91 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   });
 
   // ── VOLATILE injection: BM25 hits, events, hints, clarifications ─────────
-  pi.on("context", async (event, _ctx) => {
-    await ensureLoaded();
-    if (store.memories.length === 0) return;
+  registerContextProvider({
+    id: "user-memory",
+    priority: 60,
+    maxChars: 520,
+    build: async ({ prompt }) => {
+      await ensureLoaded();
+      if (store.memories.length === 0) return null;
 
-    const now    = Date.now();
-    // Extract prompt from the last user message in the context
-    const messages = event.messages as any[];
-    const lastUser = [...messages].reverse().find((m: any) => m?.role === "user");
-    const prompt   = lastUser ? extractMsgText(lastUser.content) : "";
+      const now = Date.now();
+      const lines: string[] = [];
 
-    const lines: string[] = [];
-
-    // A) Pending hints from last turn
-    if (pendingHints.length > 0) {
-      const hints = pendingHints.splice(0);
-      lines.push("## 💡 Memory hints detected from last turn");
-      lines.push("(Review — call remember() for those worth keeping)");
-      for (const h of hints) {
-        const strength = h.score >= HIGH_SIGNAL_THRESHOLD ? "strong" : "moderate";
-        const flags: string[] = [h.category, `${strength} signal`];
-        if (h.isPattern) flags.push("recurrence — store as fact, no expiry");
-        if (h.expiry)    flags.push(`expires ${h.expiry}`);
-        lines.push(`- [${flags.join(", ")}] "${h.text.slice(0, 120)}"`);
-      }
-      lines.push("");
-    }
-
-    // A2) Pending clarifications
-    if (pendingClarifications.length > 0) {
-      const [clar] = pendingClarifications.splice(0);
-      pendingClarifications.length = 0;
-      const urgency = clar.priority === "high"
-        ? "🚨 Contradiction detected — ask this before proceeding:"
-        : "💬 If it feels natural to ask, consider:";
-      lines.push(urgency);
-      lines.push(`  "${clar.question}"`);
-      lines.push(`  (triggered by: "${clar.context.slice(0, 80)}")`);
-      lines.push("");
-    }
-
-    // B–E: Volatile memory injection (events, entity, BM25) ─────────────────
-    if (store.memories.length > 0 && prompt.trim()) {
-      const memMap = new Map(store.memories.map(m => [m.id, m]));
-
-      // IDs already in the stable block — skip them in volatile to avoid duplication
-      const stableIds = new Set(
-        store.memories
-          .filter(m => {
-            if (isPinnedProfileMemory(m)) return true;
-            const tier = m.sensitivity ?? inferSensitivityTier(m);
-            return tier === "baseline" || (tier === "general" && m.category === "preference");
-          })
-          .map(m => m.id)
-      );
-
-      // B) Upcoming events (within 90 days)
-      const upcoming = store.memories
-        .filter(m => m.expires_at && m.expires_at > now && daysUntil(m.expires_at) <= 90)
-        .sort((a, b) => (a.expires_at ?? 0) - (b.expires_at ?? 0));
-
-      // C) Entity matches for current prompt
-      const mentionedEntities = queryEntities(entityStore, prompt);
-      const entityMems: Memory[] = [];
-      for (const entity of mentionedEntities.slice(0, 3)) {
-        for (const mid of entity.memory_ids) {
-          const m = memMap.get(mid);
-          if (m) entityMems.push(m);
+      if (pendingHints.length > 0) {
+        const hints = pendingHints.splice(0);
+        lines.push("Memory hints detected:");
+        for (const h of hints.slice(0, 3)) {
+          const strength = h.score >= HIGH_SIGNAL_THRESHOLD ? "strong" : "moderate";
+          lines.push(`- [${h.category}, ${strength}] "${h.text.slice(0, 100)}"`);
         }
       }
 
-      // D) BM25+cosine hits for current prompt
-      const relevant = await hybridSearch(prompt, 5);
-
-      // Merge, deduplicate, apply ledger suppression, cap
-      const seen      = new Set<string>(stableIds);
-      const volatile: Memory[] = [];
-
-      const candidates = [
-        ...upcoming,
-        ...entityMems,
-        ...relevant.map(r => r.memory),
-      ];
-
-      for (const m of candidates) {
-        if (seen.has(m.id) || m.trace_only) continue;
-        seen.add(m.id);
-
-        // Ledger suppression: if injected enough times already, skip
-        // Exception: pending hints + entity matches always get through
-        const ledgerCount = injectionLedger.get(m.id) ?? 0;
-        const isEntityHit = entityMems.some(em => em.id === m.id);
-        if (ledgerCount >= LEDGER_SUPPRESS && !isEntityHit) continue;
-
-        volatile.push(m);
-        if (volatile.length >= VOLATILE_CAP) break;
+      if (pendingClarifications.length > 0) {
+        const [clar] = pendingClarifications.splice(0);
+        pendingClarifications.length = 0;
+        lines.push(clar.priority === "high" ? "Contradiction: ask before proceeding:" : "Consider asking:");
+        lines.push(`- ${clar.question}`);
       }
 
-      if (volatile.length > 0 || lines.length > 0) {
+      if (prompt.trim()) {
+        const memMap = new Map(store.memories.map(m => [m.id, m]));
+        const stableIds = new Set(
+          store.memories
+            .filter(m => {
+              if (isPinnedProfileMemory(m)) return true;
+              const tier = m.sensitivity ?? inferSensitivityTier(m);
+              return tier === "baseline" || (tier === "general" && m.category === "preference");
+            })
+            .map(m => m.id)
+        );
+
+        const upcoming = store.memories
+          .filter(m => m.expires_at && m.expires_at > now && daysUntil(m.expires_at) <= 90)
+          .sort((a, b) => (a.expires_at ?? 0) - (b.expires_at ?? 0));
+
+        const mentionedEntities = queryEntities(entityStore, prompt);
+        const entityMems: Memory[] = [];
+        for (const entity of mentionedEntities.slice(0, 3)) {
+          for (const mid of entity.memory_ids) {
+            const m = memMap.get(mid);
+            if (m) entityMems.push(m);
+          }
+        }
+
+        const relevant = await hybridSearch(prompt, 5);
+        const seen = new Set<string>(stableIds);
+        const volatile: Memory[] = [];
+        const candidates = [...upcoming, ...entityMems, ...relevant.map(r => r.memory)];
+
+        for (const m of candidates) {
+          if (seen.has(m.id) || m.trace_only) continue;
+          seen.add(m.id);
+
+          const ledgerCount = injectionLedger.get(m.id) ?? 0;
+          const isEntityHit = entityMems.some(em => em.id === m.id);
+          if (ledgerCount >= LEDGER_SUPPRESS && !isEntityHit) continue;
+
+          volatile.push(m);
+          if (volatile.length >= VOLATILE_CAP) break;
+        }
+
         if (volatile.length > 0) {
-          lines.push("## Additional context for this turn");
-          for (const m of volatile) {
-            const prefix = m.expires_at
-              ? `⏰ (in ${daysUntil(m.expires_at)}d) `
-              : `(${m.category}) `;
+          lines.push("Relevant memory:");
+          for (const m of volatile.slice(0, 5)) {
+            const prefix = m.expires_at ? `in ${daysUntil(m.expires_at)}d` : m.category;
             const mentions = m.mentions > 1 ? ` [×${m.mentions}]` : "";
-            lines.push(`- ${prefix}${m.content}${m.date_ref ? ` [${m.date_ref}]` : ""}${mentions}`);
+            lines.push(`- (${prefix}) ${m.content}${m.date_ref ? ` [${m.date_ref}]` : ""}${mentions}`);
             injectionLedger.set(m.id, (injectionLedger.get(m.id) ?? 0) + 1);
           }
           if (mentionedEntities.length > 0) {
-            lines.push(`  ^ entity context for: ${mentionedEntities.map(e => e.name).join(", ")}`);
+            lines.push(`entity context: ${mentionedEntities.map(e => e.name).join(", ")}`);
           }
         }
       }
-    }
 
-    if (lines.length === 0) return;
-
-    return { messages: appendReminder(messages, lines.join("\n")) };
+      return lines.length > 0 ? lines.join("\n") : null;
+    },
   });
 
   // ── Session status ─────────────────────────────────────────────────────────

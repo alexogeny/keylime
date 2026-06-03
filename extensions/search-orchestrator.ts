@@ -25,6 +25,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { isCapabilityActive } from "./shared/intent";
+import { registerContextProvider } from "./shared/turn-context";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -90,31 +91,6 @@ function researchProviderAvailable(): boolean {
 
 // ─── Extension ────────────────────────────────────────────────────────────────
 
-// ─── Context helpers ──────────────────────────────────────────────────────────
-
-function appendReminder(messages: any[], text: string): any[] {
-  const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i]?.role !== "user") continue;
-    const msg    = result[i];
-    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
-    if (typeof msg.content === "string") {
-      result[i] = { ...msg, content: msg.content + suffix };
-    } else if (Array.isArray(msg.content)) {
-      const blocks  = [...msg.content];
-      const lastTxt = blocks.findLastIndex((b: any) => b?.type === "text");
-      if (lastTxt >= 0) {
-        blocks[lastTxt] = { ...blocks[lastTxt], text: blocks[lastTxt].text + suffix };
-      } else {
-        blocks.push({ type: "text", text: suffix });
-      }
-      result[i] = { ...msg, content: blocks };
-    }
-    return result;
-  }
-  return result;
-}
-
 export default function searchOrchestratorExtension(pi: ExtensionAPI) {
 
   // ── System-prompt injection (STATIC only — no volatile KB stats here) ────────
@@ -154,24 +130,26 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
     return { systemPrompt: event.systemPrompt + appendix };
   });
 
-  // ── Context injection: volatile KB stats (ephemeral system-reminder) ──────────
-  // Fires before each LLM call. appendReminder() appends to the last user message
-  // so the stats arrive in the messages array (not the system prompt), preserving
-  // the cached system-prompt prefix.
+  // ── Context provider: volatile KB stats ─────────────────────────────────────
+  // Routed through turn-context-composer so research stats only appear when
+  // research intent is active and provider config exists.
 
-  pi.on("context", async (event, _ctx) => {
-    if (!isCapabilityActive("research") || !researchProviderAvailable()) return;
-    const hasSearch = hasTools(pi, "web_search");
-    const hasMemory = hasTools(pi, "recall_web_knowledge");
-    if (!hasSearch && !hasMemory) return;
+  registerContextProvider({
+    id: "search-orchestrator",
+    priority: 50,
+    maxChars: 220,
+    applies: () => isCapabilityActive("research") && researchProviderAvailable(),
+    build: async () => {
+      const hasSearch = hasTools(pi, "web_search");
+      const hasMemory = hasTools(pi, "recall_web_knowledge");
+      if (!hasSearch && !hasMemory) return null;
 
-    const stats = await getStats();
-    const memLine = stats.total > 0
-      ? `Knowledge base: ${stats.total} searches (${stats.withKnowledge} distilled).` +
-        (stats.newestQuery ? ` Most recent: "${stats.newestQuery}" (${stats.newestAge}).` : "")
-      : "Knowledge base is empty — searches will be indexed as you research.";
-
-    return { messages: appendReminder(event.messages as any[], memLine) };
+      const stats = await getStats();
+      return stats.total > 0
+        ? `Knowledge base: ${stats.total} searches (${stats.withKnowledge} distilled).` +
+          (stats.newestQuery ? ` Most recent: "${stats.newestQuery}" (${stats.newestAge}).` : "")
+        : "Knowledge base is empty — searches will be indexed as you research.";
+    },
   });
 
   // ── /research command ────────────────────────────────────────────────────────

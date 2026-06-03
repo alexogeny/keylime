@@ -20,6 +20,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { registerContextProvider } from "./shared/turn-context";
 
 // ─── Skill definitions ────────────────────────────────────────────────────────
 //
@@ -208,46 +209,6 @@ function readProjectStack(cwd: string): string {
   return "";
 }
 
-// ─── Context helpers ────────────────────────────────────────────────────────
-
-function extractText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return (content as any[])
-      .filter((b: any) => b?.type === "text")
-      .map((b: any) => b.text as string)
-      .join("\n");
-  }
-  return "";
-}
-
-/**
- * Appends `text` as a <system-reminder> to the last user message in the array.
- * Returns a new messages array — ephemeral, never stored in the session.
- */
-function appendReminder(messages: any[], text: string): any[] {
-  const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i]?.role !== "user") continue;
-    const msg    = result[i];
-    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
-    if (typeof msg.content === "string") {
-      result[i] = { ...msg, content: msg.content + suffix };
-    } else if (Array.isArray(msg.content)) {
-      const blocks  = [...msg.content];
-      const lastTxt = blocks.findLastIndex((b: any) => b?.type === "text");
-      if (lastTxt >= 0) {
-        blocks[lastTxt] = { ...blocks[lastTxt], text: blocks[lastTxt].text + suffix };
-      } else {
-        blocks.push({ type: "text", text: suffix });
-      }
-      result[i] = { ...msg, content: blocks };
-    }
-    return result;
-  }
-  return result;
-}
-
 // ─── Tokenizer ────────────────────────────────────────────────────────────────
 
 function tokenizePrompt(text: string): Set<string> {
@@ -274,76 +235,50 @@ export default function dynamicSkillsExtension(pi: ExtensionAPI) {
     hintedThisSession.clear();
   });
 
-  pi.on("context", async (event, ctx) => {
-    // Determine the prompt from the last user message in the context
-    const messages = event.messages as any[];
-    if (!messages.length) return;
+  registerContextProvider({
+    id: "dynamic-skills",
+    priority: 45,
+    maxChars: 260,
+    build: async ({ ctx, prompt }) => {
+      if (!prompt.trim() || prompt.includes("/skill:")) return null;
 
-    const lastUserMsg = [...messages].reverse().find((m: any) => m?.role === "user");
-    if (!lastUserMsg) return;
+      const cwd       = ctx.cwd;
+      const stackStr  = readProjectStack(cwd);
+      const tokens    = tokenizePrompt(prompt);
+      const rawPrompt = prompt.toLowerCase();
+      const hints: string[] = [];
 
-    const prompt = extractText(lastUserMsg.content);
-    if (!prompt.trim()) return;
+      for (const [skillName, signal] of Object.entries(SKILL_SIGNALS)) {
+        if (hintedThisSession.has(skillName)) continue;
 
-    // Don't hint if user already mentioned /skill: — they know what they want
-    if (prompt.includes("/skill:")) return;
-
-    const cwd       = ctx.cwd;
-    const stackStr  = readProjectStack(cwd);
-    const tokens    = tokenizePrompt(prompt);
-    const rawPrompt = prompt.toLowerCase();
-
-    const hints: string[] = [];
-
-    for (const [skillName, signal] of Object.entries(SKILL_SIGNALS)) {
-      // Already hinted this session — skip
-      if (hintedThisSession.has(skillName)) continue;
-
-      let score = 0;
-
-      // Token matching
-      for (const tok of signal.tokens) {
-        if (tok.includes(" ")) {
-          if (rawPrompt.includes(tok)) score++;
-        } else {
-          if (tokens.has(tok)) score++;
+        let score = 0;
+        for (const tok of signal.tokens) {
+          if (tok.includes(" ") ? rawPrompt.includes(tok) : tokens.has(tok)) score++;
         }
-      }
 
-      // File presence in cwd
-      if (signal.files) {
-        for (const f of signal.files) {
-          if (existsSync(join(cwd, f))) {
-            score += 2;
-            break;
+        if (signal.files) {
+          for (const f of signal.files) {
+            if (existsSync(join(cwd, f))) { score += 2; break; }
           }
         }
-      }
 
-      // Stack match
-      if (signal.stackKey && stackStr) {
-        for (const key of signal.stackKey) {
-          if (stackStr.includes(key)) {
-            score += 2;
-            break;
+        if (signal.stackKey && stackStr) {
+          for (const key of signal.stackKey) {
+            if (stackStr.includes(key)) { score += 2; break; }
           }
+        }
+
+        if (score >= signal.minScore) {
+          hints.push(`/skill:${skillName} (${signal.description})`);
+          hintedThisSession.add(skillName);
         }
       }
 
-      if (score >= signal.minScore) {
-        hints.push(`/skill:${skillName} (${signal.description})`);
-        hintedThisSession.add(skillName);
-      }
-    }
-
-    if (hints.length === 0) return;
-
-    const hintLine = hints.length === 1
-      ? `Tip: the ${hints[0]} skill may be useful — load it with /skill:${hints[0].split(" ")[0].slice(7)}.`
-      : `Tip: these skills may be useful:\n${hints.map(h => `  • ${h}`).join("\n")}`;
-
-    // Append as ephemeral system-reminder to the last user message
-    return { messages: appendReminder(messages, hintLine) };
+      if (hints.length === 0) return null;
+      return hints.length === 1
+        ? `Skill hint: ${hints[0]}. Load only if it materially helps.`
+        : `Skill hints:\n${hints.map(h => `  • ${h}`).join("\n")}`;
+    },
   });
 
   // ── Command: /skill-hints — show what would fire on a test prompt ──────────
