@@ -192,8 +192,12 @@ const FRESHNESS_PHRASES = ["just released", "most recent", "up to date", "up-to-
 const EXPLICIT_RESEARCH_PHRASES = ["web search", "search the web", "research this", "find sources", "cite sources", "compare sources", "look this up online", "check online"];
 const EXPLICIT_RESEARCH_KEYWORDS = new Set(["research", "web", "sources", "cite", "citation", "online"]);
 
+export function stripSystemReminders(text: string): string {
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, " ");
+}
+
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9_+.#\s/-]/g, " ").replace(/\s+/g, " ").trim();
+  return stripSystemReminders(text).toLowerCase().replace(/[^a-z0-9_+.#\s/-]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function tokensFor(text: string): Set<string> {
@@ -237,7 +241,8 @@ function shouldAddFreshnessResearch(primaryIntent: IntentId, temporal: TemporalC
 }
 
 export function classifyIntent(prompt: string): IntentRoute {
-  const raw = normalize(prompt);
+  const cleanPrompt = stripSystemReminders(prompt);
+  const raw = normalize(cleanPrompt);
   const tokens = tokensFor(prompt);
   const scored = PROFILES
     .map(profile => ({ profile, score: scoreProfile(profile, raw, tokens) }))
@@ -269,7 +274,7 @@ export function classifyIntent(prompt: string): IntentRoute {
       capabilityGroups: ["readonly", "memory-lite"],
       suggestedSkills: [],
       temporal,
-      prompt,
+      prompt: cleanPrompt,
       ts: Date.now(),
     };
   }
@@ -282,7 +287,7 @@ export function classifyIntent(prompt: string): IntentRoute {
     capabilityGroups,
     suggestedSkills,
     temporal,
-    prompt,
+    prompt: cleanPrompt,
     ts: Date.now(),
   };
 }

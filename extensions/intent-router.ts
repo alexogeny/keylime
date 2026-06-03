@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, type CapabilityGroup } from "./shared/intent";
+import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, stripSystemReminders, type CapabilityGroup, type IntentRoute } from "./shared/intent";
 import { registerContextProvider } from "./shared/turn-context";
 
 const STATUS_KEY = "intent";
@@ -33,7 +33,7 @@ const DOMAIN_TOOLS = new Set([
 ]);
 
 function textFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return stripSystemReminders(content);
   if (!Array.isArray(content)) return "";
   return content
     .filter((block: any) => block?.type === "text")
@@ -90,6 +90,14 @@ export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): st
   return [...desired].filter(name => available.has(name)).sort();
 }
 
+
+export function routeForPrompt(pi: ExtensionAPI, prompt: string): IntentRoute {
+  const route = classifyIntent(prompt);
+  setCurrentRoute(route);
+  pi.setActiveTools(activeToolNames(pi, route.capabilityGroups));
+  return route;
+}
+
 export function reminderText(): string {
   const route = getCurrentRoute();
   const researchOn = researchEnabled();
@@ -125,13 +133,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
   });
 
   pi.on("input", async (event, ctx) => {
-    if (event.source === "extension") return { action: "continue" };
-
-    const route = classifyIntent(event.text ?? "");
-    setCurrentRoute(route);
-
-    const activeTools = activeToolNames(pi, route.capabilityGroups);
-    pi.setActiveTools(activeTools);
+    const route = routeForPrompt(pi, event.text ?? "");
 
     ctx.ui.setStatus(
       STATUS_KEY,

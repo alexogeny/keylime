@@ -25,3 +25,7 @@ Defaults are conservative: research follows provider-key detection, auto-fetch i
 - `/cache-stats` — prompt-cache and context reduction stats.
 - `/ace-status` — adaptive policy status if enabled.
 - `/traj-status` — trajectory evaluator status if enabled.
+
+## Safety behavior
+
+`git-checkpoint.ts` now checkpoints before side-effectful tools (`write`, `edit`, and mutating-looking `bash` commands), not before every agent turn. Manual `/checkpoint` is still available.

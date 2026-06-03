@@ -1,9 +1,9 @@
 /**
- * git-checkpoint — auto-commits current state before each agent turn so you
- * always have a rollback point. Works in any git repo.
+ * git-checkpoint — creates rollback commits before side-effectful tool calls.
+ * Works in any git repo.
  *
  * Commands:
- *   /checkpoint        — manual checkpoint (also auto-runs before each turn)
+ *   /checkpoint        — manual checkpoint
  *   /undo              — hard-reset to the last checkpoint
  *   /checkpoint-log    — list checkpoints created this session
  *
@@ -72,30 +72,42 @@ function makeCheckpoint(cwd: string): Checkpoint | null {
   };
 }
 
+export function looksSideEffectfulBash(command: string): boolean {
+  return /(^|\s)(rm|mv|cp|touch|mkdir|rmdir|chmod|chown|git\s+(commit|reset|checkout|switch|merge|rebase|clean|add)|npm|pnpm|yarn|bun|pip|python|pytest|cargo|make)(\s|$)/.test(command);
+}
+
+export function shouldCheckpointTool(toolName: string, input: any): boolean {
+  if (["write", "edit"].includes(toolName)) return true;
+  if (toolName !== "bash") return false;
+  const command = typeof input?.command === "string" ? input.command : "";
+  return looksSideEffectfulBash(command);
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
   // Track the most recent checkpoint in memory (also in session for danger-guard)
   let latestCheckpoint: Checkpoint | null = null;
 
-  // ── Auto-checkpoint before every agent turn ─────────────────────────────
-
-  pi.on("before_agent_start", async (_event, ctx) => {
-    const cwd = ctx.cwd;
-    if (!isGitRepo(cwd)) return;
-
-    const cp = makeCheckpoint(cwd);
-    if (!cp) return;
-
+  function recordCheckpoint(cp: Checkpoint, ctx: any): void {
     latestCheckpoint = cp;
-    // Persist in session so danger-guard (and other extensions) can see it
     pi.appendEntry("git-checkpoint", cp);
-
     const label = cp.hadChanges
       ? `📍 ${cp.hash.slice(0, 7)} (committed ${cp.branch})`
       : `📍 ${cp.hash.slice(0, 7)} (clean)`;
-
     ctx.ui.setStatus("checkpoint", label);
+  }
+
+  // ── Auto-checkpoint before side-effectful tools ─────────────────────────
+
+  pi.on("tool_call", async (event: any, ctx) => {
+    if (!shouldCheckpointTool(event.toolName, event.input)) return;
+    const cwd = ctx.cwd;
+    if (!isGitRepo(cwd) || !hasChanges(cwd)) return;
+
+    const cp = makeCheckpoint(cwd);
+    if (!cp?.hadChanges) return;
+    recordCheckpoint(cp, ctx);
   });
 
   // ── Restore checkpoint state across session restarts ────────────────────
@@ -133,9 +145,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Failed to create checkpoint.", "error");
         return;
       }
-      latestCheckpoint = cp;
-      pi.appendEntry("git-checkpoint", cp);
-      ctx.ui.setStatus("checkpoint", `📍 ${cp.hash.slice(0, 7)}`);
+      recordCheckpoint(cp, ctx);
       ctx.ui.notify(
         `Checkpoint created: ${cp.hash.slice(0, 7)} on ${cp.branch}${cp.hadChanges ? " (changes committed)" : " (already clean)"}`,
         "info"

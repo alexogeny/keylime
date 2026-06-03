@@ -75,3 +75,35 @@ describe("router reminders", () => {
     else process.env.KEYLIME_ENABLE_RESEARCH = oldEnable;
   });
 });
+
+describe("routeForPrompt", () => {
+  test("routes extension-origin style prompts the same as user prompts", async () => {
+    const { routeForPrompt } = await import("../extensions/intent-router");
+    const calls: string[][] = [];
+    const mockPi = {
+      getAllTools: () => allToolNames.map(name => ({ name })),
+      getActiveTools: () => ["web_search", "lookup_shoe", "custom_safe_tool"],
+      setActiveTools: (names: string[]) => calls.push(names),
+    } as any;
+
+    const route = routeForPrompt(mockPi, "tell me about the latest brooks ghost");
+
+    expect(route.primaryIntent).toBe("running_shoes");
+    expect(calls.at(-1)).toContain("lookup_shoe");
+    expect(calls.at(-1)).toContain("custom_safe_tool");
+    expect(calls.at(-1)).not.toContain("web_search");
+  });
+
+  test("handles active tools returned as strings", () => {
+    const mockPi = {
+      getAllTools: () => allToolNames.map(name => ({ name })),
+      getActiveTools: () => ["custom_safe_tool", "web_search"],
+    } as any;
+
+    const tools = activeToolNames(mockPi, ["shoes", "memory-lite"]);
+
+    expect(tools).toContain("custom_safe_tool");
+    expect(tools).toContain("lookup_shoe");
+    expect(tools).not.toContain("web_search");
+  });
+});

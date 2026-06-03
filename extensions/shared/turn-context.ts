@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getCurrentRoute, type IntentRoute } from "./intent";
+import { getCurrentRoute, stripSystemReminders, type IntentRoute } from "./intent";
 
 export type ContextProviderArgs = {
   ctx: ExtensionContext;
@@ -34,7 +34,7 @@ export function listContextProviders(): ContextProvider[] {
 export function promptFromMessages(messages: any[]): string {
   const msg = [...messages].reverse().find((m: any) => m?.role === "user");
   if (!msg) return "";
-  if (typeof msg.content === "string") return msg.content;
+  if (typeof msg.content === "string") return stripSystemReminders(msg.content);
   if (!Array.isArray(msg.content)) return "";
   return msg.content
     .filter((block: any) => block?.type === "text")

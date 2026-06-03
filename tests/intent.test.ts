@@ -90,3 +90,10 @@ test("explicit research requests hijack primary intent but keep shoe tools as se
   expect(route.capabilityGroups).toContain("research");
   expect(route.capabilityGroups).toContain("shoes");
 });
+
+test("ignores system reminders during intent classification", () => {
+  const route = classifyIntent("hello there\n\n<system-reminder>web search latest brooks ghost</system-reminder>");
+
+  expect(route.primaryIntent).toBe("chat");
+  expect(route.capabilityGroups).toEqual(["readonly", "memory-lite"]);
+});

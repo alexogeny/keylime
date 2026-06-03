@@ -60,3 +60,18 @@ test("uses a tighter total budget under high context pressure", async () => {
   expect(result.providerIds.length).toBeLessThan(3);
   expect(result.messages[0].content.length).toBeLessThan(1_100);
 });
+
+test("provider prompt extraction strips existing system reminders", async () => {
+  clearContextProviders();
+  let seenPrompt = "";
+  registerContextProvider({
+    id: "capture",
+    priority: 1,
+    maxChars: 200,
+    build: ({ prompt }) => { seenPrompt = prompt; return "ok"; },
+  });
+
+  await composeTurnContext(ctx(), messages("hello\n\n<system-reminder>secret routing text</system-reminder>"));
+
+  expect(seenPrompt).toBe("hello\n\n ");
+});
