@@ -88,10 +88,10 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "python_engineering",
-    phrases: ["optimize this python", "optimise this python", "make this faster", "performance bottleneck", "hot path", "profile this", "speed up", "too slow", "reduce allocations", "memory usage", "cpu bound", "io bound", "syscall heavy", "python performance"],
+    phrases: ["codemod python", "modernize python typing", "rewrite python imports", "bulk edit python", "optimize this python", "optimise this python", "make this faster", "performance bottleneck", "hot path", "profile this", "speed up", "too slow", "reduce allocations", "memory usage", "cpu bound", "io bound", "syscall heavy", "python performance"],
     keywords: ["python", "py", "pytest", "django", "fastapi", "performance", "optimize", "optimise", "slow", "slower", "profiling", "profile", "hotpath", "latency", "throughput", "allocation", "allocations", "memory", "cpu", "syscall"],
     capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["python-eng"],
+    skills: ["python-eng", "python-codemod"],
     minScore: 4,
   },
   {
@@ -104,10 +104,10 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "rust_systems",
-    phrases: ["rust systems", "borrow checker", "lifetime issue", "async rust", "no_std", "ownership issue", "trait bounds", "cargo check", "clippy warning", "unsafe rust", "tokio task", "lifetime error"],
+    phrases: ["codemod rust", "bulk edit rust", "rename rust module", "rewrite rust imports", "rust systems", "borrow checker", "lifetime issue", "async rust", "no_std", "ownership issue", "trait bounds", "cargo check", "clippy warning", "unsafe rust", "tokio task", "lifetime error"],
     keywords: ["rust", "cargo", "clippy", "lifetime", "lifetimes", "borrow", "ownership", "tokio", "async", "await", "trait", "traits", "unsafe", "no_std", "mutex", "arc", "pin", "send", "sync"],
     capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["rust-systems"],
+    skills: ["rust-systems", "rust-codemod"],
     minScore: 4,
   },
   {
@@ -120,7 +120,7 @@ const PROFILES: IntentProfile[] = [
   },
   {
     id: "coding",
-    phrases: ["build it", "add feature", "change this code", "edit the file", "write tests", "fix tests", "can you build", "can you implement", "make the change", "update the code", "add tests", "write code", "wire this up", "ship this", "next phase"],
+    phrases: ["codemod", "bulk edit", "replace across files", "rename across repo", "modernize typing", "build it", "add feature", "change this code", "edit the file", "write tests", "fix tests", "can you build", "can you implement", "make the change", "update the code", "add tests", "write code", "wire this up", "ship this", "next phase"],
     keywords: ["code", "implement", "implementation", "build", "edit", "file", "files", "test", "tests", "repo", "repository", "function", "class", "module", "typescript", "javascript", "node", "bun", "python", "rust", "fix", "change", "update", "proceed"],
     capabilityGroups: ["core", "repo", "coding", "project", "safety", "memory-lite"],
     skills: [],

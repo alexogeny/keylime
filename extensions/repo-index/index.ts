@@ -473,6 +473,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
             "--line-number",
             "--context", "2",
             "--smart-case",
+            "--fixed-strings",
             params.query,
             ...ignoredDirArgs(),
             ...hiddenArgs,
