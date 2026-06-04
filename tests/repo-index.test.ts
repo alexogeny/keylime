@@ -70,7 +70,7 @@ describe("code_search file_glob handling", () => {
 
     expect(result.content[0].text).toContain("No matches inside file_glob");
     expect(result.content[0].text).toContain("Matches exist outside that scope");
-    expect(result.content[0].text).toContain("extensions/code-primitives.ts");
+    expect(result.content[0].text).toContain("apply_code_replacements");
   });
 
   test("accepts whitespace-separated file_glob scopes instead of silently missing matches", async () => {
