@@ -119,7 +119,7 @@ test("coding reminders mention git checkpoint safety", async () => {
   const { classifyIntent, setCurrentRoute } = await import("../extensions/shared/intent");
   const { reminderText } = await import("../extensions/intent-router");
 
-  setCurrentRoute(classifyIntent("please implement this change"));
+  setCurrentRoute(classifyIntent("implement code change"));
 
   expect(reminderText()).toContain("Git checkpoints handle rollback safety");
 });
