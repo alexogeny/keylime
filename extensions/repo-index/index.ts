@@ -425,7 +425,8 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
     ].join(" "),
     promptSnippet: "Search code by symbol, declaration, or text",
     promptGuidelines: [
-      "Use before reading files; returns file:line context, not full files.",
+      "Use before inspect_lines; returns file:line context, not full files.",
+      "Do not use read for source files; use inspect_lines only if search results lack enough local context.",
       "mode='structural' for declarations; mode='lexical' for text; mode='auto' when unsure.",
     ],
     parameters: Type.Object({

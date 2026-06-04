@@ -22,6 +22,14 @@ describe("test runner defaults", () => {
     expect(defaultCheckCommands("python", "test")[0].label).toBe("pytest");
   });
 
+  test("run_checks prompt guidelines prefer the tool over bash", async () => {
+    const { default: testRunnerExtension } = await import("../extensions/test-runner");
+    const tools: Record<string, any> = {};
+    testRunnerExtension({ registerTool: (tool: any) => { tools[tool.name] = tool; } } as any);
+
+    expect(tools.run_checks.promptGuidelines.join("\n")).toContain("Prefer run_checks over bash");
+  });
+
   test("custom command accepts either argv or a shell-style command string", () => {
     expect(customCheckCommand("bun", ["test", "tests"])).toEqual({
       command: "bun",

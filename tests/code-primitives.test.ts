@@ -141,7 +141,7 @@ describe("code primitive extension tools", () => {
       ...tools.apply_code_replacements.promptGuidelines,
     ].join("\n");
 
-    expect(guidelines).toContain("prefer plan_code_replacements/apply_code_replacements");
+    expect(guidelines).toContain("use plan_code_replacements/apply_code_replacements instead of built-in edit/write");
     expect(guidelines).toContain("Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
     expect(guidelines).toContain("Use create_file for new source, config, test, markdown, and fixture files");
   });

@@ -87,7 +87,7 @@ function relativePath(cwd: string, path: string): string {
 }
 
 const SOURCE_MUTATION_GUIDELINES = [
-  "For source-code edits, prefer plan_code_replacements/apply_code_replacements over built-in edit/write.",
+  "For existing source-code edits, use plan_code_replacements/apply_code_replacements instead of built-in edit/write.",
   "Use create_file for new source, config, test, markdown, and fixture files.",
   "Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection for repository file mutations.",
 ];
@@ -134,7 +134,8 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use before broad replacements.",
       "Use to locate exact oldText before applying source-code edits.",
-      SOURCE_MUTATION_GUIDELINES[1],
+      "Prefer this over read when locating code context.",
+      ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "File path" })),
@@ -193,7 +194,8 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptSnippet: "Inspect imports/declarations",
     promptGuidelines: [
       "Use for quick structure checks before codemods.",
-      SOURCE_MUTATION_GUIDELINES[1],
+      "Prefer this over read when imports/declarations are enough.",
+      ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
       path: Type.String({ description: "File path" }),
@@ -222,7 +224,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       "Use only after code_search or inspect_text_matches fails to provide enough local context.",
       "Prefer code_search, inspect_text_matches, and inspect_code_structure before inspecting lines.",
       "Request the smallest useful line window; never dump whole files.",
-      "Do not use read for source files.",
+      "Do not use read for source files; use inspect_lines as the bounded fallback.",
     ],
     parameters: Type.Object({
       path: Type.String({ description: "File path" }),
@@ -258,7 +260,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptSnippet: "Create a new file",
     promptGuidelines: [
       "Use create_file for new source, config, test, markdown, and fixture files.",
-      "Never use write, edit, bash, node, python, sed, awk, tee, heredocs, or shell redirection to create repository files.",
+      "Never use read/write/edit, bash, node, python, sed, awk, tee, heredocs, or shell redirection to create repository files.",
       "Use apply_code_replacements for existing files; do not overwrite existing files with create_file.",
       "Set create_dirs=true only when the parent directory does not already exist.",
     ],

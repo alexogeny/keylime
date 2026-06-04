@@ -25,7 +25,11 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
     label: "Run Checks",
     description: "Run project tests/typechecks/lints using detected defaults or a custom command.",
     promptSnippet: "Run tests or type checks",
-    promptGuidelines: ["Use after code edits to verify behavior."],
+    promptGuidelines: [
+      "Use after code edits to verify behavior.",
+      "Prefer run_checks over bash for tests, type checks, and lint checks.",
+      "Use custom command/args when the default suite cannot express the check.",
+    ],
     parameters: Type.Object({
       suite: Type.Optional(stringEnum(["all", "test", "typecheck", "lint"] as const, { description: "Check suite" })),
       command: Type.Optional(Type.String({ description: "Custom command" })),
