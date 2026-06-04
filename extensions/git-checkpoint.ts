@@ -14,6 +14,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execSync } from "node:child_process";
 
+const CHECKPOINT_EXCLUDED_PATHS = [".pi/usage/usage.ndjson"];
+
+export function checkpointAddCommand(): string {
+  const excludes = CHECKPOINT_EXCLUDED_PATHS.map(path => ` ':!${path}'`).join("");
+  return `git add -A --${excludes}`;
+}
+
 // ─── Git helpers ─────────────────────────────────────────────────────────────
 
 function isGitRepo(cwd: string): boolean {
@@ -54,7 +61,7 @@ function makeCheckpoint(cwd: string): Checkpoint | null {
 
   if (changed) {
     try {
-      execSync("git add -A", { cwd });
+      execSync(checkpointAddCommand(), { cwd });
       const ts  = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       execSync(`git commit -m "pi: checkpoint ${ts}" --no-verify --quiet`, { cwd });
     } catch { return null; }
