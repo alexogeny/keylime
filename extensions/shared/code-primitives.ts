@@ -330,7 +330,21 @@ function escapeRegex(text: string): string {
 }
 
 function globAlternatives(glob: string): string[] {
-  return glob.split(/[\s,]+/).map(part => part.trim()).filter(Boolean);
+  const alternatives: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of glob) {
+    if (char === "{") depth++;
+    if (char === "}") depth = Math.max(0, depth - 1);
+    if ((/\s/.test(char) || char === ",") && depth === 0) {
+      if (current.trim()) alternatives.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) alternatives.push(current.trim());
+  return alternatives;
 }
 
 function globPartPattern(part: string): string {
