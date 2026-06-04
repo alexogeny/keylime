@@ -529,11 +529,34 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
       }
 
       if (!output.trim()) {
+        let scopedHint = "";
+        if (params.file_glob) {
+          const outsideScope = await rgRun(
+            [
+              "--no-heading",
+              "--line-number",
+              "--context", "1",
+              "--smart-case",
+              "--fixed-strings",
+              params.query,
+              ...ignoredDirArgs(),
+              ...hiddenArgs,
+            ],
+            cwd,
+            SEARCH_TIMEOUT,
+          );
+          const outsideLines = outsideScope.split("\n").filter(line => line.trim()).slice(0, 12);
+          if (outsideLines.length > 0) {
+            scopedHint = `\nNo matches inside file_glob: ${params.file_glob}\n` +
+              `Matches exist outside that scope:\n${outsideLines.join("\n")}`;
+          }
+        }
+
         return {
           content: [{
             type: "text",
             text: `No matches for "${params.query}" (mode: ${usedMode}).\n` +
-              `Tried in: ${cwd}${includeHidden ? " (including hidden files)" : ""}\n` +
+              `Tried in: ${cwd}${includeHidden ? " (including hidden files)" : ""}${scopedHint}\n` +
               `Tip: try mode='lexical' for text-only matches, add include_hidden=true for dot-directories, or check the repo map for nearby symbols.`,
           }],
           details: { query: params.query, mode: usedMode, matches: 0 },
