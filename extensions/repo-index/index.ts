@@ -606,7 +606,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
   pi.registerCommand("repo-map", {
     description: "Show the current repo symbol map (rebuilds if stale)",
     handler: async (_args, ctx) => {
-      state.dirty = true;
+      markRepoIndexDirty();
       await rebuildIndex(ctx.cwd);
 
       if (!state.skeleton) {
