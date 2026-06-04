@@ -108,6 +108,35 @@ describe("routeForPrompt", () => {
   });
 });
 
+test("switch-intent programming forces coding tools until cleared", async () => {
+  const { default: intentRouterExtension, routeForPrompt } = await import("../extensions/intent-router");
+  const commands: Record<string, any> = {};
+  const calls: string[][] = [];
+  const mockPi = {
+    getAllTools: () => allToolNames.map(name => ({ name })),
+    getActiveTools: () => ["custom_safe_tool"],
+    setActiveTools: (names: string[]) => calls.push(names),
+    on: () => {},
+    registerCommand: (name: string, command: any) => { commands[name] = command; },
+  } as any;
+  const ctx = {
+    ui: { notify: () => {}, setStatus: () => {}, theme: { fg: (_style: string, text: string) => text } },
+  };
+
+  intentRouterExtension(mockPi);
+  await commands["switch-intent"].handler("programming", ctx);
+
+  const forcedRoute = routeForPrompt(mockPi, "tell me about the latest brooks ghost");
+
+  expect(forcedRoute.primaryIntent).toBe("coding");
+  expect(calls.at(-1)).toContain("apply_code_replacements");
+  expect(calls.at(-1)).toContain("run_checks");
+  expect(calls.at(-1)).not.toContain("web_search");
+
+  await commands["switch-intent"].handler("auto", ctx);
+  expect(routeForPrompt(mockPi, "tell me about the latest brooks ghost").primaryIntent).toBe("running_shoes");
+});
+
 test("coding route exposes codemod primitives", () => {
   const tools = activeToolNames(pi(["custom_safe_tool"]), ["coding", "repo"]);
 

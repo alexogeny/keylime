@@ -5,6 +5,10 @@ import { registerContextProvider } from "./shared/turn-context";
 
 const STATUS_KEY = "intent";
 
+type IntentOverride = "programming";
+
+let intentOverride: IntentOverride | null = null;
+
 const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = {
   core: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "plan_code_replacements", "apply_code_replacements", "run_checks"],
   readonly: ["read", "bash", "code_search", "fetch_url", "inspect_text_matches"],
@@ -105,8 +109,26 @@ export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): st
 }
 
 
+function programmingRoute(prompt: string): IntentRoute {
+  return {
+    ...classifyIntent("implement code change update code tests repo"),
+    primaryIntent: "coding",
+    secondaryIntents: [],
+    confidence: 1,
+    capabilityGroups: ["core", "repo", "coding", "project", "safety", "memory-lite"],
+    suggestedSkills: [],
+    prompt,
+    ts: Date.now(),
+  };
+}
+
+function routeForIntent(prompt: string): IntentRoute {
+  if (intentOverride === "programming") return programmingRoute(prompt);
+  return classifyIntent(prompt);
+}
+
 export function routeForPrompt(pi: ExtensionAPI, prompt: string): IntentRoute {
-  const route = classifyIntent(prompt);
+  const route = routeForIntent(prompt);
   setCurrentRoute(route);
   pi.setActiveTools(activeToolNames(pi, route.capabilityGroups));
   return route;
@@ -169,7 +191,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     // Tool results can cause additional context passes without a new input event.
     // Reclassify here for reminder accuracy, but tool visibility was already set
     // during input so the provider prompt sees the right active schema set.
-    if (prompt.trim()) setCurrentRoute(classifyIntent(prompt));
+    if (prompt.trim()) setCurrentRoute(routeForIntent(prompt));
 
     const route = getCurrentRoute();
     ctx.ui.setStatus(
@@ -178,6 +200,37 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     );
 
     return;
+  });
+
+  pi.registerCommand("switch-intent", {
+    description: "Switch intent routing override",
+    getArgumentCompletions: (prefix) => {
+      const items = ["programming", "auto"];
+      const filtered = items.filter(item => item.startsWith(prefix.toLowerCase()));
+      return filtered.length > 0 ? filtered.map(value => ({ value, label: value })) : null;
+    },
+    handler: async (args, ctx) => {
+      const arg = args.trim().toLowerCase();
+
+      if (!arg || arg === "programming" || arg === "code" || arg === "coding") {
+        intentOverride = "programming";
+        const route = routeForPrompt(pi, "manual programming intent");
+        ctx.ui.setStatus(
+          STATUS_KEY,
+          ctx.ui.theme.fg("accent", `${route.primaryIntent}:${enabledGroups(modeAdjustedGroups(route.capabilityGroups)).join("+")}`),
+        );
+        ctx.ui.notify("Intent override: programming. Use /switch-intent auto to resume automatic routing.", "info");
+        return;
+      }
+
+      if (arg === "auto" || arg === "off" || arg === "clear") {
+        intentOverride = null;
+        ctx.ui.notify("Intent override cleared. Automatic routing enabled.", "info");
+        return;
+      }
+
+      ctx.ui.notify('Unknown intent. Use "programming" or "auto".', "error");
+    },
   });
 
   pi.registerCommand("intent-status", {
