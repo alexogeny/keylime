@@ -18,6 +18,7 @@ const ALWAYS_ON_CODE_TOOLS = [
   "plan_code_replacements",
   "apply_code_replacements",
   "create_file",
+  "create_directory",
   "run_checks",
 ];
 
