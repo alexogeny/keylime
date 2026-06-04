@@ -13,6 +13,29 @@ export type MemoryWizardExpiryChoice = typeof EXPIRY_CHOICES[number];
 
 const PINNED_PROFILE_TAGS = new Set(["name", "height", "weight", "measurements", "body", "dob", "birthday", "age"]);
 
+const ANSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/y;
+
+export function fitTuiLine(line: string, width: number): string {
+  const limit = Math.max(1, width - 1);
+  let visible = 0;
+  let out = "";
+  for (let i = 0; i < line.length && visible < limit;) {
+    ANSI_RE.lastIndex = i;
+    const ansi = ANSI_RE.exec(line);
+    if (ansi) {
+      out += ansi[0];
+      i = ANSI_RE.lastIndex;
+      continue;
+    }
+    const codePoint = line.codePointAt(i);
+    if (codePoint === undefined) break;
+    out += String.fromCodePoint(codePoint);
+    i += codePoint > 0xffff ? 2 : 1;
+    visible += 1;
+  }
+  return out;
+}
+
 export type MemoryWizardDraft = {
   content: string;
   category: MemoryCategory;
@@ -456,7 +479,7 @@ class ProfileFactForm implements Component {
       const picker = (field.kind === "date" || field.kind === "datetime") && active ? ` (${this.datePart}; +/- changes selected part)` : "";
       const kindHint = field.kind === "select" ? this.theme.fg("dim", " ←/→ choose") : field.unitOptions ? this.theme.fg("dim", " ←/→ unit") : "";
       const prefix = active ? this.theme.fg("accent", "›") : " ";
-      lines.push(`${prefix} ${field.label}${picker}${unit}: ${shown}${hint}${kindHint}`.slice(0, Math.max(10, width - 1)));
+      lines.push(fitTuiLine(`${prefix} ${field.label}${picker}${unit}: ${shown}${hint}${kindHint}`, width));
       if (active) {
         lines.push(...this.optionDisplay(field), ...this.unitDisplay(field));
         if (field.kind === "text") lines.push(`  ${this.theme.fg("dim", "text input: type the exact value you want saved")}`);
@@ -466,7 +489,7 @@ class ProfileFactForm implements Component {
     });
     lines.push("");
     lines.push(this.theme.fg("warning", "Important: ESC cancels/back-outs. Press ENTER when you want to preview and save."));
-    return lines;
+    return lines.map(line => fitTuiLine(line, width));
   }
 
   invalidate() {}

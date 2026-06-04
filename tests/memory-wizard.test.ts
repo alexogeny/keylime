@@ -12,6 +12,7 @@ import {
   convertedUnitHint,
   previewProfilePatch,
   sectionCompleteness,
+  fitTuiLine,
   type MemoryWizardDraft,
 } from "../extensions/user-memory/wizard";
 
@@ -183,6 +184,11 @@ describe("structured profile facts", () => {
   test("validates athlete metric timestamps and numeric fields", () => {
     expect(validateProfileFactValues({ measurement_datetime: "2026/06/04", vo2max: "55" })).toContain("metric measured at must use YYYY-MM-DD or YYYY-MM-DD HH:mm");
     expect(validateProfileFactValues({ vo2max: "high" })).toContain("vo2 max must be numeric");
+  });
+
+  test("truncates wizard lines to the terminal render width", () => {
+    const line = `Coffee temperature: ${"either ".repeat(40)}`;
+    expect(fitTuiLine(line, 20).length).toBeLessThanOrEqual(19);
   });
 
   test("builds canonical structured profile patches without text memory rows", () => {
