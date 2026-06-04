@@ -8,7 +8,9 @@ import {
   validateMemoryWizardDraft,
   validateProfileFactValues,
   buildProfileFactDrafts,
+  buildProfilePatch,
   convertedUnitHint,
+  previewProfilePatch,
   sectionCompleteness,
   type MemoryWizardDraft,
 } from "../extensions/user-memory/wizard";
@@ -183,6 +185,25 @@ describe("structured profile facts", () => {
     expect(validateProfileFactValues({ vo2max: "high" })).toContain("vo2 max must be numeric");
   });
 
+  test("builds canonical structured profile patches without text memory rows", () => {
+    const patch = buildProfilePatch({
+      preferred_name: "Alex",
+      height: "183",
+      height__unit: "cm",
+      coffee_milk: "oat milk",
+      vo2max: "55",
+      measurement_datetime: "2026-06-04 07:30",
+    });
+
+    expect(patch).toEqual({
+      identity: { preferred_name: "Alex" },
+      body: { height: { value: 183, unit: "cm" } },
+      athlete: { vo2max: { value: 55, unit: "ml/kg/min", measured_at: "2026-06-04 07:30" } },
+      preferences: { coffee_milk: "oat milk" },
+    });
+    expect(previewProfilePatch(patch)).toContain("- preferred_name: Alex");
+  });
+
   test("previews multiple profile facts", () => {
     expect(previewProfileFactDrafts(buildProfileFactDrafts({ preferred_name: "Alex" }))).toBe("Profile fact preview\n- User's preferred name is Alex.");
   });
@@ -203,7 +224,7 @@ describe("memory wizard command registration", () => {
 
     expect(commands).toContainEqual({
       name: "memory-wizard",
-      description: "Interactively create structured user memories",
+      description: "Interactively edit the structured user profile",
     });
     expect(tools.some(tool => tool.name === "remember")).toBe(true);
     expect(contextProviders.length).toBe(0);

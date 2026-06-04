@@ -45,7 +45,7 @@ import {
   type PendingClarification,
   detectThirdPartyShare, detectBorderlineScope, detectContradiction,
 } from "./clarify.js";
-import { registerMemoryWizardCommand, type RememberParams as WizardRememberParams } from "./wizard.js";
+import { registerMemoryWizardCommand, type ProfilePatch, type RememberParams as WizardRememberParams } from "./wizard.js";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -98,8 +98,17 @@ interface Memory {
   source_memories?: string[];         // for narrative/summary memories, IDs of originals
 }
 
+interface ProfileMetric {
+  value: string | number;
+  unit?: string;
+  measured_at?: string;
+}
+
+type UserProfile = Record<string, Record<string, string | number | ProfileMetric | ProfileMetric[] | undefined>>;
+
 interface MemoryStore {
-  version:  3;
+  version:  4;
+  profile:  UserProfile;
   memories: Memory[];
 }
 
@@ -348,9 +357,11 @@ function decayedConfidence(mem: Memory, now: number): number {
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
 async function loadStore(): Promise<MemoryStore> {
-  if (!existsSync(MEMORY_FILE)) return { version: 3, memories: [] };
+  if (!existsSync(MEMORY_FILE)) return { version: 4, profile: {}, memories: [] };
   try {
     const raw = JSON.parse(await readFile(MEMORY_FILE, "utf8")) as MemoryStore;
+    raw.memories ||= [];
+    raw.profile ||= {};
     // Migrate v2 → v3: backfill evolution + entity fields
     if ((raw.version as number) < 3) {
       for (const m of raw.memories) {
@@ -358,10 +369,10 @@ async function loadStore(): Promise<MemoryStore> {
         if (m.first_seen   == null) m.first_seen  = m.created_at;
         if (m.entity_refs  == null) m.entity_refs = [];
       }
-      raw.version = 3;
     }
+    raw.version = 4;
     return raw;
-  } catch { return { version: 3, memories: [] }; }
+  } catch { return { version: 4, profile: {}, memories: [] }; }
 }
 
 async function saveStore(store: MemoryStore): Promise<void> {
@@ -888,12 +899,44 @@ interface DetectedHint {
 
 // ─── Extension ────────────────────────────────────────────────────────────────
 
+function profileValueText(value: string | number | ProfileMetric | ProfileMetric[] | undefined): string {
+  if (value == null) return "";
+  if (Array.isArray(value)) return value.map(profileValueText).filter(Boolean).join("; ");
+  if (typeof value === "object") return `${value.value}${value.unit ? ` ${value.unit}` : ""}${value.measured_at ? ` measured at ${value.measured_at}` : ""}`;
+  return String(value);
+}
+
+function profileContextLines(profile: UserProfile): string[] {
+  const lines: string[] = [];
+  for (const [section, fields] of Object.entries(profile)) {
+    const parts = Object.entries(fields)
+      .map(([key, value]) => [key, profileValueText(value)] as const)
+      .filter(([, value]) => value)
+      .map(([key, value]) => `${key}: ${value}`);
+    if (parts.length) lines.push(`- (${section}) ${parts.join("; ")}`);
+  }
+  return lines;
+}
+
+function profileSearchLines(profile: UserProfile, query: string, limit: number): string[] {
+  const q = query.toLowerCase();
+  const matches: string[] = [];
+  for (const [section, fields] of Object.entries(profile)) {
+    for (const [key, value] of Object.entries(fields)) {
+      const text = profileValueText(value);
+      const haystack = `${section} ${key} ${text}`.toLowerCase();
+      if (text && haystack.includes(q)) matches.push(`[profile/${section}] ${key}: ${text}`);
+    }
+  }
+  return matches.slice(0, limit);
+}
+
 export default function userMemoryExtension(pi: ExtensionAPI) {
 
   // In-memory index — rebuilt once per session, updated incrementally on writes
   let bm25   = new BM25Index();
   let tfidf  = new TFIDFStore();
-  let store:        MemoryStore = { version: 3, memories: [] };
+  let store:        MemoryStore = { version: 4, profile: {}, memories: [] };
   let entityStore:  EntityStore = { version: 1, entities: [] };
   let loaded = false;
 
@@ -931,6 +974,10 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     const onDisk = await loadStore();
     const diskIds = new Set(onDisk.memories.map(m => m.id));
     const inMemIds = new Set(store.memories.map(m => m.id));
+    store.profile = { ...onDisk.profile, ...store.profile };
+    for (const [section, fields] of Object.entries(onDisk.profile)) {
+      store.profile[section] = { ...fields, ...(store.profile[section] ?? {}) };
+    }
     // Add any memories present on disk but missing from our in-memory store
     for (const m of onDisk.memories) {
       if (!inMemIds.has(m.id)) {
@@ -1221,12 +1268,19 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     };
   }
 
+  async function updateProfile(patch: ProfilePatch): Promise<{ text: string }> {
+    await ensureLoaded();
+    for (const [section, fields] of Object.entries(patch)) {
+      store.profile[section] = { ...(store.profile[section] ?? {}), ...fields };
+    }
+    await persist();
+    const count = Object.values(patch).reduce((sum, fields) => sum + Object.keys(fields).length, 0);
+    return { text: `Saved ${count} structured profile fields` };
+  }
+
   // ── Command: memory-wizard ─────────────────────────────────────────────────
 
-  registerMemoryWizardCommand(pi, async (params) => {
-    const result = await rememberStructuredMemory(params);
-    return { text: result.content[0]?.text ?? "Memory saved" };
-  });
+  registerMemoryWizardCommand(pi, updateProfile);
 
   // ── Tool: remember ────────────────────────────────────────────────────────
 
@@ -1290,14 +1344,17 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
         },
       );
 
-      if (hits.length === 0) {
+      const profileHits = profileSearchLines(store.profile, params.query, params.top_k ?? 8);
+
+      if (hits.length === 0 && profileHits.length === 0) {
         return {
           content: [{ type: "text", text: `No memories found matching "${params.query}".` }],
-          details: { count: 0, hits: [] },
+          details: { count: 0, hits: [], profileHits: [] },
         };
       }
 
-      const lines: string[] = [`Found ${hits.length} memories for "${params.query}":\n`];
+      const lines: string[] = [`Found ${hits.length + profileHits.length} memory/profile results for "${params.query}":\n`];
+      if (profileHits.length) lines.push(...profileHits, "");
       for (const { memory: m, score } of hits) {
         const conf = decayedConfidence(m, now);
         const timeInfo = m.expires_at
@@ -1314,7 +1371,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: lines.filter(Boolean).join("\n") }],
-        details: { count: hits.length, hits: hits.map(h => ({ id: h.memory.id, score: h.score, content: h.memory.content })) },
+        details: { count: hits.length + profileHits.length, hits: hits.map(h => ({ id: h.memory.id, score: h.score, content: h.memory.content })), profileHits },
       };
     },
   });
@@ -1808,7 +1865,8 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   }
 
   function buildStableBlock(): string {
-    if (store.memories.length === 0) return "";
+    const profileLines = profileContextLines(store.profile);
+    if (store.memories.length === 0 && profileLines.length === 0) return "";
     const now  = Date.now();
 
     // Pin critical profile facts so they are always injected when present.
@@ -1834,9 +1892,10 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       .slice(0, 5)  // keep the stable system prompt tight; volatile recall handles the rest
       .map(x => x.m);
 
-    if (stableMems.length === 0) return "";
+    if (stableMems.length === 0 && profileLines.length === 0) return "";
 
     const lines = ["## What you know about this user"];
+    lines.push(...profileLines.slice(0, 8));
     for (const m of stableMems) {
       const prefix   = `(${m.category}${m.promoted_from ? " ⬆️" : ""}) `;
       const mentions = m.mentions > 1 ? ` [×${m.mentions}]` : "";

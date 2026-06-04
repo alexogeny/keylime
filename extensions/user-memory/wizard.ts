@@ -242,6 +242,8 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
 ];
 
 export type ProfileFactValues = Record<string, string>;
+export type ProfilePatchValue = string | number | { value: string | number; unit?: string; measured_at?: string };
+export type ProfilePatch = Record<string, Record<string, ProfilePatchValue>>;
 
 function cleanProfileFactValues(values: ProfileFactValues): ProfileFactValues {
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim()]).filter(([, value]) => value));
@@ -346,6 +348,39 @@ export function buildProfileFactDrafts(values: ProfileFactValues): MemoryWizardD
       dateRef: field.id === "date_of_birth" ? clean[field.id] : field.includeMeasurementTime ? metricTime : undefined,
       confidence: 1,
     }));
+}
+
+export function buildProfilePatch(values: ProfileFactValues): ProfilePatch {
+  const clean = cleanProfileFactValues(values);
+  const errors = validateProfileFactValues(clean);
+  if (errors.length) throw new Error(errors.join("; "));
+  const metricTime = measuredAt(clean);
+  const patch: ProfilePatch = {};
+
+  for (const field of PROFILE_FACT_FIELDS) {
+    if (!clean[field.id] || field.id === "measurement_datetime") continue;
+    const raw = clean[field.id].replace(/^custom: /, "");
+    const unit = clean[unitKey(field)] || defaultUnit(field);
+    const numeric = field.kind === "number" && !Number.isNaN(Number(raw)) ? Number(raw) : raw;
+    patch[field.section] ??= {};
+    patch[field.section][field.id] = (unit || field.measured)
+      ? { value: numeric, unit, measured_at: field.includeMeasurementTime ? metricTime : undefined }
+      : numeric;
+  }
+
+  return patch;
+}
+
+export function previewProfilePatch(patch: ProfilePatch): string {
+  const lines = ["Structured profile preview"];
+  for (const [section, fields] of Object.entries(patch)) {
+    lines.push(section.toUpperCase());
+    for (const [key, value] of Object.entries(fields)) {
+      if (typeof value === "object") lines.push(`- ${key}: ${value.value}${value.unit ? ` ${value.unit}` : ""}${value.measured_at ? ` measured at ${value.measured_at}` : ""}`);
+      else lines.push(`- ${key}: ${value}`);
+    }
+  }
+  return lines.length === 1 ? "No profile facts entered." : lines.join("\n");
 }
 
 export function previewProfileFactDrafts(drafts: MemoryWizardDraft[]): string {
@@ -540,7 +575,7 @@ async function editProfileFactSection(ctx: any, section: ProfileFactSection, val
   return editProfileFactSection(ctx, section, values);
 }
 
-async function runStructuredProfileFactFlow(ctx: any, save: (params: RememberParams) => Promise<{ text: string }>) {
+async function runStructuredProfileFactFlow(ctx: any, save: (patch: ProfilePatch) => Promise<{ text: string }>) {
   let values: ProfileFactValues = {};
 
   while (true) {
@@ -571,21 +606,19 @@ async function runStructuredProfileFactFlow(ctx: any, save: (params: RememberPar
     ctx.ui.notify(`Invalid profile facts: ${errors.join("; ")}`, "error");
     return;
   }
-  const drafts = buildProfileFactDrafts(values);
-  if (drafts.length === 0) {
+  const patch = buildProfilePatch(values);
+  const count = Object.values(patch).reduce((sum, fields) => sum + Object.keys(fields).length, 0);
+  if (count === 0) {
     ctx.ui.notify("No profile facts entered", "warning");
     return;
   }
-  const ok = await ctx.ui.confirm("Save profile facts?", previewProfileFactDrafts(drafts));
+  const ok = await ctx.ui.confirm("Save structured profile?", previewProfilePatch(patch));
   if (!ok) {
-    ctx.ui.notify("Memory not saved", "info");
+    ctx.ui.notify("Profile not saved", "info");
     return;
   }
-  const results = [];
-  for (const draft of drafts) {
-    results.push(await save(convertDraftToRememberParams(draft)));
-  }
-  ctx.ui.notify(`Saved ${results.length} profile fact memories`, "success");
+  const result = await save(patch);
+  ctx.ui.notify(result.text, "success");
 }
 
 async function runFreeformMemoryFlow(ctx: any, save: (params: RememberParams) => Promise<{ text: string }>) {
@@ -649,19 +682,12 @@ async function runFreeformMemoryFlow(ctx: any, save: (params: RememberParams) =>
 
 export function registerMemoryWizardCommand(
   pi: ExtensionAPI,
-  save: (params: RememberParams) => Promise<{ text: string }>,
+  save: (patch: ProfilePatch) => Promise<{ text: string }>,
 ) {
   pi.registerCommand("memory-wizard", {
-    description: "Interactively create structured user memories",
+    description: "Interactively edit the structured user profile",
     handler: async (_args, ctx) => {
-      const mode = await ctx.ui.select("Memory wizard", ["structured profile facts", "freeform memory"]);
-      if (mode === "structured profile facts") {
-        await runStructuredProfileFactFlow(ctx, save);
-        return;
-      }
-      if (mode === "freeform memory") {
-        await runFreeformMemoryFlow(ctx, save);
-      }
+      await runStructuredProfileFactFlow(ctx, save);
     },
   });
 }
