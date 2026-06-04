@@ -45,6 +45,7 @@ import {
   type PendingClarification,
   detectThirdPartyShare, detectBorderlineScope, detectContradiction,
 } from "./clarify.js";
+import { registerMemoryWizardCommand, type RememberParams as WizardRememberParams } from "./wizard.js";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -1091,6 +1092,142 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     return null;
   }
 
+  async function rememberStructuredMemory(params: WizardRememberParams) {
+    await ensureLoaded();
+
+    // Resolve expires_at: expiry_tier takes precedence over raw expires_at
+    if (params.expiry_tier && ["2d","7d","30d"].includes(params.expiry_tier)) {
+      params.expires_at = tierToMs(params.expiry_tier as ExpiryTier);
+      if (!params.temporal) params.temporal = true;
+    }
+
+    // ── Adversarial protection ─────────────────────────────────────────────────────
+    // Reject prompt-injection attempts that try to rewrite how I behave rather
+    // than record facts about the user.
+    const adversarialPatterns = [
+      /\byou (always|should|must|will|are|have to|need to)\b/i,
+      /\bremember that you\b/i,
+      /\bas an ai\b/i,
+      /\bignore (previous|prior|your|all)\b/i,
+      /\byour (instructions|rules|guidelines|system prompt)\b/i,
+      /\bforget (everything|all|your|prior)\b/i,
+    ];
+    if (adversarialPatterns.some(p => p.test(params.content))) {
+      throw new Error(
+        `Rejected: this looks like a prompt injection attempt rather than a personal memory. ` +
+        `Memories should be facts about you, not instructions to me.`
+      );
+    }
+
+    // Deduplication check
+    const dup = await findDuplicate(params.content, params.category);
+    if (dup) {
+      // ── Reinforce existing memory ──
+      const now = Date.now();
+      dup.content    = params.content;
+      dup.updated_at = now;
+      dup.mentions   = (dup.mentions ?? 1) + 1;
+      if (params.tags?.length)     dup.tags = [...new Set([...dup.tags, ...params.tags])];
+      if (params.subcategory)      dup.subcategory = params.subcategory;
+      if (params.date_ref)         dup.date_ref = params.date_ref;
+      if (params.expires_at)       dup.expires_at = params.expires_at;
+      if (params.temporal != null) dup.temporal = params.temporal;
+      if (params.sensitivity)      dup.sensitivity = params.sensitivity as SensitivityTier;
+      dup.confidence = params.confidence ?? 1.0;
+      if (await checkOllama()) dup.embedding = await embedText(params.content) ?? undefined;
+
+      // Check for promotion
+      const { promoted, note: promoNote } = checkPromotion(dup, now);
+
+      // Extract entities from updated content
+      const newEntities = extractEntities(params.content);
+      for (const e of newEntities) {
+        const eid = upsertEntity(entityStore, e, dup.id, now);
+        if (!dup.entity_refs.includes(eid)) dup.entity_refs.push(eid);
+      }
+
+      // Rebuild index entry
+      bm25.remove(dup.id);
+      tfidf.remove(dup.id);
+      const text = memoryText(dup);
+      bm25.add(dup.id, text);
+      tfidf.add(dup.id, text);
+      await persist();
+
+      const statusLine = promoted
+        ? `Reinforced + promoted [${dup.id.slice(0,8)}]: ${promoNote}`
+        : `Reinforced [${dup.id.slice(0,8)}] (×${dup.mentions}): "${dup.content}"`;
+      return {
+        content: [{ type: "text", text: statusLine }],
+        details: { action: promoted ? "promoted" : "reinforced", memory: dup, promoted },
+      };
+    }
+
+    // ── Create new memory ──
+    const now = Date.now();
+    const mem: Memory = {
+      id:           randomUUID(),
+      content:      params.content,
+      category:     params.category,
+      subcategory:  params.subcategory,
+      tags:         params.tags ?? [],
+      confidence:   params.confidence ?? 1.0,
+      created_at:   now,
+      updated_at:   now,
+      expires_at:   params.expires_at,
+      temporal:     params.temporal ?? false,
+      date_ref:     params.date_ref,
+      sensitivity:   params.sensitivity as SensitivityTier | undefined,
+      mentions:     1,
+      first_seen:   now,
+      entity_refs:  [],
+    };
+    if (await checkOllama()) mem.embedding = await embedText(params.content) ?? undefined;
+
+    // Auto-detect sensitivity tier if not provided
+    if (!mem.sensitivity) {
+      mem.sensitivity = inferSensitivityTier(mem);
+    }
+
+    // Extract and link entities
+    const entities = extractEntities(params.content);
+    for (const e of entities) {
+      const eid = upsertEntity(entityStore, e, mem.id, now);
+      mem.entity_refs.push(eid);
+    }
+
+    store.memories.push(mem);
+
+    // Check if a job chapter should be created for any work entity
+    for (const entity of entities.filter(e => e.subtype === "work")) {
+      const { should, sources } = shouldCreateJobChapter(store.memories, entity.canonical);
+      if (should) {
+        const frictionMems = store.memories.filter(m => sources.includes(m.id));
+        const chapter = buildJobChapter(entity.canonical, frictionMems, now);
+        store.memories.push(chapter);
+        bm25.add(chapter.id, memoryText(chapter));
+        tfidf.add(chapter.id, memoryText(chapter));
+      }
+    }
+    const text = memoryText(mem);
+    bm25.add(mem.id, text);
+    tfidf.add(mem.id, text);
+    await persist();
+
+    const entityNames = entities.map(e => e.canonical).join(", ");
+    return {
+      content: [{ type: "text", text: `Remembered [${mem.id.slice(0,8)}] (${mem.category}): "${mem.content}"${entityNames ? ` | entities: ${entityNames}` : ""}` }],
+      details: { action: "created", memory: mem, entities },
+    };
+  }
+
+  // ── Command: memory-wizard ─────────────────────────────────────────────────
+
+  registerMemoryWizardCommand(pi, async (params) => {
+    const result = await rememberStructuredMemory(params);
+    return { text: result.content[0]?.text ?? "Memory saved" };
+  });
+
   // ── Tool: remember ────────────────────────────────────────────────────────
 
   pi.registerTool({
@@ -1111,136 +1248,15 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       date_ref:     Type.Optional(Type.String({ description: "Date reference" })),
       expires_at:   Type.Optional(Type.Number({ description: "Expiry unix ms" })),
       confidence:   Type.Optional(Type.Number({ description: "Confidence 0-1" })),
+      sensitivity:   Type.Optional(Type.Union([
+        Type.Literal("baseline"), Type.Literal("general"),
+        Type.Literal("context_gated"), Type.Literal("temporal_gated"),
+      ], { description: "Injection sensitivity tier" })),
       expiry_tier:  Type.Optional(Type.String({ description: "How long to keep: '2d' (today), '7d' (this week), '30d' (this month), or omit for permanent" })),
     }),
 
     async execute(_id, params, _signal) {
-      await ensureLoaded();
-
-      // Resolve expires_at: expiry_tier takes precedence over raw expires_at
-      if (params.expiry_tier && ["2d","7d","30d"].includes(params.expiry_tier)) {
-        params.expires_at = tierToMs(params.expiry_tier as ExpiryTier);
-        if (!params.temporal) params.temporal = true;
-      }
-
-      // ── Adversarial protection ─────────────────────────────────────────────────────
-      // Reject prompt-injection attempts that try to rewrite how I behave rather
-      // than record facts about the user.
-      // Patterns: "you always", "you should", "remember that you", "you must",
-      //           "as an AI you", "your instructions", "ignore previous"
-      const adversarialPatterns = [
-        /\byou (always|should|must|will|are|have to|need to)\b/i,
-        /\bremember that you\b/i,
-        /\bas an ai\b/i,
-        /\bignore (previous|prior|your|all)\b/i,
-        /\byour (instructions|rules|guidelines|system prompt)\b/i,
-        /\bforget (everything|all|your|prior)\b/i,
-      ];
-      if (adversarialPatterns.some(p => p.test(params.content))) {
-        throw new Error(
-          `Rejected: this looks like a prompt injection attempt rather than a personal memory. ` +
-          `Memories should be facts about you, not instructions to me.`
-        );
-      }
-
-      // Deduplication check
-      const dup = await findDuplicate(params.content, params.category);
-      if (dup) {
-        // ── Reinforce existing memory ──
-        const now = Date.now();
-        dup.content    = params.content;
-        dup.updated_at = now;
-        dup.mentions   = (dup.mentions ?? 1) + 1;
-        if (params.tags?.length)     dup.tags = [...new Set([...dup.tags, ...params.tags])];
-        if (params.subcategory)      dup.subcategory = params.subcategory;
-        if (params.date_ref)         dup.date_ref = params.date_ref;
-        if (params.expires_at)       dup.expires_at = params.expires_at;
-        if (params.temporal != null) dup.temporal = params.temporal;
-        dup.confidence = params.confidence ?? 1.0;
-        if (await checkOllama()) dup.embedding = await embedText(params.content) ?? undefined;
-
-        // Check for promotion
-        const { promoted, note: promoNote } = checkPromotion(dup, now);
-
-        // Extract entities from updated content
-        const newEntities = extractEntities(params.content);
-        for (const e of newEntities) {
-          const eid = upsertEntity(entityStore, e, dup.id, now);
-          if (!dup.entity_refs.includes(eid)) dup.entity_refs.push(eid);
-        }
-
-        // Rebuild index entry
-        bm25.remove(dup.id);
-        tfidf.remove(dup.id);
-        const text = memoryText(dup);
-        bm25.add(dup.id, text);
-        tfidf.add(dup.id, text);
-        await persist();
-
-        const statusLine = promoted
-          ? `Reinforced + promoted [${dup.id.slice(0,8)}]: ${promoNote}`
-          : `Reinforced [${dup.id.slice(0,8)}] (×${dup.mentions}): "${dup.content}"`;
-        return {
-          content: [{ type: "text", text: statusLine }],
-          details: { action: promoted ? "promoted" : "reinforced", memory: dup, promoted },
-        };
-      }
-
-      // ── Create new memory ──
-      const now = Date.now();
-      const mem: Memory = {
-        id:           randomUUID(),
-        content:      params.content,
-        category:     params.category,
-        subcategory:  params.subcategory,
-        tags:         params.tags ?? [],
-        confidence:   params.confidence ?? 1.0,
-        created_at:   now,
-        updated_at:   now,
-        expires_at:   params.expires_at,
-        temporal:     params.temporal ?? false,
-        date_ref:     params.date_ref,
-        mentions:     1,
-        first_seen:   now,
-        entity_refs:  [],
-      };
-      if (await checkOllama()) mem.embedding = await embedText(params.content) ?? undefined;
-
-      // Auto-detect sensitivity tier if not provided
-      if (!mem.sensitivity) {
-        mem.sensitivity = inferSensitivityTier(mem);
-      }
-
-      // Extract and link entities
-      const entities = extractEntities(params.content);
-      for (const e of entities) {
-        const eid = upsertEntity(entityStore, e, mem.id, now);
-        mem.entity_refs.push(eid);
-      }
-
-      store.memories.push(mem);
-
-      // Check if a job chapter should be created for any work entity
-      for (const entity of entities.filter(e => e.subtype === "work")) {
-        const { should, sources } = shouldCreateJobChapter(store.memories, entity.canonical);
-        if (should) {
-          const frictionMems = store.memories.filter(m => sources.includes(m.id));
-          const chapter = buildJobChapter(entity.canonical, frictionMems, now);
-          store.memories.push(chapter);
-          bm25.add(chapter.id, memoryText(chapter));
-          tfidf.add(chapter.id, memoryText(chapter));
-        }
-      }
-      const text = memoryText(mem);
-      bm25.add(mem.id, text);
-      tfidf.add(mem.id, text);
-      await persist();
-
-      const entityNames = entities.map(e => e.canonical).join(", ");
-      return {
-        content: [{ type: "text", text: `Remembered [${mem.id.slice(0,8)}] (${mem.category}): "${mem.content}"${entityNames ? ` | entities: ${entityNames}` : ""}` }],
-        details: { action: "created", memory: mem, entities },
-      };
+      return rememberStructuredMemory(params as WizardRememberParams);
     },
   });
 
