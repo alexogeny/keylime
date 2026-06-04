@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { looksSideEffectfulBash, shouldCheckpointTool } from "../extensions/git-checkpoint";
+import { checkpointAddCommand, looksSideEffectfulBash, shouldCheckpointTool } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -25,5 +25,10 @@ describe("git checkpoint tool gating", () => {
     expect(looksSideEffectfulBash("ls -la")).toBe(false);
     expect(looksSideEffectfulBash("rg foo src")).toBe(false);
     expect(looksSideEffectfulBash("git status --short")).toBe(false);
+  });
+
+  test("checkpoint staging excludes pi usage logs", () => {
+    expect(checkpointAddCommand()).toContain("git add -A --");
+    expect(checkpointAddCommand()).toContain("':!.pi/usage/usage.ndjson'");
   });
 });
