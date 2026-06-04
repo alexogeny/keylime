@@ -423,13 +423,10 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
       "Much cheaper than reading files: use this first.",
       "Modes: auto (structural first, fall back to lexical), lexical (text match), structural (declarations only).",
     ].join(" "),
-    promptSnippet: "Search codebase for symbols, declarations, or text — token-efficient alternative to reading files",
+    promptSnippet: "Search code by symbol, declaration, or text",
     promptGuidelines: [
-      "Use code_search before reading files — it returns file:line context at a fraction of the token cost.",
-      "Use code_search mode='structural' to find where a function, class, or type is defined.",
-      "Use code_search mode='lexical' for text/string matches that aren't declarations.",
-      "Use code_search mode='auto' when unsure — it tries structural first then falls back.",
-      "Always prefer code_search over bash grep for source code navigation.",
+      "Use before reading files; returns file:line context, not full files.",
+      "mode='structural' for declarations; mode='lexical' for text; mode='auto' when unsure.",
     ],
     parameters: Type.Object({
       query: Type.String({

@@ -302,12 +302,8 @@ export function registerTools(pi: ExtensionAPI): void {
       "If the shoe ID already exists, a new variant is appended to it.",
       "If not, a new shoe entry is created. Writes to catalog/custom-data.json and regenerates catalog/custom.ts.",
     ].join(" "),
-    promptSnippet: "Add a shoe (or variant) to the catalog after a web search",
-    promptGuidelines: [
-      "Call add_shoe after a web search reveals specs for a shoe not in the catalog.",
-      "Use the shoe's canonical brand/model name and a kebab-case id (e.g. saucony-hurricane).",
-      "If the shoe model already exists in the custom catalog, supply the same id and a new version/year — it will be appended as a variant.",
-    ],
+    promptSnippet: "Add a shoe or variant",
+    promptGuidelines: ["Use after research finds specs missing from the catalog."],
     parameters: Type.Object({
       // Shoe-level fields (ignored if id already exists in custom catalog)
       id:          Type.String({ description: 'Kebab-case ID, e.g. "saucony-hurricane"' }),
@@ -423,10 +419,8 @@ export function registerTools(pi: ExtensionAPI): void {
       "'stability max cushion shoes under $170'.",
       "Combines text search + spec filtering in one call.",
     ].join(" "),
-    promptSnippet: "Natural-language shoe query: '8mm drop plateless 2025-2026 neutral daily trainer'",
-    promptGuidelines: [
-      "Use query_shoes for conversational shoe queries. It handles natural language directly without needing to specify each parameter separately.",
-    ],
+    promptSnippet: "Natural-language shoe query",
+    promptGuidelines: ["Use for conversational shoe searches."],
     parameters: Type.Object({
       query:   Type.String({ description: "Plain-English query describing the shoes you want" }),
       top_k:   Type.Optional(Type.Number({ description: "Max results (default 10)", minimum: 1, maximum: 30 })),

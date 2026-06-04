@@ -1097,8 +1097,8 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     name:        "remember",
     label:       "Remember",
     description: "Store a durable user memory with deduplication.",
-    promptSnippet: "Remember a user preference, fact, event, goal, skill, or context",
-    promptGuidelines: ["Use for durable preferences/facts/events/goals/project context."],
+    promptSnippet: "Store durable user memory",
+    promptGuidelines: ["Use for durable user preferences, facts, events, goals, or context."],
     parameters: Type.Object({
       content:      Type.String({ description: "Memory text" }),
       category:     Type.Union([
@@ -1250,8 +1250,8 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     name:        "recall_memories",
     label:       "Recall Memories",
     description: "Search user memories.",
-    promptSnippet: "Search persistent memories about the user by topic",
-    promptGuidelines: ["Use for specific user-context lookup."],
+    promptSnippet: "Search user memories",
+    promptGuidelines: ["Use for user-context lookup."],
     parameters: Type.Object({
       query:    Type.String({ description: "What to look up" }),
       top_k:    Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 20 })),
@@ -1309,10 +1309,8 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     name:        "update_memory",
     label:       "Update Memory",
     description: "Update a memory by id prefix.",
-    promptSnippet: "Correct or extend an existing memory by ID",
-    promptGuidelines: [
-      "Use update_memory when the user explicitly corrects something you remembered (e.g. 'actually I switched to pnpm') or provides an update to an existing fact.",
-    ],
+    promptSnippet: "Update memory by ID",
+    promptGuidelines: ["Use when the user corrects or updates remembered information."],
     parameters: Type.Object({
       id_prefix:   Type.String({ description: "First 8+ characters of the memory ID to update" }),
       content:     Type.Optional(Type.String({ description: "New content (if changing the text)" })),

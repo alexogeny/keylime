@@ -1,25 +1,18 @@
 /**
- * operational-modes — cycle through six working modes, each injecting
- * targeted instructions into the system prompt for that turn.
- *
- * Enforces discipline at the keystroke level: TDD mode won't let the agent
- * touch files before writing a failing test; PLAN mode blocks file edits
- * entirely; REVIEW locks to read-only analysis.
+ * operational-modes — cycle through working modes that add focused
+ * per-turn instructions to the system prompt.
  *
  * Shortcut:  Alt+M            — cycle forward through modes
  * Commands:  /mode [name]     — show current mode, or switch by name
  *            /modes           — list all modes with descriptions
  *
- * Note: Shift+Tab is reserved by pi for thinking-level cycling (app.thinking.cycle).
- *       Alt+M is used here instead.
- *
  * Modes (cycle order):
- *   CODE     — default, no extra constraints
- *   PLAN     — discuss and outline only, no file writes
- *   TDD      — write failing test first, show RED before GREEN
- *   REVIEW   — read-only analysis: correctness, security, principles
- *   REFACTOR — behaviour must not change; clean only
- *   ARCH     — data models, API design, ADRs
+ *   CONVERSATIONAL — discussion-first, avoid tools unless needed
+ *   CODE           — default coding assistance
+ *   RESEARCH       — evidence and source synthesis
+ *   PERSONAL       — personal support and continuity
+ *   TDD            — write failing test first, show RED before GREEN
+ *   REVIEW         — read-only analysis unless explicitly asked to edit
  *
  * Mode persists across compaction via session entries and is restored
  * on session_start / reload.

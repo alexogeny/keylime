@@ -234,11 +234,8 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
       "targeted web searches, and instructs the LLM to distill and persist results.",
       "Use this for thorough, multi-source research where comprehensiveness matters.",
     ].join(" "),
-    promptSnippet: "Fully orchestrated research combining memory recall and live web search",
-    promptGuidelines: [
-      "Use research_topic when the user asks for thorough or comprehensive research on a topic.",
-      "research_topic generates a step-by-step plan; follow it by calling recall_web_knowledge, web_search, and save_search_knowledge in sequence.",
-    ],
+    promptSnippet: "Plan multi-source research",
+    promptGuidelines: ["Use for thorough research; follow the returned plan with recall/search/save calls."],
     parameters: Type.Object({
       topic: Type.String({ description: "The topic or question to research thoroughly" }),
       depth: Type.Optional(stringEnum(["quick", "standard", "deep"] as const, {
