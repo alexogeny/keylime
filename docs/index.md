@@ -16,10 +16,10 @@ The short version: less prompt sludge, fewer unsafe shortcuts, more deliciously 
 
 ## Documentation
 
-- [Extensions](extensions.md) — runtime tools, safety guards, routing, memory, research, and domain extensions.
-- [Skills](skills.md) — reusable workflows invoked with `/skill:<name>`.
-- [Safety model](safety.md) — locked tools, safe mutation paths, checkpointing, and raw git policy.
-- [Agentic programming model](agentic-programming.md) — context/harness engineering principles behind Keylime.
+- [Extensions](extensions.html) — runtime tools, safety guards, routing, memory, research, and domain extensions.
+- [Skills](skills.html) — reusable workflows invoked with `/skill:<name>`.
+- [Safety model](safety.html) — locked tools, safe mutation paths, checkpointing, and raw git policy.
+- [Agentic programming model](agentic-programming.html) — context/harness engineering principles behind Keylime.
 
 ## Core workflow
 
