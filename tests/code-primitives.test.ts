@@ -163,6 +163,81 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).toContain("src/a.ts:1:7 needle");
   });
 
+  test("create_file creates a new file with parent dirs and final newline", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.create_file.execute("id", {
+      path: "src/new.ts",
+      content: "export const value = 1;",
+      create_dirs: true,
+    }, undefined, undefined, { cwd });
+
+    expect(await readFile(join(cwd, "src", "new.ts"), "utf8")).toBe("export const value = 1;\n");
+    expect(result.details.path).toBe("src/new.ts");
+    expect(result.details.bytes).toBeGreaterThan(0);
+    expect(result.content[0].text).toContain("Created src/new.ts");
+  });
+
+  test("create_file refuses to overwrite existing files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "existing.ts"), "old\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.create_file.execute("id", {
+      path: "existing.ts",
+      content: "new\n",
+    }, undefined, undefined, { cwd })).rejects.toThrow("File already exists");
+
+    expect(await readFile(join(cwd, "existing.ts"), "utf8")).toBe("old\n");
+  });
+
+  test("create_file skip mode does not overwrite existing files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "existing.ts"), "old\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.create_file.execute("id", {
+      path: "existing.ts",
+      content: "new\n",
+      if_exists: "skip",
+    }, undefined, undefined, { cwd });
+
+    expect(await readFile(join(cwd, "existing.ts"), "utf8")).toBe("old\n");
+    expect(result.details.skipped).toBe(true);
+  });
+
+  test("inspect_lines returns a bounded numbered line window", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "x.ts"), "one\ntwo\nthree\nfour\nfive\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.inspect_lines.execute("id", {
+      path: "x.ts",
+      start: 3,
+      context: 1,
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain("x.ts:2-4");
+    expect(result.content[0].text).toContain("2 | two");
+    expect(result.content[0].text).toContain("3 | three");
+    expect(result.content[0].text).toContain("4 | four");
+    expect(result.content[0].text).not.toContain("1 | one");
+  });
+
+  test("inspect_lines rejects overly large windows", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "x.ts"), "one\ntwo\nthree\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.inspect_lines.execute("id", {
+      path: "x.ts",
+      start: 1,
+      end: 100,
+      max_lines: 2,
+    }, undefined, undefined, { cwd })).rejects.toThrow("Requested line window exceeds max_lines");
+  });
+
   test("plan_code_replacements previews without writing files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await writeFile(join(cwd, "x.ts"), "alpha\n", "utf8");

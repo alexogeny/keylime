@@ -5,6 +5,7 @@ describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
     expect(shouldCheckpointTool("write", { path: "x" })).toBe(true);
     expect(shouldCheckpointTool("edit", { path: "x" })).toBe(true);
+    expect(shouldCheckpointTool("create_file", { path: "x" })).toBe(true);
     expect(shouldCheckpointTool("apply_code_replacements", { edits: [{ path: "x" }] })).toBe(true);
     expect(shouldCheckpointTool("apply_code_replacements", { dry_run: true, edits: [{ path: "x" }] })).toBe(false);
   });
