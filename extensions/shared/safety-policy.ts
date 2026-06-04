@@ -3,6 +3,29 @@ export type BashMutationHit = {
 };
 
 export type AutoCheckpointMode = "off" | "major" | "any";
+export type MutationSeverity = "none" | "low" | "medium" | "high" | "critical";
+export type MutationCategory =
+  | "readonly"
+  | "file_create"
+  | "file_replace"
+  | "directory_create"
+  | "shell_mutation"
+  | "runtime_eval"
+  | "git_mutation"
+  | "protected_path";
+
+export interface MutationClassification {
+  mutates: boolean;
+  category: MutationCategory;
+  severity: MutationSeverity;
+  score: number;
+  allowed: boolean;
+  requiresConfirmation: boolean;
+  checkpointScore: "none" | "minor" | "major";
+  reasons: string[];
+  matchedPolicies: string[];
+  writePaths: string[];
+}
 
 export const PROTECTED_WRITE_PATHS = [
   ".env", ".env.local", ".env.production", ".env.staging", ".env.secret",
@@ -68,16 +91,100 @@ export function runChecksCommandBlockReason(command: string, args: string[] = []
   return null;
 }
 
+function checkpointScore(score: number): "none" | "minor" | "major" {
+  if (score >= 8) return "major";
+  if (score > 0) return "minor";
+  return "none";
+}
+
+function severityForScore(score: number): MutationSeverity {
+  if (score >= 10) return "critical";
+  if (score >= 8) return "high";
+  if (score >= 3) return "medium";
+  if (score > 0) return "low";
+  return "none";
+}
+
+function bashCategory(label: string): MutationCategory {
+  if (/git mutation/i.test(label)) return "git_mutation";
+  if (/inline|command string|eval|runtime/i.test(label)) return "runtime_eval";
+  return "shell_mutation";
+}
+
+export function classifyToolMutation(toolName: string, input: any): MutationClassification {
+  const writePaths = writePathsForTool(toolName, input);
+  let score = 0;
+  let category: MutationCategory = "readonly";
+  const reasons: string[] = [];
+  const matchedPolicies: string[] = [];
+
+  if (["write", "edit"].includes(toolName)) {
+    score = 8;
+    category = "file_replace";
+    reasons.push(`${toolName} can mutate repository files directly`);
+    matchedPolicies.push("mutation.file-replacement");
+  } else if (toolName === "bash") {
+    const command = typeof input?.command === "string" ? input.command : "";
+    const hit = classifyBashMutation(command);
+    if (hit) {
+      score = 8;
+      category = bashCategory(hit.label);
+      reasons.push(hit.label);
+      matchedPolicies.push(category === "runtime_eval" ? "mutation.runtime-eval" : category === "git_mutation" ? "mutation.git-mutation" : "mutation.shell-mutation");
+    } else if (looksSideEffectfulBash(command)) {
+      score = 8;
+      category = "shell_mutation";
+      reasons.push("shell command may have side effects");
+      matchedPolicies.push("mutation.shell-mutation");
+    }
+  } else if (toolName === "create_directory") {
+    score = 1;
+    category = "directory_create";
+    reasons.push("directory creation");
+    matchedPolicies.push("mutation.file-create");
+  } else if (toolName === "create_file") {
+    score = 2;
+    category = "file_create";
+    reasons.push("file creation");
+    matchedPolicies.push("mutation.file-create");
+  } else if (toolName === "apply_code_replacements" && input?.dry_run !== true) {
+    category = "file_replace";
+    if (input?.language || input?.file_glob) {
+      score = 8;
+      reasons.push("broad replacement by language or glob");
+    } else {
+      const edits = Array.isArray(input?.edits) ? input.edits : [];
+      const paths = new Set(edits.map((edit: any) => edit?.path).filter(Boolean));
+      score = paths.size > 1 ? 8 : 3;
+      reasons.push(paths.size > 1 ? "replacement spans multiple files" : "targeted file replacement");
+    }
+    matchedPolicies.push("mutation.file-replacement");
+  }
+
+  const protectedPath = writePaths.some(path => PROTECTED_WRITE_PATHS.some(prefix => path === prefix || path.startsWith(prefix)));
+  if (protectedPath) {
+    score = Math.max(score, 10);
+    category = "protected_path";
+    reasons.push("writes protected path");
+    matchedPolicies.push("mutation.protected-path");
+  }
+
+  return {
+    mutates: score > 0,
+    category,
+    severity: severityForScore(score),
+    score,
+    allowed: category !== "protected_path",
+    requiresConfirmation: score >= 8,
+    checkpointScore: checkpointScore(score),
+    reasons,
+    matchedPolicies,
+    writePaths,
+  };
+}
+
 export function mutationScoreForTool(toolName: string, input: any): number {
-  if (["write", "edit"].includes(toolName)) return 8;
-  if (toolName === "bash") return looksSideEffectfulBash(typeof input?.command === "string" ? input.command : "") ? 8 : 0;
-  if (toolName === "create_directory") return 1;
-  if (toolName === "create_file") return 2;
-  if (toolName !== "apply_code_replacements" || input?.dry_run === true) return 0;
-  if (input?.language || input?.file_glob) return 8;
-  const edits = Array.isArray(input?.edits) ? input.edits : [];
-  const paths = new Set(edits.map((edit: any) => edit?.path).filter(Boolean));
-  return paths.size > 1 ? 8 : 3;
+  return classifyToolMutation(toolName, input).score;
 }
 
 export function autoCheckpointMode(value = process.env.KEYLIME_AUTO_CHECKPOINT): AutoCheckpointMode {

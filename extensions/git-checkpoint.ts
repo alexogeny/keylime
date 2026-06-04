@@ -14,7 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
-export { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
+export { autoCheckpointMode, classifyToolMutation, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
 const CHECKPOINT_EXCLUDED_PATHS = [".pi"];
 

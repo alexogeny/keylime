@@ -83,4 +83,4 @@ Danger guard prompts before writes to sensitive paths such as:
 
 ## Shared policy
 
-Safety classification lives in `extensions/shared/safety-policy.ts` so danger guards, checkpoints, and test runners do not drift.
+Safety classification lives in `extensions/shared/safety-policy.ts` so danger guards, checkpoints, and test runners do not drift. The shared `classifyToolMutation()` API returns category, severity, score, checkpoint level, write paths, matched policy ids, and allow/confirmation flags; legacy mutation scoring delegates to it for compatibility.

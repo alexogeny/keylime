@@ -2,12 +2,12 @@
 
 The extension stack is optimized around two shared layers:
 
-- `intent-router.ts` classifies each user prompt and activates only the relevant tool groups with `pi.setActiveTools()`.
+- `intent-router.ts` classifies each user prompt, uses policy-corpus evidence for observability and low-confidence routing assistance, and activates only the relevant tool groups with `pi.setActiveTools()`.
 - `turn-context-composer.ts` collects registered context providers and injects one capped per-turn reminder.
 
 Most domain tools are still registered by their own extensions, but the router keeps them out of the provider prompt unless the current intent needs them. Safe repository primitives are always available so intent routing cannot strand inspection or codemod work.
 
-`code-primitives.ts` adds repository-native helpers (`list_files`, `code_search`, `inspect_text_matches`, `inspect_lines`, `inspect_json`, `inspect_code_structure`, `plan_code_replacements`, `apply_code_replacements`, `create_file`, `create_directory`, `run_checks`, `commit_history`, `see_file_commit_history`, `inspect_at_checkpoint`) so repetitive TypeScript/Python/Rust edits do not need ad hoc shell or Python scripts. Replacement previews use compact unified diff hunks with ANSI color where supported, and inspection supports path, glob, language-scoped, and JSON-projection workflows. Built-in `bash`, `read`, `write`, and `edit` remain locked behind routing and safety guards.
+`code-primitives.ts` adds repository-native helpers (`list_files`, `code_search`, `inspect_text_matches`, `inspect_lines`, `inspect_json`, `inspect_code_structure`, `plan_code_replacements`, `apply_code_replacements`, `create_file`, `create_directory`, `run_checks`, `retrieve_policy`, `suggest_checks`, `codemod_plan`, `inspect_tool_result`, `commit_history`, `see_file_commit_history`, `inspect_at_checkpoint`) so repetitive TypeScript/Python/Rust edits do not need ad hoc shell or Python scripts. Replacement previews use compact unified diff hunks with ANSI color where supported, and inspection supports path, glob, language-scoped, and JSON-projection workflows. Built-in `bash`, `read`, `write`, and `edit` remain locked behind routing and safety guards.
 
 ## Environment flags
 
@@ -23,7 +23,8 @@ Defaults are conservative: research follows provider-key detection, auto-fetch i
 
 ## Useful commands
 
-- `/intent-status` — current route and active tools.
+- `/intent-status` — current route, policy evidence, and active tools.
+- `/agent-status` — current intent, active/locked tools, routing evidence, context, and tool-result compaction status.
 - `/context-providers` — registered turn-context providers.
 - `/cache-stats` — prompt-cache and context reduction stats.
 - `/ace-status` — adaptive policy status if enabled.

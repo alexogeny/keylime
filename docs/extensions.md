@@ -29,11 +29,12 @@ Always-on safe repository tools:
 - `see_file_commit_history`
 - `inspect_at_checkpoint`
 
-Routed or guarded tools include raw `bash`, built-in `read`, research tools, memory mutation tools, project planning tools, and domain-specific shoe tools.
+Routed or guarded tools include raw `bash`, built-in `read`, research tools, memory mutation tools, project planning tools, and domain-specific shoe tools. Safe policy/codemod/check helpers (`retrieve_policy`, `suggest_checks`, `codemod_plan`) and `inspect_tool_result` stay available with the core coding primitives.
 
 Commands:
 
 - `/intent-status` — show current route, policy evidence, and active tools.
+- `/agent-status` — show intent, active groups/tools, locked tools, policy evidence, context policy, and tool-result compaction status.
 - `/tool-policy` — show always-on, routed, locked, policy evidence, and active tools.
 - `/switch-intent programming|auto` — force or clear programming intent.
 
@@ -45,9 +46,9 @@ Collect registered context providers into one bounded `<system-reminder>` per tu
 
 Compacts oversized successful tool outputs before they enter the conversation history. Full payloads are stored under `.pi/tool-results/YYYY-MM-DD/`, while the model receives a short summary, preview, `result_id`, and the `inspect_tool_result` retrieval tool for explicit follow-up.
 
-### `shared/retrieval/` and `shared/policy-corpus.ts`
+### `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts`, and `policy-tools.ts`
 
-Reusable local retrieval core for BM25, TF-IDF cosine, JMLM query likelihood, hybrid ranking, and metadata-aware policy documents. Current consumers include web-knowledge recall, user-memory lexical retrieval, and intent-router policy evidence.
+Reusable local retrieval core for BM25, TF-IDF cosine, JMLM query likelihood, hybrid ranking, and metadata-aware policy documents. Current consumers include web-knowledge recall, user-memory lexical retrieval, intent-router policy evidence, low-confidence routing assistance, and the `retrieve_policy`, `suggest_checks`, and `codemod_plan` tools.
 
 ### `operational-modes.ts`
 

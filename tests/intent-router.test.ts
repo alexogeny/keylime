@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
 
 const allToolNames = [
-  "read", "bash", "edit", "write", "code_search", "list_files", "inspect_json", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks", "commit_history", "see_file_commit_history", "git_status", "git_diff", "inspect_at_checkpoint",
+  "read", "bash", "edit", "write", "code_search", "list_files", "inspect_json", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks", "retrieve_policy", "suggest_checks", "codemod_plan", "inspect_tool_result", "commit_history", "see_file_commit_history", "git_status", "git_diff", "inspect_at_checkpoint",
   "remember", "recall_memories", "recall_entity", "list_memories",
   "web_search", "research_topic", "fetch_url",
   "lookup_shoe", "query_shoes",
@@ -254,6 +254,22 @@ test("switch-intent programming forces coding tools until cleared", async () => 
   expect(routeForPrompt(mockPi, "tell me about the latest brooks ghost").primaryIntent).toBe("running_shoes");
 });
 
+test("policy-assisted routing upgrades low-confidence refactor phrasing", async () => {
+  const { routeForPrompt } = await import("../extensions/intent-router");
+  const calls: string[][] = [];
+  const mockPi = {
+    getAllTools: () => allToolNames.map(name => ({ name })),
+    getActiveTools: () => [],
+    setActiveTools: (names: string[]) => calls.push(names),
+  } as any;
+
+  const route = routeForPrompt(mockPi, "make this less gross without changing behavior");
+
+  expect(route.primaryIntent).toBe("refactor");
+  expect(calls.at(-1)).toContain("codemod_plan");
+  expect(calls.at(-1)).toContain("run_checks");
+});
+
 test("policy evidence ranks corpus docs for prompts without changing deterministic route", async () => {
   const { policyEvidenceForPrompt } = await import("../extensions/intent-router");
   const evidence = policyEvidenceForPrompt("refactor duplicate retrieval code and run checks");
@@ -272,6 +288,10 @@ test("coding route exposes codemod primitives", () => {
   expect(tools).toContain("create_file");
   expect(tools).toContain("create_directory");
   expect(tools).toContain("run_checks");
+  expect(tools).toContain("retrieve_policy");
+  expect(tools).toContain("suggest_checks");
+  expect(tools).toContain("codemod_plan");
+  expect(tools).toContain("inspect_tool_result");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("write");
 });
@@ -303,6 +323,31 @@ test("review mode keeps always-on code primitives but removes unrelated domain t
   expect(tools).not.toContain("web_search");
 });
 
+test("agent-status command reports route, policy evidence, context, and compaction", async () => {
+  const { default: intentRouterExtension, routeForPrompt } = await import("../extensions/intent-router");
+  const commands: Record<string, any> = {};
+  let notification = "";
+  const mockPi = {
+    getAllTools: () => allToolNames.map(name => ({ name })),
+    getActiveTools: () => ["code_search", "retrieve_policy", "inspect_tool_result"],
+    setActiveTools: () => {},
+    on: () => {},
+    registerCommand: (name: string, command: any) => { commands[name] = command; },
+  } as any;
+  intentRouterExtension(mockPi);
+  routeForPrompt(mockPi, "refactor retrieval and compact tool results");
+
+  await commands["agent-status"].handler("", {
+    ui: { notify: (text: string) => { notification = text; } },
+  });
+
+  expect(notification).toContain("Agent Status");
+  expect(notification).toContain("intent:");
+  expect(notification).toContain("policy evidence:");
+  expect(notification).toContain("turn-context composer");
+  expect(notification).toContain("tool results: oversized successful results are compacted");
+});
+
 test("tool-policy command reports always-on and locked tools", async () => {
   const { default: intentRouterExtension } = await import("../extensions/intent-router");
   const commands: Record<string, any> = {};
@@ -321,6 +366,9 @@ test("tool-policy command reports always-on and locked tools", async () => {
 
   expect(notification).toContain("always-on code tools");
   expect(notification).toContain("create_directory");
+  expect(notification).toContain("retrieve_policy");
+  expect(notification).toContain("codemod_plan");
+  expect(notification).toContain("inspect_tool_result");
   expect(notification).toContain("locked built-ins");
   expect(notification).toContain("policy evidence:");
 });

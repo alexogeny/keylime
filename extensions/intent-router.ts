@@ -36,6 +36,10 @@ const ALWAYS_ON_CODE_TOOLS = [
   "create_file",
   "create_directory",
   "run_checks",
+  "retrieve_policy",
+  "suggest_checks",
+  "codemod_plan",
+  "inspect_tool_result",
   "commit_history",
   "see_file_commit_history",
   "git_status",
@@ -79,6 +83,10 @@ const DOMAIN_TOOLS = new Set([
   "create_file",
   "create_directory",
   "run_checks",
+  "retrieve_policy",
+  "suggest_checks",
+  "codemod_plan",
+  "inspect_tool_result",
   "commit_history",
   "see_file_commit_history",
   "git_status",
@@ -185,9 +193,19 @@ export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute): void {
   pi.setActiveTools(next);
 }
 
+function policyAssistedRoute(prompt: string, route: IntentRoute, evidence: Array<{ id: string; score: number; kind?: string }>): IntentRoute {
+  if (route.primaryIntent !== "chat" || route.confidence > 0.25) return route;
+  const topRouting = evidence.find(item => item.kind === "routing" && item.score >= 0.45);
+  if (!topRouting) return route;
+  if (topRouting.id === "routing.refactor") return routeForIntent(`refactor code cleanup preserve behavior ${prompt}`);
+  if (topRouting.id === "routing.debug") return routeForIntent(`debug failing test error ${prompt}`);
+  if (topRouting.id === "routing.agentic-audit") return routeForIntent(`review agentic programming harness ${prompt}`);
+  return route;
+}
+
 export function routeForPrompt(pi: ExtensionAPI, prompt: string): IntentRoute {
-  const route = routeForIntent(prompt);
   lastPolicyEvidence = policyEvidenceForPrompt(prompt);
+  const route = policyAssistedRoute(prompt, routeForIntent(prompt), lastPolicyEvidence);
   setCurrentRoute(route);
   applyRouteTools(pi, route);
   return route;
@@ -307,6 +325,24 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
         `  shoes enabled: ${shoesEnabled() ? "yes" : "no"}`,
         `  policy evidence: ${lastPolicyEvidence.map(e => `${e.id}=${e.score.toFixed(2)}`).join(", ") || "none"}`,
         `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
+      ].join("\n"), "info");
+    },
+  });
+
+  pi.registerCommand("agent-status", {
+    description: "Show current intent, active/locked tools, routing evidence, and context/tool-result policy",
+    handler: async (_args, ctx) => {
+      const route = getCurrentRoute();
+      const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
+      ctx.ui.notify([
+        "Agent Status",
+        `  intent: ${route.primaryIntent} (${Math.round(route.confidence * 100)}%)`,
+        `  active groups: ${activeGroups.join(", ") || "none"}`,
+        `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
+        `  locked tools: read, write, edit; bash mutation guarded`,
+        `  policy evidence: ${lastPolicyEvidence.map(e => `${e.id}=${e.score.toFixed(2)}`).join(", ") || "none"}`,
+        "  context: turn-context composer enabled; repo-index injects compact skeleton when available",
+        "  tool results: oversized successful results are compacted to .pi/tool-results and retrievable by inspect_tool_result",
       ].join("\n"), "info");
     },
   });
