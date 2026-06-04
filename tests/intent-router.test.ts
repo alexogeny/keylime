@@ -150,6 +150,55 @@ describe("routeForPrompt", () => {
   });
 });
 
+describe("context rerouting", () => {
+  test("context pass can shift tool visibility based on the latest user prompt", async () => {
+    const { default: intentRouterExtension } = await import("../extensions/intent-router");
+    const handlers: Record<string, any> = {};
+    let active = ["read", "edit", "code_search", "custom_safe_tool"];
+    const calls: string[][] = [];
+    const mockPi = {
+      getAllTools: () => allToolNames.map(name => ({ name })),
+      getActiveTools: () => active.map(name => ({ name })),
+      setActiveTools: (names: string[]) => { active = names; calls.push(names); },
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerCommand: () => {},
+    } as any;
+    const ctx = {
+      ui: { setStatus: () => {}, theme: { fg: (_style: string, text: string) => text } },
+    };
+
+    intentRouterExtension(mockPi);
+    await handlers.context({ messages: [{ role: "user", content: "research the latest on cold water immersion" }] }, ctx);
+
+    expect(calls.at(-1)).toContain("web_search");
+    expect(calls.at(-1)).toContain("research_topic");
+    expect(calls.at(-1)).not.toContain("edit");
+  });
+
+  test("context pass does not reset tools when the active schema set is already correct", async () => {
+    const { default: intentRouterExtension } = await import("../extensions/intent-router");
+    const handlers: Record<string, any> = {};
+    const active = activeToolNames(pi(["custom_safe_tool"]), ["core", "repo", "coding", "project", "safety", "memory-lite"]);
+    const calls: string[][] = [];
+    const mockPi = {
+      getAllTools: () => allToolNames.map(name => ({ name })),
+      getActiveTools: () => active.map(name => ({ name })),
+      setActiveTools: (names: string[]) => calls.push(names),
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerCommand: () => {},
+    } as any;
+    const ctx = {
+      ui: { setStatus: () => {}, theme: { fg: (_style: string, text: string) => text } },
+    };
+
+    intentRouterExtension(mockPi);
+    await handlers.context({ messages: [{ role: "user", content: "implement code change" }] }, ctx);
+    await handlers.context({ messages: [{ role: "user", content: "implement code change" }] }, ctx);
+
+    expect(calls).toHaveLength(0);
+  });
+});
+
 test("switch-intent programming forces coding tools until cleared", async () => {
   const { default: intentRouterExtension, routeForPrompt } = await import("../extensions/intent-router");
   const commands: Record<string, any> = {};
