@@ -1321,6 +1321,11 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     };
   }
 
+  async function currentProfile(): Promise<ProfilePatch> {
+    await ensureLoaded();
+    return store.profile as ProfilePatch;
+  }
+
   async function updateProfile(patch: ProfilePatch): Promise<{ text: string }> {
     await ensureLoaded();
     for (const [section, fields] of Object.entries(patch)) {
@@ -1336,7 +1341,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   registerMemoryWizardCommand(pi, updateProfile, async (params) => {
     const result = await rememberStructuredMemory(params);
     return { text: result.content[0]?.text ?? "Memory saved" };
-  });
+  }, currentProfile);
 
   // ── Tool: remember ────────────────────────────────────────────────────────
 

@@ -178,6 +178,26 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).toContain("truncated");
   });
 
+  test("inspect_json can explicitly inspect read-only JSON outside cwd", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    const cwd = join(parent, "repo");
+    await mkdir(cwd);
+    const outside = join(parent, "outside.json");
+    await writeFile(outside, JSON.stringify({ ok: true, nested: { value: 42 } }), "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.inspect_json.execute("id", { path: outside }, undefined, undefined, { cwd })).rejects.toThrow("outside cwd");
+
+    const result = await tools.inspect_json.execute("id", {
+      path: outside,
+      json_path: "nested.value",
+      allow_outside_cwd: true,
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain("42");
+    expect(result.details.path).toBe("../outside.json");
+  });
+
   test("apply_code_replacements uses colored diff previews", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await writeFile(join(cwd, "x.ts"), "const value = 1;\n", "utf8");

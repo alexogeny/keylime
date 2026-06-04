@@ -525,6 +525,27 @@ export function buildProfileFactDrafts(values: ProfileFactValues): MemoryWizardD
     }));
 }
 
+export function profilePatchToFactValues(profile: ProfilePatch | undefined): ProfileFactValues {
+  const values: ProfileFactValues = {};
+  if (!profile) return values;
+
+  for (const field of PROFILE_FACT_FIELDS) {
+    const stored = profile[field.section]?.[field.id];
+    if (stored == null) continue;
+    if (typeof stored === "object") {
+      values[field.id] = String(stored.value);
+      if (stored.unit) values[unitKey(field)] = stored.unit;
+      if (stored.measured_at && field.includeMeasurementTime && !values.measurement_datetime) {
+        values.measurement_datetime = stored.measured_at;
+      }
+    } else {
+      values[field.id] = String(stored);
+    }
+  }
+
+  return values;
+}
+
 export function buildProfilePatch(values: ProfileFactValues): ProfilePatch {
   const clean = cleanProfileFactValues(values);
   const errors = validateProfileFactValues(clean);
@@ -750,12 +771,12 @@ async function editProfileFactSection(ctx: any, section: ProfileFactSection, val
   return editProfileFactSection(ctx, section, values);
 }
 
-async function runStructuredProfileFactFlow(ctx: any, save: (patch: ProfilePatch) => Promise<{ text: string }>) {
-  let values: ProfileFactValues = {};
+async function runStructuredProfileFactFlow(ctx: any, save: (patch: ProfilePatch) => Promise<{ text: string }>, loadProfile?: () => Promise<ProfilePatch>) {
+  let values: ProfileFactValues = profilePatchToFactValues(loadProfile ? await loadProfile() : undefined);
 
   while (true) {
     const choice = await ctx.ui.select(
-      "Structured facts: choose a category. Percentages show how much of that section you have filled in this session.",
+      "Structured facts: choose a category. Percentages include currently stored profile fields.",
       sectionMenuLabels(values),
     );
 
@@ -932,6 +953,7 @@ export function registerMemoryWizardCommand(
   pi: ExtensionAPI,
   saveProfile: (patch: ProfilePatch) => Promise<{ text: string }>,
   saveMemory?: (params: RememberParams) => Promise<{ text: string }>,
+  loadProfile?: () => Promise<ProfilePatch>,
 ) {
   pi.registerCommand("memory-wizard", {
     description: "Interactively edit structured profile, timeline history, or freeform memories",
@@ -939,7 +961,7 @@ export function registerMemoryWizardCommand(
       const mode = await ctx.ui.select("Memory wizard mode", ["structured profile facts", "timeline / history entry", "freeform memory"]);
       if (mode === "timeline / history entry" && saveMemory) return runTimelineMemoryFlow(ctx, saveMemory);
       if (mode === "freeform memory" && saveMemory) return runFreeformMemoryFlow(ctx, saveMemory);
-      return runStructuredProfileFactFlow(ctx, saveProfile);
+      return runStructuredProfileFactFlow(ctx, saveProfile, loadProfile);
     },
   });
 }

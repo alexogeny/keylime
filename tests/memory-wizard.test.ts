@@ -11,6 +11,7 @@ import {
   buildProfilePatch,
   convertedUnitHint,
   previewProfilePatch,
+  profilePatchToFactValues,
   sectionCompleteness,
   fitTuiLine,
   convertTimelineDraftToRememberParams,
@@ -194,6 +195,21 @@ describe("structured profile facts", () => {
   test("truncates wizard lines to the terminal render width", () => {
     const line = `Coffee temperature: ${"either ".repeat(40)}`;
     expect(fitTuiLine(line, 20).length).toBeLessThanOrEqual(19);
+  });
+
+  test("hydrates stored profile facts back into wizard form values", () => {
+    const values = profilePatchToFactValues({
+      identity: { preferred_name: "Andie" },
+      body: { height: { value: 158, unit: "cm" }, shoe_size: "AU 8" },
+      mental: { communication_style: "direct" },
+    });
+
+    expect(values.preferred_name).toBe("Andie");
+    expect(values.height).toBe("158");
+    expect(values.height__unit).toBe("cm");
+    expect(values.shoe_size).toBe("AU 8");
+    expect(sectionCompleteness(values, "identity")).toBeGreaterThan(0);
+    expect(buildProfilePatch(values).body.height).toEqual({ value: 158, unit: "cm", measured_at: undefined });
   });
 
   test("builds canonical structured profile patches without text memory rows", () => {

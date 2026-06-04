@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, relative } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import {
   formatPlanPreview,
   inspectCodeStructure,
@@ -260,12 +260,13 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "inspect_json",
     label: "Inspect JSON",
-    description: "Inspect/project a JSON file safely. Supports simple dot paths, array indexes, wildcard array projection, omitted keys, and output caps.",
+    description: "Inspect/project a JSON file safely. Supports simple dot paths, array indexes, wildcard array projection, omitted keys, output caps, and explicit read-only absolute-path inspection outside cwd.",
     promptSnippet: "Inspect/query JSON",
     promptGuidelines: [
       "Use instead of jq, cat, or read when inspecting JSON files.",
       "Use json_path to project small subtrees and omit_keys for bulky fields like embeddings.",
       "Keep max_chars bounded; ask for a narrower json_path if output is truncated.",
+      "Set allow_outside_cwd=true only when the user explicitly asks to inspect a read-only JSON file outside the repository.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
@@ -273,9 +274,12 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       json_path: Type.Optional(Type.String({ description: "Simple path, e.g. profile.body or memories[0].content or memories.* via memories[*]" })),
       omit_keys: Type.Optional(Type.Array(Type.String(), { description: "Keys to omit recursively" })),
       max_chars: Type.Optional(Type.Number({ description: "Output character cap" })),
+      allow_outside_cwd: Type.Optional(Type.Boolean({ description: "Allow read-only inspection of absolute/outside-cwd JSON paths only when explicitly requested" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = params.allow_outside_cwd
+        ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
+        : resolveSafePath(ctx.cwd, params.path);
       const raw = await readTextFileSafely(path);
       const parsed = JSON.parse(raw);
       const projected = inspectJsonValue(parsed, params.json_path);
