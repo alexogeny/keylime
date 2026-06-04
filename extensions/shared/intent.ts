@@ -265,7 +265,7 @@ export function classifyIntent(prompt: string): IntentRoute {
   const suggestedSkills = uniq(matched.flatMap(s => s.profile.skills));
   const scores = Object.fromEntries(scored.filter(s => s.score > 0).map(s => [s.profile.id, s.score])) as Partial<Record<IntentId, number>>;
 
-  if (matched.length === 0) {
+  if (matched.length === 0 && !temporal.explicitResearchRequested) {
     return {
       primaryIntent: "chat",
       secondaryIntents: [],
