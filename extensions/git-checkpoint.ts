@@ -84,11 +84,15 @@ export function looksSideEffectfulBash(command: string): boolean {
 }
 
 export function shouldCheckpointTool(toolName: string, input: any): boolean {
-  if (["write", "edit", "create_file"].includes(toolName)) return true;
+  if (["write", "edit", "create_file", "create_directory"].includes(toolName)) return true;
   if (toolName === "apply_code_replacements") return input?.dry_run !== true;
   if (toolName !== "bash") return false;
   const command = typeof input?.command === "string" ? input.command : "";
   return looksSideEffectfulBash(command);
+}
+
+export function shouldAutoCheckpointTool(toolName: string, input: any, alreadyCheckpointedForInput: boolean): boolean {
+  return !alreadyCheckpointedForInput && shouldCheckpointTool(toolName, input);
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -96,6 +100,7 @@ export function shouldCheckpointTool(toolName: string, input: any): boolean {
 export default function (pi: ExtensionAPI) {
   // Track the most recent checkpoint in memory (also in session for danger-guard)
   let latestCheckpoint: Checkpoint | null = null;
+  let checkpointedForCurrentInput = false;
 
   function recordCheckpoint(cp: Checkpoint, ctx: any): void {
     latestCheckpoint = cp;
@@ -106,10 +111,16 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setStatus("checkpoint", label);
   }
 
-  // ── Auto-checkpoint before side-effectful tools ─────────────────────────
+  // ── Auto-checkpoint before the first side-effectful tool per user input ──
+
+  pi.on("input", async () => {
+    checkpointedForCurrentInput = false;
+  });
 
   pi.on("tool_call", async (event: any, ctx) => {
-    if (!shouldCheckpointTool(event.toolName, event.input)) return;
+    if (!shouldAutoCheckpointTool(event.toolName, event.input, checkpointedForCurrentInput)) return;
+    checkpointedForCurrentInput = true;
+
     const cwd = ctx.cwd;
     if (!isGitRepo(cwd) || !hasChanges(cwd)) return;
 
