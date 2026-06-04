@@ -79,4 +79,29 @@ describe("danger guard coding-mode hard enforcement", () => {
     expect(result.reason).toContain("coding mode blocks bash file mutation");
     expect(confirmCalls).toBe(0);
   });
+
+  test("extension blocks built-in read/write/edit in coding mode without confirmation", async () => {
+    setCodingMode();
+    const handlers: Record<string, any> = {};
+    let confirmCalls = 0;
+    dangerGuardExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerCommand: () => {},
+    } as any);
+
+    for (const toolName of ["read", "write", "edit"]) {
+      const result = await handlers.tool_call(
+        { toolName, input: { path: "src/a.ts" } },
+        {
+          ui: { confirm: async () => { confirmCalls += 1; return true; } },
+          sessionManager: { getEntries: () => [] },
+        },
+      );
+
+      expect(result.block).toBe(true);
+      expect(result.reason).toContain(`coding mode blocks built-in ${toolName}`);
+    }
+
+    expect(confirmCalls).toBe(0);
+  });
 });
