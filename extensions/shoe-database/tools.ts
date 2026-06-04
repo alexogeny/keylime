@@ -4,7 +4,6 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { allVariants, textSearch, applyFilter, formatHit, formatDiff, ALL_SHOES, parseNaturalQuery, type Gender } from "./search.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -14,6 +13,10 @@ import type { Shoe, ShoeVariant } from "./types.js";
 const __dir = dirname(fileURLToPath(import.meta.url));
 const CUSTOM_JSON = join(__dir, "catalog", "custom-data.json");
 const CUSTOM_TS   = join(__dir, "catalog", "custom.ts");
+
+function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
+  return Type.Union(values.map(value => Type.Literal(value)), options);
+}
 
 // ── custom catalog helpers ───────────────────────────────────────────────────
 
@@ -75,7 +78,7 @@ export function registerTools(pi: ExtensionAPI): void {
       query:  Type.String({ description: 'Query' }),
       top_k:  Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 20 })),
       detail: Type.Optional(Type.Boolean({ description: "Details" })),
-      gender: Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Gender" })),
+      gender: Type.Optional(stringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
     async execute(_id, params) {
       const gender = params.gender as Gender | undefined;
@@ -101,8 +104,8 @@ export function registerTools(pi: ExtensionAPI): void {
         description: "Natural query",
       })),
       brand:            Type.Optional(Type.String({ description: "Brand" })),
-      category:         Type.Optional(StringEnum(["neutral", "stability", "motion-control"] as const, { description: "Category" })),
-      cushion:          Type.Optional(StringEnum(["minimal", "low", "moderate", "high", "max"] as const, { description: "Cushion" })),
+      category:         Type.Optional(stringEnum(["neutral", "stability", "motion-control"] as const, { description: "Category" })),
+      cushion:          Type.Optional(stringEnum(["minimal", "low", "moderate", "high", "max"] as const, { description: "Cushion" })),
       drop:             Type.Optional(Type.Number({ description: "Drop mm" })),
       min_drop:         Type.Optional(Type.Number({ description: "Min drop" })),
       max_drop:         Type.Optional(Type.Number({ description: "Max drop" })),
@@ -118,9 +121,9 @@ export function registerTools(pi: ExtensionAPI): void {
       plate_required:   Type.Optional(Type.Boolean({ description: "Require plate" })),
       plate_material:   Type.Optional(Type.String({ description: "carbon | nylon | fiberglass | carbon-composite | air" })),
       rocker:           Type.Optional(Type.Boolean({ description: "Rocker" })),
-      sort_by:          Type.Optional(StringEnum(["year", "drop", "stack", "weight", "price"] as const, { description: "Sort" })),
+      sort_by:          Type.Optional(stringEnum(["year", "drop", "stack", "weight", "price"] as const, { description: "Sort" })),
       detail:           Type.Optional(Type.Boolean({ description: "Details" })),
-      gender:           Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Gender" })),
+      gender:           Type.Optional(stringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
 
     async execute(_id, params) {
@@ -310,8 +313,8 @@ export function registerTools(pi: ExtensionAPI): void {
       id:          Type.String({ description: 'Kebab-case ID, e.g. "saucony-hurricane"' }),
       brand:       Type.String({ description: 'Brand name, e.g. "Saucony"' }),
       model:       Type.String({ description: 'Model name, e.g. "Hurricane"' }),
-      category:    StringEnum(["neutral", "stability", "motion-control"] as const),
-      cushion:     StringEnum(["minimal", "low", "moderate", "high", "max"] as const),
+      category:    stringEnum(["neutral", "stability", "motion-control"] as const),
+      cushion:     stringEnum(["minimal", "low", "moderate", "high", "max"] as const),
       // Variant fields
       version:     Type.String({ description: 'Version string, e.g. "25"' }),
       year:        Type.Number({ description: "Release year" }),
@@ -323,13 +326,13 @@ export function registerTools(pi: ExtensionAPI): void {
       msrp:        Type.Number({ description: "MSRP in USD" }),
       foam:        Type.String({ description: "Midsole foam name/description" }),
       platePresent: Type.Boolean({ description: "Whether a plate is present" }),
-      plateMaterial: Type.Optional(StringEnum(["carbon", "nylon", "fiberglass", "carbon-composite", "tpu", "air"] as const)),
+      plateMaterial: Type.Optional(stringEnum(["carbon", "nylon", "fiberglass", "carbon-composite", "tpu", "air"] as const)),
       plateDescription: Type.Optional(Type.String({ description: 'e.g. "full-length carbon plate"' })),
-      surfaces:    Type.Array(StringEnum(["road", "trail", "track", "treadmill"] as const)),
+      surfaces:    Type.Array(stringEnum(["road", "trail", "track", "treadmill"] as const)),
       rocker:      Type.Boolean(),
       widths:      Type.Optional(Type.Array(Type.String({ description: 'e.g. "B", "D", "2E", "4E"' }))),
       features:    Type.Array(Type.String()),
-      useCases:    Type.Array(StringEnum(["daily-trainer", "long-run", "tempo", "race", "recovery", "trail", "walking", "track"] as const)),
+      useCases:    Type.Array(stringEnum(["daily-trainer", "long-run", "tempo", "race", "recovery", "trail", "walking", "track"] as const)),
       notes:       Type.String(),
       womensWeightGrams: Type.Optional(Type.Number({ description: "Women's weight in grams if different" })),
       womensRefSize:     Type.Optional(Type.String({ description: "Women's reference size" })),
@@ -428,8 +431,8 @@ export function registerTools(pi: ExtensionAPI): void {
       query:   Type.String({ description: "Plain-English query describing the shoes you want" }),
       top_k:   Type.Optional(Type.Number({ description: "Max results (default 10)", minimum: 1, maximum: 30 })),
       detail:  Type.Optional(Type.Boolean({ description: "Include notes" })),
-      sort_by: Type.Optional(StringEnum(["relevance", "year", "drop", "stack", "weight", "price"] as const, { description: "Sort" })),
-      gender:  Type.Optional(StringEnum(["mens", "womens"] as const, { description: "Gender" })),
+      sort_by: Type.Optional(stringEnum(["relevance", "year", "drop", "stack", "weight", "price"] as const, { description: "Sort" })),
+      gender:  Type.Optional(stringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
 
     async execute(_id, params) {

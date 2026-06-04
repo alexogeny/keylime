@@ -2,7 +2,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { relative } from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
 import {
   formatPlanPreview,
   inspectCodeStructure,
@@ -17,6 +16,10 @@ import {
   type Language,
   type ReplacementEdit,
 } from "./shared/code-primitives";
+
+function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
+  return Type.Union(values.map(value => Type.Literal(value)), options);
+}
 
 async function readTextFileSafely(path: string): Promise<string> {
   const info = await stat(path);
@@ -61,7 +64,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "File path" })),
       file_glob: Type.Optional(Type.String({ description: "Target glob" })),
-      language: Type.Optional(StringEnum(["typescript", "javascript", "python", "rust"] as const)),
+      language: Type.Optional(stringEnum(["typescript", "javascript", "python", "rust"] as const)),
       exclude_globs: Type.Optional(Type.Array(Type.String(), { description: "Extra excludes" })),
       query: Type.String({ description: "Text or regex" }),
       regex: Type.Optional(Type.Boolean({ description: "Regex mode" })),
@@ -116,7 +119,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use for quick structure checks before codemods."],
     parameters: Type.Object({
       path: Type.String({ description: "File path" }),
-      language: StringEnum(["typescript", "javascript", "python", "rust"] as const),
+      language: stringEnum(["typescript", "javascript", "python", "rust"] as const),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const path = resolveSafePath(ctx.cwd, params.path);
@@ -140,7 +143,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use before apply_code_replacements for broad edits."],
     parameters: Type.Object({
       file_glob: Type.Optional(Type.String({ description: "Target glob" })),
-      language: Type.Optional(StringEnum(["typescript", "javascript", "python", "rust"] as const)),
+      language: Type.Optional(stringEnum(["typescript", "javascript", "python", "rust"] as const)),
       exclude_globs: Type.Optional(Type.Array(Type.String(), { description: "Extra excludes" })),
       edits: Type.Array(Type.Object({
         path: Type.Optional(Type.String({ description: "File path" })),
@@ -149,7 +152,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         flags: Type.Optional(Type.String({ description: "Regex flags" })),
         newText: Type.String({ description: "Replacement text" }),
         replaceAll: Type.Optional(Type.Boolean({ description: "Replace all matches" })),
-        matchMode: Type.Optional(StringEnum(["exact", "trimmed_lines", "normalized_whitespace"] as const)),
+        matchMode: Type.Optional(stringEnum(["exact", "trimmed_lines", "normalized_whitespace"] as const)),
         expectedReplacements: Type.Optional(Type.Number({ description: "Expected replacements" })),
         minReplacements: Type.Optional(Type.Number({ description: "Minimum replacements" })),
         maxReplacements: Type.Optional(Type.Number({ description: "Maximum replacements" })),
@@ -194,7 +197,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     parameters: Type.Object({
       dry_run: Type.Optional(Type.Boolean({ description: "Preview only" })),
       file_glob: Type.Optional(Type.String({ description: "Target glob" })),
-      language: Type.Optional(StringEnum(["typescript", "javascript", "python", "rust"] as const)),
+      language: Type.Optional(stringEnum(["typescript", "javascript", "python", "rust"] as const)),
       exclude_globs: Type.Optional(Type.Array(Type.String(), { description: "Extra excludes" })),
       edits: Type.Array(Type.Object({
         path: Type.Optional(Type.String({ description: "File path" })),
@@ -203,7 +206,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         flags: Type.Optional(Type.String({ description: "Regex flags" })),
         newText: Type.String({ description: "Replacement text" }),
         replaceAll: Type.Optional(Type.Boolean({ description: "Replace all matches" })),
-        matchMode: Type.Optional(StringEnum(["exact", "trimmed_lines", "normalized_whitespace"] as const)),
+        matchMode: Type.Optional(stringEnum(["exact", "trimmed_lines", "normalized_whitespace"] as const)),
         expectedReplacements: Type.Optional(Type.Number({ description: "Expected replacements" })),
         minReplacements: Type.Optional(Type.Number({ description: "Minimum replacements" })),
         maxReplacements: Type.Optional(Type.Number({ description: "Maximum replacements" })),
