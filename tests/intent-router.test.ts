@@ -114,3 +114,12 @@ test("coding route exposes codemod primitives", () => {
   expect(tools).toContain("inspect_text_matches");
   expect(tools).toContain("apply_code_replacements");
 });
+
+test("coding reminders mention git checkpoint safety", async () => {
+  const { classifyIntent, setCurrentRoute } = await import("../extensions/shared/intent");
+  const { reminderText } = await import("../extensions/intent-router");
+
+  setCurrentRoute(classifyIntent("please implement this change"));
+
+  expect(reminderText()).toContain("Git checkpoints handle rollback safety");
+});
