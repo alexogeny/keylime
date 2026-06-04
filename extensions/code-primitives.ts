@@ -1,8 +1,23 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { inspectTextMatches, planReplacement, summarizePlan, type ReplacementEdit } from "./shared/code-primitives";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import {
+  formatPlanPreview,
+  inspectTextMatches,
+  isProbablyBinary,
+  planReplacement,
+  resolveSafePath,
+  summarizePlan,
+  type ReplacementEdit,
+} from "./shared/code-primitives";
+
+async function readTextFileSafely(path: string): Promise<string> {
+  const info = await stat(path);
+  if (!info.isFile()) throw new Error(`Not a file: ${path}`);
+  const buffer = await readFile(path);
+  if (isProbablyBinary(buffer)) throw new Error(`Refusing to read probable binary file: ${path}`);
+  return buffer.toString("utf8");
+}
 
 export default function codePrimitivesExtension(pi: ExtensionAPI) {
   pi.registerTool({
@@ -20,8 +35,8 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       max_matches: Type.Optional(Type.Number({ description: "Max matches" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolve(ctx.cwd, params.path);
-      const text = await readFile(path, "utf8");
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const text = await readTextFileSafely(path);
       const matches = inspectTextMatches(text, {
         query: params.query,
         regex: params.regex,
@@ -66,9 +81,9 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const plans = [];
 
       for (const rawEdit of params.edits as ReplacementEdit[]) {
-        const path = resolve(ctx.cwd, rawEdit.path);
+        const path = resolveSafePath(ctx.cwd, rawEdit.path);
         const edit = { ...rawEdit, path };
-        const before = await readFile(path, "utf8");
+        const before = await readTextFileSafely(path);
         plans.push(planReplacement(before, edit));
       }
 
@@ -78,10 +93,14 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         }
       }
 
-      const summary = plans.map(summarizePlan).join("\n");
+      const summary = plans.map(plan => {
+        const preview = formatPlanPreview(plan);
+        return preview ? `${summarizePlan(plan)}\n${preview}` : summarizePlan(plan);
+      }).join("\n\n");
+
       return {
         content: [{ type: "text", text: `${dryRun ? "Dry run" : "Applied"}:\n${summary}` }],
-        details: { dryRun, plans: plans.map(plan => ({ path: plan.path, replacements: plan.replacements })) },
+        details: { dryRun, plans: plans.map(plan => ({ path: plan.path, replacements: plan.replacements, previews: plan.previews })) },
       };
     },
   });
