@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
 
 const allToolNames = [
-  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks",
+  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks", "commit_history", "see_file_commit_history", "inspect_at_checkpoint",
   "remember", "recall_memories", "recall_entity", "list_memories",
   "web_search", "research_topic", "fetch_url",
   "lookup_shoe", "query_shoes",
@@ -30,6 +30,9 @@ describe("activeToolNames", () => {
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("create_file");
     expect(tools).toContain("create_directory");
+    expect(tools).toContain("commit_history");
+    expect(tools).toContain("see_file_commit_history");
+    expect(tools).toContain("inspect_at_checkpoint");
     expect(tools).toContain("remember");
     expect(tools).toContain("custom_safe_tool");
     expect(tools).not.toContain("web_search");
@@ -315,6 +318,7 @@ test("coding reminders mention git checkpoint safety and codemod mutation policy
 
   expect(reminderText()).toContain("Git checkpoints handle rollback safety");
   expect(reminderText()).toContain("use codemod tools");
-  expect(reminderText()).toContain("do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
+  expect(reminderText()).toContain("do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands");
+  expect(reminderText()).toContain("Use checkpoint/git inspection tools");
   expect(reminderText()).toContain("prefer run_checks");
 });

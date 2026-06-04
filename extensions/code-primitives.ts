@@ -98,7 +98,8 @@ function relativePath(cwd: string, path: string): string {
 const SOURCE_MUTATION_GUIDELINES = [
   "For existing source-code edits, use plan_code_replacements/apply_code_replacements instead of built-in edit/write.",
   "Use create_file for new source, config, test, markdown, and fixture files.",
-  "Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection for repository file mutations.",
+  "Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands for repository file mutations.",
+  "Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash.",
 ];
 
 async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targets: string[]): Promise<PlannedReplacement[]> {

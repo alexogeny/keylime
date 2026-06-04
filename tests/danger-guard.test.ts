@@ -55,6 +55,12 @@ describe("danger guard coding-mode hard enforcement", () => {
       "bun -e \"require('fs').writeFileSync('file.ts', 'x')\"",
       "deno eval \"Deno.writeTextFile('file.ts', 'x')\"",
       "bash -c 'echo hi > file.ts'",
+      "git add -A",
+      "git commit -m checkpoint",
+      "git reset --hard HEAD~1",
+      "git restore src/file.ts",
+      "git clean -fd",
+      "git push origin main",
     ];
 
     for (const command of commands) {
@@ -63,7 +69,7 @@ describe("danger guard coding-mode hard enforcement", () => {
   });
 
   test("allows read-only-looking bash commands in coding mode", () => {
-    const commands = ["rg foo src", "ls -la", "cat file.ts", "echo hi", "grep foo file.ts", "tee /dev/null"];
+    const commands = ["rg foo src", "ls -la", "cat file.ts", "echo hi", "grep foo file.ts", "tee /dev/null", "git status --short", "git log --oneline", "git diff", "git show HEAD:README.md"];
 
     for (const command of commands) {
       expect(looksLikeCodingModeBashMutation(command)).toBeNull();

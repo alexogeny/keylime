@@ -142,7 +142,8 @@ describe("code primitive extension tools", () => {
     ].join("\n");
 
     expect(guidelines).toContain("use plan_code_replacements/apply_code_replacements instead of built-in edit/write");
-    expect(guidelines).toContain("Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
+    expect(guidelines).toContain("Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands");
+    expect(guidelines).toContain("Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash");
     expect(guidelines).toContain("Use create_file for new source, config, test, markdown, and fixture files");
   });
 

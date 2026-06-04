@@ -24,6 +24,7 @@ const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string
   { pattern: /\bpython(?:3(?:\.\d+)?)?\b[\s\S]*\s-c\s+['"][\s\S]*(?:open\s*\([\s\S]*[,)]\s*['"](?:w|a|x|\+)|\.write\s*\()/i, label: "python inline file write" },
   { pattern: /\b(?:node|bun)\b[\s\S]*\s-e\s+['"][\s\S]*(?:writeFileSync|appendFileSync|createWriteStream|fs\.promises\.(?:writeFile|appendFile))/i, label: "javascript runtime inline file write" },
   { pattern: /\bdeno\b[\s\S]*\beval\b[\s\S]*(?:writeTextFile|writeFile)/i, label: "deno inline file write" },
+  { pattern: /\bgit\s+(?:add|commit|reset|restore|checkout|switch|clean|rebase|merge|push|stash|tag|cherry-pick|revert)\b/i, label: "raw git mutation command" },
 ];
 
 export function classifyBashMutation(command: string): BashMutationHit | null {
@@ -34,7 +35,7 @@ export function classifyBashMutation(command: string): BashMutationHit | null {
 }
 
 export function looksSideEffectfulBash(command: string): boolean {
-  return classifyBashMutation(command) !== null || /(^|\s)(git\s+(commit|reset|checkout|switch|merge|rebase|clean|add)|npm|pnpm|yarn|python|python3|pip|pytest|cargo|make)(\s|$)/.test(command);
+  return classifyBashMutation(command) !== null || /(^|\s)(npm|pnpm|yarn|python|python3|pip|pytest|cargo|make)(\s|$)/.test(command);
 }
 
 export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {
