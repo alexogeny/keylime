@@ -27,10 +27,11 @@ The short version: less prompt sludge, fewer unsafe shortcuts, more deliciously 
 
 For repository work, Keylime encourages this loop:
 
-1. Search/inspect with `code_search`, `inspect_text_matches`, `inspect_code_structure`, or `inspect_lines`.
-2. Plan edits with `plan_code_replacements` for risky or broad changes.
-3. Mutate with `apply_code_replacements`, `create_file`, or `create_directory`.
-4. Verify with `run_checks`.
-5. Use checkpoints for rollback and safe git inspection tools for status, diffs, and history.
+1. Discover files with `list_files`; inspect text with `code_search`, `inspect_text_matches`, `inspect_code_structure`, or capped `inspect_lines`.
+2. Inspect JSON with `inspect_json` instead of `jq`, `cat`, or built-in `read`.
+3. Plan edits with `plan_code_replacements` for risky or broad changes.
+4. Mutate with `apply_code_replacements`, `create_file`, or `create_directory`.
+5. Verify with `run_checks`.
+6. Use checkpoints for rollback and safe git inspection tools for status, diffs, and history.
 
-Raw `bash`, built-in `read`, built-in `write`, built-in `edit`, and mutating git commands are intentionally constrained.
+Raw `bash`, built-in `read`, built-in `write`, built-in `edit`, native repo inspection commands, and mutating git commands are intentionally constrained.

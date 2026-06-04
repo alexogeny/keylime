@@ -54,8 +54,10 @@ The harness is the runtime around the model. In Keylime, the harness includes:
 
 Long coding sessions degrade when stale or bulky context accumulates. Keylime reduces this through:
 
-- search before full file inspection,
-- bounded `inspect_lines`,
+- `list_files` before ad hoc shell discovery,
+- `inspect_text_matches` before full file inspection,
+- `inspect_json` before `jq`/`cat`/built-in `read`,
+- bounded `inspect_lines` capped at 200 lines,
 - compact repo maps,
 - external project/memory/search state,
 - one composed system reminder per turn,
@@ -68,7 +70,7 @@ Long coding sessions degrade when stale or bulky context accumulates. Keylime re
 When reviewing Keylime later, check:
 
 1. Are safe repository tools still always-on?
-2. Are raw `bash`, `read`, `write`, `edit`, and mutating git commands locked or guarded?
+2. Are raw `bash`, native repo inspection commands, `read`, `write`, `edit`, and mutating git commands locked or guarded?
 3. Are safety rules centralized in `shared/safety-policy.ts`?
 4. Are checkpoints based on successful tool results, not attempted calls?
 5. Are context providers bounded and non-duplicative?

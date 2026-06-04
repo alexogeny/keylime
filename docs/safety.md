@@ -16,9 +16,13 @@ Repository file changes should use:
 
 Raw shell or native-runtime file mutation is blocked or discouraged.
 
+Repository inspection should use `list_files` for discovery, `inspect_text_matches` instead of `grep`/`rg`, `inspect_json` instead of `jq`/`cat`/built-in `read`, and `inspect_lines` only after focused search/context discovery. `inspect_lines` is capped at 200 lines.
+
 ## Locked and guarded tools
 
 Built-in `read`, `write`, and `edit` are blocked in coding mode. Raw `bash` is routed and guarded.
+
+Coding-mode danger guard also blocks native repo inspection through `bash`: `ls`, `find`, `grep`, `egrep`, `fgrep`, `rg`, `jq`, `cat`, `head`, `tail`, and `wc`.
 
 Dangerous shell patterns include:
 

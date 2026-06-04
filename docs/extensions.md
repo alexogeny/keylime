@@ -12,10 +12,12 @@ Classifies each turn and controls active tool exposure with `pi.setActiveTools()
 
 Always-on safe repository tools:
 
+- `list_files`
 - `code_search`
 - `inspect_text_matches`
 - `inspect_code_structure`
 - `inspect_lines`
+- `inspect_json`
 - `plan_code_replacements`
 - `apply_code_replacements`
 - `create_file`
@@ -63,13 +65,29 @@ Safe repository inspection and mutation primitives.
 
 Tools:
 
-- `inspect_text_matches` — exact/regex matches with line context.
+- `list_files` — repository file/directory discovery with glob, language, recursion, excludes, and result caps.
+- `inspect_text_matches` — exact/regex matches with line context; preferred over `grep`/`rg`.
 - `inspect_code_structure` — imports and top-level declarations.
-- `inspect_lines` — bounded numbered line windows.
+- `inspect_lines` — focused numbered line windows, capped at 200 lines.
+- `inspect_json` — JSON projection with dot paths, array indexes, wildcard projection, omitted keys, and output caps.
 - `create_directory` — safe directory creation with recursive/skip options.
 - `create_file` — safe file creation, refuses overwrites by default.
 - `plan_code_replacements` — dry-run exact/regex replacements.
-- `apply_code_replacements` — guarded replacements with count checks and previews.
+- `apply_code_replacements` — guarded replacements with count checks and ANSI-colored diff previews where supported.
+
+Examples:
+
+`list_files`:
+
+```json
+{"path":"docs","recursive":true,"file_glob":"*.md","max_results":100}
+```
+
+`inspect_json`:
+
+```json
+{"path":"settings.example.json","json_path":"permissions.allowedTools","max_chars":2000}
+```
 
 Safety properties:
 
@@ -120,7 +138,7 @@ Central policy module used by danger guards, checkpoints, and run checks.
 
 Centralizes:
 
-- bash mutation classification,
+- bash mutation and native repo inspection classification,
 - raw git mutation classification,
 - `run_checks` custom command blocking,
 - mutation scoring for auto-checkpoints,
@@ -135,6 +153,7 @@ Blocks in coding mode:
 
 - built-in `read`, `write`, `edit`,
 - mutation-looking shell commands,
+- native repo inspection commands through `bash`: `ls`, `find`, `grep`, `egrep`, `fgrep`, `rg`, `jq`, `cat`, `head`, `tail`, `wc`,
 - raw mutating git commands.
 
 Prompts for protected paths such as `.env`, `.git`, `node_modules`, home credential dirs, and system paths.

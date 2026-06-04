@@ -7,7 +7,7 @@ The extension stack is optimized around two shared layers:
 
 Most domain tools are still registered by their own extensions, but the router keeps them out of the provider prompt unless the current intent needs them. Safe repository primitives are always available so intent routing cannot strand inspection or codemod work.
 
-`code-primitives.ts` adds repository-native helpers (`code_search`, `inspect_text_matches`, `inspect_lines`, `inspect_code_structure`, `plan_code_replacements`, `apply_code_replacements`, `create_file`, `create_directory`, `run_checks`, `commit_history`, `see_file_commit_history`, `inspect_at_checkpoint`) so repetitive TypeScript/Python/Rust edits do not need ad hoc shell or Python scripts. Replacement previews use compact unified diff hunks, and text inspection supports path, glob, and language-scoped searches. Built-in `bash`, `read`, `write`, and `edit` remain locked behind routing and safety guards.
+`code-primitives.ts` adds repository-native helpers (`list_files`, `code_search`, `inspect_text_matches`, `inspect_lines`, `inspect_json`, `inspect_code_structure`, `plan_code_replacements`, `apply_code_replacements`, `create_file`, `create_directory`, `run_checks`, `commit_history`, `see_file_commit_history`, `inspect_at_checkpoint`) so repetitive TypeScript/Python/Rust edits do not need ad hoc shell or Python scripts. Replacement previews use compact unified diff hunks with ANSI color where supported, and inspection supports path, glob, language-scoped, and JSON-projection workflows. Built-in `bash`, `read`, `write`, and `edit` remain locked behind routing and safety guards.
 
 ## Environment flags
 
@@ -33,7 +33,7 @@ Defaults are conservative: research follows provider-key detection, auto-fetch i
 
 `git-checkpoint.ts` checkpoints at the end of an agent turn only for major mutations by default: broad replacements, mutating bash, legacy writes/edits, or small changes after a long interval. Set `KEYLIME_AUTO_CHECKPOINT=off` for manual-only checkpoints, or `any` to checkpoint after any mutating turn. It excludes `.pi` local state from staging. Manual `/checkpoint` is still available. `git-tools.ts` provides read-only `git_status`, `git_diff`, `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` so agents do not need raw git inspection commands.
 
-`danger-guard.ts` blocks built-in `read`/`write`/`edit` in coding mode and blocks mutation-looking shell commands such as redirects, `mkdir`, `touch`, `rm`, `cp`, `mv`, inline runtime writes, shell command strings, and raw git mutation commands. Use `create_file`, `create_directory`, `apply_code_replacements`, checkpoint commands, and safe git inspection tools instead.
+`danger-guard.ts` blocks built-in `read`/`write`/`edit` in coding mode and blocks mutation-looking shell commands such as redirects, `mkdir`, `touch`, `rm`, `cp`, `mv`, inline runtime writes, shell command strings, and raw git mutation commands. It also blocks native repo inspection through `bash` (`ls`, `find`, `grep`, `egrep`, `fgrep`, `rg`, `jq`, `cat`, `head`, `tail`, `wc`). Use `list_files`, `inspect_text_matches`, `inspect_json`, `create_file`, `create_directory`, `apply_code_replacements`, checkpoint commands, and safe git inspection tools instead.
 
 `git-tools.ts` provides read-only git inspection tools: `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint`. Commits should happen only through checkpointing.
 

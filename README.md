@@ -41,14 +41,20 @@ More concretely:
 
 For repository work, Keylime encourages this loop:
 
-1. Inspect with `code_search`, `inspect_text_matches`, `inspect_code_structure`, or `inspect_lines`.
-2. Plan broad edits with `plan_code_replacements`.
-3. Mutate with `apply_code_replacements`, `create_file`, or `create_directory`.
-4. Verify with `run_checks`.
-5. Use `/checkpoint` for explicit rollback points.
-6. Use `git_status`, `git_diff`, `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` instead of raw git inspection commands.
+1. Discover files with `list_files`; inspect text with `code_search`, `inspect_text_matches`, `inspect_code_structure`, or capped `inspect_lines`.
+2. Inspect JSON with `inspect_json` instead of `jq`, `cat`, or built-in `read`.
+3. Plan broad edits with `plan_code_replacements`.
+4. Mutate with `apply_code_replacements`, `create_file`, or `create_directory`.
+5. Verify with `run_checks`.
+6. Use `/checkpoint` for explicit rollback points.
+7. Use `git_status`, `git_diff`, `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` instead of raw git inspection commands.
 
-Raw `git add`, `git commit`, `git reset`, `git restore`, `git clean`, `git rebase`, `git merge`, `git push`, and `git stash` should not be used by the agent. Commits should happen through checkpointing.
+In coding mode, danger guard blocks native repo inspection through `bash` (`ls`, `find`, `grep`, `egrep`, `fgrep`, `rg`, `jq`, `cat`, `head`, `tail`, `wc`). Raw mutating git commands should not be used by the agent; commits should happen through checkpointing.
+
+Examples:
+
+- `list_files`: `{"path":"docs","recursive":true,"file_glob":"*.md","max_results":100}`
+- `inspect_json`: `{"path":"settings.example.json","json_path":"permissions.allowedTools","max_chars":2000}`
 
 ## Extension slices
 
