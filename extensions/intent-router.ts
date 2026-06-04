@@ -3,12 +3,26 @@ import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, stripSy
 import { getCurrentOperationalMode } from "./operational-modes";
 import { researchKeyConfigured } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
+import { retrievePolicy } from "./shared/policy-corpus";
 
 const STATUS_KEY = "intent";
 
 type IntentOverride = "programming";
 
 let intentOverride: IntentOverride | null = null;
+let lastPolicyEvidence: Array<{ id: string; score: number; kind?: string }> = [];
+
+export function policyEvidenceForPrompt(prompt: string) {
+  return retrievePolicy(prompt, { topK: 4 }).map(hit => ({
+    id: hit.id,
+    score: hit.score,
+    kind: hit.document?.kind,
+  }));
+}
+
+export function getLastPolicyEvidence() {
+  return lastPolicyEvidence;
+}
 
 const ALWAYS_ON_CODE_TOOLS = [
   "code_search",
@@ -173,6 +187,7 @@ export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute): void {
 
 export function routeForPrompt(pi: ExtensionAPI, prompt: string): IntentRoute {
   const route = routeForIntent(prompt);
+  lastPolicyEvidence = policyEvidenceForPrompt(prompt);
   setCurrentRoute(route);
   applyRouteTools(pi, route);
   return route;
@@ -290,6 +305,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
         `  confidence: ${Math.round(route.confidence * 100)}%`,
         `  research enabled: ${researchEnabled() ? "yes" : "no"}`,
         `  shoes enabled: ${shoesEnabled() ? "yes" : "no"}`,
+        `  policy evidence: ${lastPolicyEvidence.map(e => `${e.id}=${e.score.toFixed(2)}`).join(", ") || "none"}`,
         `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
       ].join("\n"), "info");
     },
@@ -306,6 +322,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
         `  always-on code tools: ${ALWAYS_ON_CODE_TOOLS.join(", ")}`,
         `  locked built-ins: read, write, edit; bash is routed and guarded`,
         `  active groups: ${activeGroups.join(", ") || "none"}`,
+        `  policy evidence: ${lastPolicyEvidence.map(e => `${e.id}=${e.score.toFixed(2)}`).join(", ") || "none"}`,
         `  routed tools: ${routed.join(", ") || "none"}`,
         `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
       ].join("\n"), "info");

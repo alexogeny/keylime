@@ -66,6 +66,8 @@ Examples:
 - `git-tools.ts` — read-only git status, diff, history, and checkpoint inspection tools.
 - `test-runner.ts` — safe test/typecheck/lint runner.
 - `turn-context-composer.ts` — one bounded reminder per turn.
+- `tool-result-compactor.ts` — stores oversized tool results under `.pi/tool-results` and returns compact summaries/previews.
+- `shared/retrieval/`, `shared/policy-corpus.ts` — reusable BM25/TF-IDF/JMLM hybrid retrieval and seed policy corpus for routing/check/codemod evidence.
 - `user-memory/` — durable memory and entity recall.
 - `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts` — research and web knowledge workflow.
 - `project-planner.ts` — project plan, TDD state, decisions, and questions.

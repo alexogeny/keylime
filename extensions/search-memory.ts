@@ -21,6 +21,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { BM25Index } from "./shared/retrieval";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -71,88 +72,7 @@ interface SearchIndex {
   entries: IndexEntry[];
 }
 
-// ─── BM25 Implementation ───────────────────────────────────────────────────────
-
-const BM25_K1 = 1.5;
-const BM25_B  = 0.75;
-
-const STOP_WORDS = new Set([
-  "a","an","the","and","or","but","in","on","at","to","for","of","with","by",
-  "from","up","about","into","through","during","is","are","was","were","be",
-  "been","being","have","has","had","do","does","did","will","would","could",
-  "should","may","might","this","that","these","those","it","its","as","if",
-  "then","than","so","yet","both","each","more","most","other","some","such",
-  "no","not","only","same","too","very","can","just","also","get","use","used",
-  "using","one","two","three","first","second","new","like","now","just","how",
-]);
-
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s]/g, " ")
-    .split(/\s+/)
-    .filter(t => t.length > 1 && !STOP_WORDS.has(t));
-}
-
-interface BM25Doc {
-  id:        string;
-  tokens:    string[];
-  termFreqs: Map<string, number>;
-}
-
-class BM25Index {
-  private docs:       BM25Doc[]           = [];
-  private idf:        Map<string, number> = new Map();
-  private avgDocLen = 0;
-
-  add(id: string, text: string): void {
-    const tokens    = tokenize(text);
-    const termFreqs = new Map<string, number>();
-    for (const t of tokens) termFreqs.set(t, (termFreqs.get(t) ?? 0) + 1);
-    this.docs.push({ id, tokens, termFreqs });
-    this._recomputeStats();
-  }
-
-  private _recomputeStats(): void {
-    const N  = this.docs.length;
-    const df = new Map<string, number>();
-    let total = 0;
-    for (const doc of this.docs) {
-      total += doc.tokens.length;
-      for (const t of doc.termFreqs.keys()) df.set(t, (df.get(t) ?? 0) + 1);
-    }
-    this.avgDocLen = total / N;
-    this.idf.clear();
-    for (const [term, freq] of df) {
-      this.idf.set(term, Math.log((N - freq + 0.5) / (freq + 0.5) + 1));
-    }
-  }
-
-  search(query: string, topK: number): Array<{ id: string; score: number }> {
-    if (this.docs.length === 0) return [];
-    const qt     = tokenize(query);
-    const scores = new Map<string, number>();
-
-    for (const doc of this.docs) {
-      let score = 0;
-      for (const t of qt) {
-        const idf = this.idf.get(t) ?? 0;
-        const tf  = doc.termFreqs.get(t) ?? 0;
-        const len = doc.tokens.length;
-        score += idf * (tf * (BM25_K1 + 1)) /
-                 (tf + BM25_K1 * (1 - BM25_B + BM25_B * len / this.avgDocLen));
-      }
-      if (score > 0) scores.set(doc.id, (scores.get(doc.id) ?? 0) + score);
-    }
-
-    return Array.from(scores.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, topK)
-      .map(([id, score]) => ({ id, score }));
-  }
-
-  get size(): number { return this.docs.length; }
-}
+// ─── Shared lexical retrieval ────────────────────────────────────────────────
 
 // ─── Ollama embedding helpers (optional reranking) ──────────────────────────
 

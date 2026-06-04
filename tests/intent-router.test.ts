@@ -254,6 +254,14 @@ test("switch-intent programming forces coding tools until cleared", async () => 
   expect(routeForPrompt(mockPi, "tell me about the latest brooks ghost").primaryIntent).toBe("running_shoes");
 });
 
+test("policy evidence ranks corpus docs for prompts without changing deterministic route", async () => {
+  const { policyEvidenceForPrompt } = await import("../extensions/intent-router");
+  const evidence = policyEvidenceForPrompt("refactor duplicate retrieval code and run checks");
+
+  expect(evidence[0].id).toBe("routing.refactor");
+  expect(evidence.some(item => item.id === "checks.retrieval")).toBe(true);
+});
+
 test("coding route exposes codemod primitives", () => {
   const tools = activeToolNames(pi(["custom_safe_tool"]), ["coding", "repo"]);
 
@@ -314,6 +322,7 @@ test("tool-policy command reports always-on and locked tools", async () => {
   expect(notification).toContain("always-on code tools");
   expect(notification).toContain("create_directory");
   expect(notification).toContain("locked built-ins");
+  expect(notification).toContain("policy evidence:");
 });
 
 test("coding reminders mention git checkpoint safety and codemod mutation policy", async () => {

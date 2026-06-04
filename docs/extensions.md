@@ -8,7 +8,7 @@ These are the ingredients in the pie: TypeScript modules loaded by Pi that provi
 
 ### `intent-router.ts`
 
-Classifies each turn and controls active tool exposure with `pi.setActiveTools()`.
+Classifies each turn and controls active tool exposure with `pi.setActiveTools()`. It also records retrieval-backed policy evidence from `shared/policy-corpus.ts` for observability without letting retrieval override deterministic safety rules.
 
 Always-on safe repository tools:
 
@@ -33,13 +33,21 @@ Routed or guarded tools include raw `bash`, built-in `read`, research tools, mem
 
 Commands:
 
-- `/intent-status` — show current route and active tools.
-- `/tool-policy` — show always-on, routed, locked, and active tools.
+- `/intent-status` — show current route, policy evidence, and active tools.
+- `/tool-policy` — show always-on, routed, locked, policy evidence, and active tools.
 - `/switch-intent programming|auto` — force or clear programming intent.
 
 ### `turn-context-composer.ts` and `shared/turn-context.ts`
 
 Collect registered context providers into one bounded `<system-reminder>` per turn. This avoids multiple extensions independently injecting prompt text and helps preserve prompt-cache stability.
+
+### `tool-result-compactor.ts`
+
+Compacts oversized successful tool outputs before they enter the conversation history. Full payloads are stored under `.pi/tool-results/YYYY-MM-DD/`, while the model receives a short summary, preview, `result_id`, and the `inspect_tool_result` retrieval tool for explicit follow-up.
+
+### `shared/retrieval/` and `shared/policy-corpus.ts`
+
+Reusable local retrieval core for BM25, TF-IDF cosine, JMLM query likelihood, hybrid ranking, and metadata-aware policy documents. Current consumers include web-knowledge recall, user-memory lexical retrieval, and intent-router policy evidence.
 
 ### `operational-modes.ts`
 
@@ -166,7 +174,7 @@ Live search through configured providers such as Tavily, Serper, or Bing. Produc
 
 ### `search-memory.ts`
 
-Stores and recalls distilled search knowledge. Supports tools such as `recall_web_knowledge`, `list_search_history`, and `get_search_entry`.
+Stores and recalls distilled search knowledge using the shared BM25 lexical retrieval core plus optional embedding reranking. Supports tools such as `recall_web_knowledge`, `list_search_history`, and `get_search_entry`.
 
 ### `search-orchestrator.ts`
 
@@ -180,7 +188,7 @@ Provides `fetch_url` for reading web pages, with HTML cleanup and optional brows
 
 ### `user-memory/index.ts`
 
-Durable user memory system with entity extraction, recall, update, forget, backup, and restore functionality.
+Durable user memory system with entity extraction, recall, update, forget, backup, and restore functionality. Lexical candidate retrieval and TF-IDF deduplication use the shared retrieval core.
 
 Tools include:
 
