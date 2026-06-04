@@ -153,6 +153,8 @@ describe("routeForPrompt", () => {
 describe("context rerouting", () => {
   test("context pass can shift tool visibility based on the latest user prompt", async () => {
     const { default: intentRouterExtension } = await import("../extensions/intent-router");
+    const oldEnable = process.env.KEYLIME_ENABLE_RESEARCH;
+    process.env.KEYLIME_ENABLE_RESEARCH = "1";
     const handlers: Record<string, any> = {};
     let active = ["read", "edit", "code_search", "custom_safe_tool"];
     const calls: string[][] = [];
@@ -173,6 +175,9 @@ describe("context rerouting", () => {
     expect(calls.at(-1)).toContain("web_search");
     expect(calls.at(-1)).toContain("research_topic");
     expect(calls.at(-1)).not.toContain("edit");
+
+    if (oldEnable === undefined) delete process.env.KEYLIME_ENABLE_RESEARCH;
+    else process.env.KEYLIME_ENABLE_RESEARCH = oldEnable;
   });
 
   test("context pass does not reset tools when the active schema set is already correct", async () => {
