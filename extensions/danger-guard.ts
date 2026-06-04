@@ -12,6 +12,7 @@ import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { isCapabilityActive } from "./shared/intent";
 
 // ─── Pattern definitions ────────────────────────────────────────────────────
 
@@ -20,6 +21,17 @@ interface DangerPattern {
   label: string;
   severity: "warn" | "block"; // "block" = never allow without confirmation
 }
+
+const CODING_MODE_BLOCKED_TOOLS = new Set(["read", "write", "edit"]);
+
+const CODING_MODE_BASH_MUTATION_PATTERNS: DangerPattern[] = [
+  { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file", severity: "block" },
+  { pattern: /<<-?\s*['"]?\w+['"]?/m, label: "heredoc shell input", severity: "block" },
+  { pattern: /\btee\b\s+(?:-[a-zA-Z]+\s+)*(?!\/dev\/null\b)[^\s|;&]+/i, label: "tee writing to a file", severity: "block" },
+  { pattern: /\bsed\b\s+(?:[^\n;&|]*\s)?(?:-[a-zA-Z]*i[a-zA-Z]*\b|--in-place\b)/i, label: "sed in-place edit", severity: "block" },
+  { pattern: /\bpython(?:3(?:\.\d+)?)?\b[\s\S]*\s-c\s+['"][\s\S]*(?:open\s*\([\s\S]*[,)]\s*['"](?:w|a|x|\+)|\.write\s*\()/i, label: "python inline file write", severity: "block" },
+  { pattern: /\bnode\b[\s\S]*\s-e\s+['"][\s\S]*(?:writeFileSync|appendFileSync|createWriteStream|fs\.promises\.(?:writeFile|appendFile))/i, label: "node inline file write", severity: "block" },
+];
 
 const BUILTIN_PATTERNS: DangerPattern[] = [
   // Recursive deletes
@@ -81,6 +93,23 @@ function ensureRulesDir() {
 
 // ─── Detection helpers ───────────────────────────────────────────────────────
 
+export function looksLikeCodingModeBashMutation(cmd: string): { flagged: boolean; label: string; severity: "block" } | null {
+  for (const { pattern, label } of CODING_MODE_BASH_MUTATION_PATTERNS) {
+    if (pattern.test(cmd)) return { flagged: true, label, severity: "block" };
+  }
+  return null;
+}
+
+export function codingModeBlockReasonForToolCall(toolName: string, input: any): string | null {
+  if (!isCapabilityActive("coding")) return null;
+  if (CODING_MODE_BLOCKED_TOOLS.has(toolName)) return `coding mode blocks built-in ${toolName}; use exposed code primitive tools`;
+  if (toolName !== "bash") return null;
+
+  const cmd = typeof input?.command === "string" ? input.command : "";
+  const hit = looksLikeCodingModeBashMutation(cmd);
+  return hit ? `coding mode blocks bash file mutation: ${hit.label}` : null;
+}
+
 function checkCommand(cmd: string, rules: Rules): { flagged: boolean; label: string; severity: "warn" | "block" } | null {
   if (rules.disabled) return null;
   for (const allow of rules.alwaysAllow ?? []) {
@@ -123,6 +152,9 @@ export default function (pi: ExtensionAPI) {
   const rules = loadRules();
 
   pi.on("tool_call", async (event, ctx) => {
+    const codingBlockReason = codingModeBlockReasonForToolCall(event.toolName, (event as any).input);
+    if (codingBlockReason) return { block: true, reason: `danger-guard blocked: ${codingBlockReason}` };
+
     // ── Bash: pattern matching ──────────────────────────────────────────────
     if (isToolCallEventType("bash", event)) {
       const cmd = event.input.command ?? "";
