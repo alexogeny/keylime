@@ -39,6 +39,15 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    const info = await stat(path);
+    return info.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function normalizeCreatedContent(content: string, newline: "preserve" | "ensure_final"): string {
   if (newline === "preserve" || content.endsWith("\n")) return content;
   return `${content}\n`;
@@ -250,6 +259,37 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         content: [{ type: "text", text: `${rel}:${start}-${end}\n${body}` }],
         details: { path: rel, start, end, lines: requested },
       };
+    },
+  });
+
+  pi.registerTool({
+    name: "create_directory",
+    label: "Create Directory",
+    description: "Create a new directory. Refuses existing paths unless skip is requested; supports recursive parent creation.",
+    promptSnippet: "Create a directory",
+    promptGuidelines: [
+      "Use create_directory instead of mkdir for repository directories.",
+      "Set recursive=true only when parent directories may not exist.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "New directory path" }),
+      recursive: Type.Optional(Type.Boolean({ description: "Create parent directories" })),
+      if_exists: Type.Optional(stringEnum(["error", "skip"] as const, { description: "Behavior if directory exists" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const rel = relativePath(ctx.cwd, path);
+      if (await directoryExists(path)) {
+        if (params.if_exists === "skip") {
+          return { content: [{ type: "text", text: `Skipped existing directory ${rel}` }], details: { path: rel, skipped: true } };
+        }
+        throw new Error(`Directory already exists: ${rel}`);
+      }
+      if (await fileExists(path)) throw new Error(`Path exists and is a file: ${rel}`);
+
+      await mkdir(path, { recursive: params.recursive ?? false });
+      return { content: [{ type: "text", text: `Created directory ${rel}` }], details: { path: rel, skipped: false } };
     },
   });
 
