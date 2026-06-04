@@ -5,9 +5,9 @@ import { registerContextProvider } from "./shared/turn-context";
 const STATUS_KEY = "intent";
 
 const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = {
-  core: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_code_structure", "apply_code_replacements", "run_checks"],
+  core: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "apply_code_replacements", "run_checks"],
   readonly: ["read", "bash", "code_search", "fetch_url", "inspect_text_matches"],
-  coding: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_code_structure", "apply_code_replacements", "run_checks"],
+  coding: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "apply_code_replacements", "run_checks"],
   repo: ["code_search", "inspect_text_matches", "inspect_code_structure"],
   project: ["save_project_plan", "update_feature_tdd", "log_decision", "manage_question"],
   memory: ["remember", "recall_memories", "update_memory", "forget_memory", "list_memories", "recall_entity", "list_entities"],
