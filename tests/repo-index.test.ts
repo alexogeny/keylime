@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import repoIndexExtension from "../extensions/repo-index/index";
+import repoIndexExtension, { isIndexedSourcePath, isRepoIndexDirty, markRepoIndexCleanForTest } from "../extensions/repo-index/index";
 
 async function registeredRepoIndexTools(): Promise<Record<string, any>> {
   const tools: Record<string, any> = {};
@@ -12,6 +12,16 @@ async function registeredRepoIndexTools(): Promise<Record<string, any>> {
     on: () => {},
   } as any);
   return tools;
+}
+
+async function registeredRepoIndexHandlers(): Promise<Record<string, any>> {
+  const handlers: Record<string, any> = {};
+  await repoIndexExtension({
+    registerTool: () => {},
+    registerCommand: () => {},
+    on: (name: string, handler: any) => { handlers[name] = handler; },
+  } as any);
+  return handlers;
 }
 
 describe("code_search file_glob handling", () => {
@@ -86,6 +96,26 @@ describe("code_search file_glob handling", () => {
     expect(result.content[0].text).toContain('code_search "registerTool"');
     expect(result.content[0].text).toContain("extensions/code-primitives.ts");
     expect(result.content[0].text).toContain("registerTool");
+  });
+
+  test("create_file invalidates source repo index", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+    markRepoIndexCleanForTest();
+
+    await handlers.tool_result({ toolName: "create_file", input: { path: "src/new.ts" } });
+
+    expect(isIndexedSourcePath("src/new.ts")).toBe(true);
+    expect(isRepoIndexDirty()).toBe(true);
+  });
+
+  test("create_file ignores non-source files for repo index invalidation", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+    markRepoIndexCleanForTest();
+
+    await handlers.tool_result({ toolName: "create_file", input: { path: "notes.txt" } });
+
+    expect(isIndexedSourcePath("notes.txt")).toBe(false);
+    expect(isRepoIndexDirty()).toBe(false);
   });
 
 });
