@@ -118,6 +118,18 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).toContain("promptGuidelines");
   });
 
+  test("source mutation tools warn against native runtime file mutations", () => {
+    const tools = registeredCodePrimitiveTools();
+    const guidelines = [
+      ...tools.inspect_text_matches.promptGuidelines,
+      ...tools.plan_code_replacements.promptGuidelines,
+      ...tools.apply_code_replacements.promptGuidelines,
+    ].join("\n");
+
+    expect(guidelines).toContain("prefer plan_code_replacements/apply_code_replacements");
+    expect(guidelines).toContain("Do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
+  });
+
   test("inspect_text_matches supports file_glob and language filters", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await mkdir(join(cwd, "src"));

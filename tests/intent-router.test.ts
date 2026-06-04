@@ -271,11 +271,13 @@ test("review mode narrows active tools to readonly repo tools", async () => {
   expect(tools).not.toContain("web_search");
 });
 
-test("coding reminders mention git checkpoint safety", async () => {
+test("coding reminders mention git checkpoint safety and codemod mutation policy", async () => {
   const { classifyIntent, setCurrentRoute } = await import("../extensions/shared/intent");
   const { reminderText } = await import("../extensions/intent-router");
 
   setCurrentRoute(classifyIntent("implement code change"));
 
   expect(reminderText()).toContain("Git checkpoints handle rollback safety");
+  expect(reminderText()).toContain("use codemod tools");
+  expect(reminderText()).toContain("do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
 });
