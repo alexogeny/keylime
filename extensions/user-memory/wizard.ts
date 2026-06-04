@@ -156,6 +156,7 @@ export type ProfileFactField = {
   measured?: boolean;
   includeMeasurementTime?: boolean;
   unit?: string;
+  unitOptions?: string[];
   contentLabel?: string;
 };
 
@@ -169,14 +170,15 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
   { id: "languages", label: "Languages", section: "identity", kind: "text", placeholder: "English, Spanish", tags: ["profile", "identity", "language"], sensitivity: "general" },
 
   // Physical stat sheet
-  { id: "height", label: "Height", section: "body", kind: "text", placeholder: "183 cm / 6 ft", tags: ["profile", "height", "measurements", "body"], sensitivity: "baseline" },
-  { id: "weight", label: "Weight", section: "body", kind: "text", placeholder: "75 kg / 165 lb", tags: ["profile", "weight", "measurements", "body"], sensitivity: "baseline", measured: true, includeMeasurementTime: true },
+  { id: "height", label: "Height", section: "body", kind: "number", placeholder: "183", tags: ["profile", "height", "measurements", "body"], sensitivity: "baseline", unitOptions: ["cm", "in", "ft/in"] },
+  { id: "weight", label: "Weight", section: "body", kind: "number", placeholder: "75", tags: ["profile", "weight", "measurements", "body"], sensitivity: "baseline", measured: true, includeMeasurementTime: true, unitOptions: ["kg", "lb"] },
   { id: "body_fat_percent", label: "Body fat %", section: "body", kind: "number", placeholder: "15", tags: ["profile", "measurements", "body", "body-composition"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "%" },
   { id: "lean_mass", label: "Lean mass", section: "body", kind: "text", placeholder: "63 kg", tags: ["profile", "measurements", "body", "body-composition"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
-  { id: "waist", label: "Waist", section: "body", kind: "text", placeholder: "82 cm", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
-  { id: "chest", label: "Chest", section: "body", kind: "text", placeholder: "100 cm", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
-  { id: "hips", label: "Hips", section: "body", kind: "text", placeholder: "96 cm", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
-  { id: "inseam", label: "Inseam", section: "body", kind: "text", placeholder: "82 cm", tags: ["profile", "measurements", "body", "clothing"], sensitivity: "general" },
+  { id: "waist", label: "Waist", section: "body", kind: "number", placeholder: "32", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unitOptions: ["in", "cm"] },
+  { id: "chest", label: "Chest", section: "body", kind: "number", placeholder: "40", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unitOptions: ["in", "cm"] },
+  { id: "hips", label: "Hips", section: "body", kind: "number", placeholder: "38", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unitOptions: ["in", "cm"] },
+  { id: "inseam", label: "Inseam", section: "body", kind: "number", placeholder: "32", tags: ["profile", "measurements", "body", "clothing"], sensitivity: "general", unitOptions: ["in", "cm"] },
+  { id: "cup_size", label: "Cup / bra size", section: "body", kind: "text", placeholder: "34D / 75D", tags: ["profile", "measurements", "body", "cup-size"], sensitivity: "context_gated" },
   { id: "shoe_size", label: "Shoe size", section: "body", kind: "text", placeholder: "US 10 / EU 44", tags: ["profile", "measurements", "body", "shoe"], sensitivity: "baseline" },
   { id: "dominant_hand", label: "Dominant hand", section: "body", kind: "select", options: ["", "right", "left", "ambidextrous"], tags: ["profile", "body"], sensitivity: "general" },
   { id: "dominant_foot", label: "Dominant foot", section: "body", kind: "select", options: ["", "right", "left", "ambidextrous"], tags: ["profile", "body", "sport"], sensitivity: "general" },
@@ -256,13 +258,43 @@ function measuredAt(values: ProfileFactValues): string | undefined {
   return cleanProfileFactValues(values).measurement_datetime;
 }
 
-function formatProfileValue(field: ProfileFactField, value: string): string {
+function unitKey(field: ProfileFactField): string {
+  return `${field.id}__unit`;
+}
+
+function defaultUnit(field: ProfileFactField): string | undefined {
+  return field.unitOptions?.[0] ?? field.unit;
+}
+
+export function convertedUnitHint(value: string, unit: string | undefined): string | undefined {
+  const n = Number(value);
+  if (!unit || Number.isNaN(n)) return undefined;
+  if (unit === "cm") return `${(n / 2.54).toFixed(1)} in`;
+  if (unit === "in") return `${(n * 2.54).toFixed(1)} cm`;
+  if (unit === "kg") return `${(n * 2.2046226218).toFixed(1)} lb`;
+  if (unit === "lb") return `${(n / 2.2046226218).toFixed(1)} kg`;
+  return undefined;
+}
+
+export function sectionCompleteness(values: ProfileFactValues, section: ProfileFactSection): number {
+  const fields = PROFILE_FACT_FIELDS.filter(field => field.section === section && field.id !== "measurement_datetime");
+  if (fields.length === 0) return 0;
+  const clean = cleanProfileFactValues(values);
+  return Math.round((fields.filter(field => clean[field.id]).length / fields.length) * 100);
+}
+
+function formatProfileValue(field: ProfileFactField, value: string, values: ProfileFactValues): string {
+  const unit = values[unitKey(field)] || defaultUnit(field);
+  if (unit && /^-?\d+(?:\.\d+)?$/.test(value)) {
+    const hint = convertedUnitHint(value, unit);
+    return `${value} ${unit}${hint ? ` (${hint})` : ""}`;
+  }
   if (field.unit && /^-?\d+(?:\.\d+)?$/.test(value)) return `${value} ${field.unit}`;
   return value;
 }
 
-function profileFactContent(field: ProfileFactField, value: string, measuredAtValue: string | undefined): string {
-  const formatted = formatProfileValue(field, value);
+function profileFactContent(field: ProfileFactField, value: string, measuredAtValue: string | undefined, values: ProfileFactValues): string {
+  const formatted = formatProfileValue(field, value, values);
   const suffix = field.measured && measuredAtValue ? ` measured at ${measuredAtValue}` : "";
   return `User's ${labelForField(field)} is ${formatted}${suffix}.`;
 }
@@ -297,7 +329,7 @@ export function buildProfileFactDrafts(values: ProfileFactValues): MemoryWizardD
   return PROFILE_FACT_FIELDS
     .filter(field => clean[field.id] && field.id !== "measurement_datetime")
     .map(field => ({
-      content: profileFactContent(field, clean[field.id], metricTime),
+      content: profileFactContent(field, clean[field.id], metricTime, clean),
       category: "fact" as const,
       subcategory: field.section,
       sensitivity: field.sensitivity ?? "general",
@@ -328,53 +360,63 @@ function shiftIsoDate(value: string, part: "year" | "month" | "day", delta: numb
 class ProfileFactForm implements Component {
   private selected = 0;
   private datePart: "year" | "month" | "day" = "year";
-  private values: ProfileFactValues = {};
 
   constructor(
     private readonly theme: { fg: (name: string, text: string) => string; bold: (text: string) => string },
+    private readonly section: ProfileFactSection,
+    private readonly fields: ProfileFactField[],
+    private readonly values: ProfileFactValues,
     private readonly done: (result: ProfileFactValues | null) => void,
   ) {}
 
   render(width: number): string[] {
+    const completeness = sectionCompleteness(this.values, this.section);
     const lines = [
-      this.theme.fg("accent", this.theme.bold("Structured profile facts")),
-      this.theme.fg("dim", "tab/↑↓ field · type to edit · ←/→ picker/date · enter preview · esc cancel"),
+      this.theme.fg("accent", this.theme.bold(`Structured profile facts › ${this.section} (${completeness}% complete)`)),
+      this.theme.fg("dim", "ENTER preview/save this section · ESC goes back without saving this edit screen"),
+      this.theme.fg("dim", "TAB or ↑↓ changes field · type edits · BACKSPACE deletes"),
+      this.theme.fg("dim", "Select fields: ←/→ cycles options · Unit fields: ←/→ cycles units · Date fields: ←/→ choose Y/M/D, +/- changes value"),
       "",
     ];
-    let section: ProfileFactSection | undefined;
-    PROFILE_FACT_FIELDS.forEach((field, index) => {
-      if (field.section !== section) {
-        section = field.section;
-        lines.push(this.theme.fg("muted", section.toUpperCase()));
-      }
+    this.fields.forEach((field, index) => {
       const active = index === this.selected;
       const value = this.values[field.id] || "";
+      const unit = field.unitOptions ? ` ${this.theme.fg("accent", `[${this.values[unitKey(field)] || defaultUnit(field)}]`)}` : "";
+      const hint = field.unitOptions && value ? this.theme.fg("dim", ` ≈ ${convertedUnitHint(value, this.values[unitKey(field)] || defaultUnit(field)) ?? ""}`) : "";
       const shown = value || this.theme.fg("dim", field.placeholder ?? "optional");
       const picker = (field.kind === "date" || field.kind === "datetime") && active ? ` (${this.datePart})` : "";
+      const kindHint = field.kind === "select" ? this.theme.fg("dim", " ←/→") : field.unitOptions ? this.theme.fg("dim", " ←/→ unit") : "";
       const prefix = active ? this.theme.fg("accent", "›") : " ";
-      lines.push(`${prefix} ${field.label}${picker}: ${shown}`.slice(0, Math.max(10, width - 1)));
+      lines.push(`${prefix} ${field.label}${picker}${unit}: ${shown}${hint}${kindHint}`.slice(0, Math.max(10, width - 1)));
     });
     lines.push("");
-    lines.push(this.theme.fg("dim", "Profile facts save as baseline fact memories using the existing user-memory store."));
+    lines.push(this.theme.fg("warning", "Important: ESC cancels/back-outs. Press ENTER when you want to preview and save."));
     return lines;
   }
 
   invalidate() {}
 
   handleInput(data: string) {
-    const field = PROFILE_FACT_FIELDS[this.selected];
+    const field = this.fields[this.selected];
     if (data === "\x1b") return this.done(null);
     if (data === "\r" || data === "\n") return this.done(cleanProfileFactValues(this.values));
     if (data === "\t" || data === "\x1b[B") {
-      this.selected = (this.selected + 1) % PROFILE_FACT_FIELDS.length;
+      this.selected = (this.selected + 1) % this.fields.length;
       return;
     }
     if (data === "\x1b[Z" || data === "\x1b[A") {
-      this.selected = (this.selected - 1 + PROFILE_FACT_FIELDS.length) % PROFILE_FACT_FIELDS.length;
+      this.selected = (this.selected - 1 + this.fields.length) % this.fields.length;
       return;
     }
     if (data === "\x7f" || data === "\b") {
       this.values[field.id] = (this.values[field.id] ?? "").slice(0, -1);
+      return;
+    }
+    if (field.unitOptions && (data === "\x1b[C" || data === "\x1b[D")) {
+      const options = field.unitOptions;
+      const current = Math.max(0, options.indexOf(this.values[unitKey(field)] ?? defaultUnit(field) ?? options[0]));
+      const delta = data === "\x1b[C" ? 1 : -1;
+      this.values[unitKey(field)] = options[(current + delta + options.length) % options.length];
       return;
     }
     if (field.kind === "select" && (data === "\x1b[C" || data === "\x1b[D")) {
@@ -401,9 +443,23 @@ class ProfileFactForm implements Component {
   }
 }
 
-async function runStructuredProfileFactFlow(ctx: any, save: (params: RememberParams) => Promise<{ text: string }>) {
-  const values = await ctx.ui.custom<ProfileFactValues | null>((tui: { requestRender: () => void }, theme: any, _kb: unknown, done: (result: ProfileFactValues | null) => void) => {
-    const form = new ProfileFactForm(theme, done);
+function sectionMenuLabels(values: ProfileFactValues): string[] {
+  return [
+    ...PROFILE_FACT_SECTIONS.map(section => `${section} (${sectionCompleteness(values, section)}%)`),
+    "preview + save all entered facts",
+    "cancel without saving",
+  ];
+}
+
+function sectionFromLabel(label: string | undefined): ProfileFactSection | undefined {
+  const section = label?.split(" ")[0];
+  return PROFILE_FACT_SECTIONS.find(s => s === section);
+}
+
+async function editProfileFactSection(ctx: any, section: ProfileFactSection, values: ProfileFactValues): Promise<ProfileFactValues | null> {
+  const fields = PROFILE_FACT_FIELDS.filter(field => field.section === section);
+  return ctx.ui.custom<ProfileFactValues | null>((tui: { requestRender: () => void }, theme: any, _kb: unknown, done: (result: ProfileFactValues | null) => void) => {
+    const form = new ProfileFactForm(theme, section, fields, values, done);
     return {
       render: (width: number) => form.render(width),
       invalidate: () => form.invalidate(),
@@ -413,9 +469,32 @@ async function runStructuredProfileFactFlow(ctx: any, save: (params: RememberPar
       },
     };
   });
-  if (!values) {
-    ctx.ui.notify("Memory not saved", "info");
-    return;
+}
+
+async function runStructuredProfileFactFlow(ctx: any, save: (params: RememberParams) => Promise<{ text: string }>) {
+  let values: ProfileFactValues = {};
+
+  while (true) {
+    const choice = await ctx.ui.select(
+      "Structured facts: choose a category. Percentages show how much of that section you have filled in this session.",
+      sectionMenuLabels(values),
+    );
+
+    if (!choice || choice === "cancel without saving") {
+      const ok = await ctx.ui.confirm("Cancel memory wizard?", "Nothing has been saved yet. Choose No to go back and save.");
+      if (ok) {
+        ctx.ui.notify("Memory not saved", "info");
+        return;
+      }
+      continue;
+    }
+
+    if (choice === "preview + save all entered facts") break;
+
+    const section = sectionFromLabel(choice);
+    if (!section) continue;
+    const edited = await editProfileFactSection(ctx, section, values);
+    if (edited) values = { ...values, ...edited };
   }
 
   const errors = validateProfileFactValues(values);

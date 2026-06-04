@@ -8,6 +8,8 @@ import {
   validateMemoryWizardDraft,
   validateProfileFactValues,
   buildProfileFactDrafts,
+  convertedUnitHint,
+  sectionCompleteness,
   type MemoryWizardDraft,
 } from "../extensions/user-memory/wizard";
 
@@ -93,14 +95,14 @@ describe("structured profile facts", () => {
     const drafts = buildProfileFactDrafts({
       preferred_name: " Alex ",
       date_of_birth: "1990-01-02",
-      height: "183 cm",
+      height: "183",
       employer: "Keylime Labs",
     });
 
     expect(drafts.map(draft => draft.content)).toEqual([
       "User's preferred name is Alex.",
       "User's date of birth is 1990-01-02.",
-      "User's height is 183 cm.",
+      "User's height is 183 cm (72.0 in).",
       "User's employer is Keylime Labs.",
     ]);
     expect(drafts[0].sensitivity).toBe("baseline");
@@ -118,6 +120,21 @@ describe("structured profile facts", () => {
     expect(validateProfileFactValues({ date_of_birth: "1990-02-30" })).toContain("date of birth is not a valid calendar date");
     expect(validateProfileFactValues({ date_of_birth: "02/03/1990" })).toContain("date of birth must use YYYY-MM-DD");
     expect(validateProfileFactValues({ date_of_birth: "1990-02-03" })).toEqual([]);
+  });
+
+  test("supports unit conversion hints, unit selectors, cup size, and section completeness", () => {
+    expect(convertedUnitHint("32", "in")).toBe("81.3 cm");
+    expect(convertedUnitHint("183", "cm")).toBe("72.0 in");
+    expect(sectionCompleteness({ height: "183", waist: "32" }, "body")).toBeGreaterThan(0);
+
+    const drafts = buildProfileFactDrafts({
+      waist: "32",
+      waist__unit: "in",
+      cup_size: "34D",
+    });
+
+    expect(drafts.map(draft => draft.content)).toContain("User's waist is 32 in (81.3 cm).");
+    expect(drafts.map(draft => draft.content)).toContain("User's cup / bra size is 34D.");
   });
 
   test("records athlete metrics with measured-at timestamps and units", () => {
