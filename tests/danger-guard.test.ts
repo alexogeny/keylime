@@ -44,6 +44,17 @@ describe("danger guard coding-mode hard enforcement", () => {
       "sed -i 's/a/b/' file.ts",
       "python -c \"open('file.ts', 'w').write('x')\"",
       "node -e \"require('fs').writeFileSync('file.ts', 'x')\"",
+      "echo hi > file.ts",
+      "printf hi >> file.ts",
+      "touch file.ts",
+      "mkdir src/generated",
+      "rm file.ts",
+      "cp a.ts b.ts",
+      "mv a.ts b.ts",
+      "perl -pi -e 's/a/b/' file.ts",
+      "bun -e \"require('fs').writeFileSync('file.ts', 'x')\"",
+      "deno eval \"Deno.writeTextFile('file.ts', 'x')\"",
+      "bash -c 'echo hi > file.ts'",
     ];
 
     for (const command of commands) {
