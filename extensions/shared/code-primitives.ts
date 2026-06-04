@@ -1,4 +1,7 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { extname, isAbsolute, relative, resolve } from "node:path";
+
+export type Language = "typescript" | "python" | "rust" | "javascript";
+export type MatchMode = "exact" | "trimmed_lines" | "normalized_whitespace";
 
 export type MatchOptions = {
   query: string;
@@ -25,6 +28,10 @@ export type ReplacementEdit = {
   regex?: string;
   flags?: string;
   replaceAll?: boolean;
+  matchMode?: MatchMode;
+  expectedReplacements?: number;
+  minReplacements?: number;
+  maxReplacements?: number;
 };
 
 export type ReplacementPreview = {
@@ -41,11 +48,41 @@ export type ReplacementPlan = {
   previews: ReplacementPreview[];
 };
 
+export type CodeDeclaration = {
+  kind: string;
+  name: string;
+  line: number;
+};
+
+export type CodeStructure = {
+  language: Language;
+  imports: string[];
+  declarations: CodeDeclaration[];
+};
+
+const DEFAULT_EXCLUDE_GLOBS = [
+  "**/node_modules/**",
+  "**/.git/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/target/**",
+  "**/coverage/**",
+  "**/.next/**",
+  "**/.turbo/**",
+  "**/bun.lock",
+  "**/package-lock.json",
+];
+
+const LANGUAGE_EXTENSIONS: Record<Language, string[]> = {
+  typescript: [".ts", ".tsx", ".mts", ".cts"],
+  javascript: [".js", ".jsx", ".mjs", ".cjs"],
+  python: [".py"],
+  rust: [".rs"],
+};
+
 function lineStarts(text: string): number[] {
   const starts = [0];
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === "\n") starts.push(i + 1);
-  }
+  for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
   return starts;
 }
 
@@ -78,10 +115,7 @@ function compactWhitespace(text: string): string {
 
 function nearMatchHint(text: string, needle: string): string {
   const compactNeedle = compactWhitespace(needle);
-  if (!compactNeedle) return "";
-  const compactText = compactWhitespace(text);
-  if (!compactText.includes(compactNeedle)) return "";
-
+  if (!compactNeedle || !compactWhitespace(text).includes(compactNeedle)) return "";
   const firstNeedleToken = compactNeedle.split(" ")[0] ?? "";
   const nearLine = text.split("\n").find(line => compactWhitespace(line).includes(firstNeedleToken));
   return ` Possible whitespace/indentation mismatch${nearLine ? ` near: ${nearLine.trim().slice(0, 160)}` : ""}`;
@@ -90,16 +124,76 @@ function nearMatchHint(text: string, needle: string): string {
 function replacementPreviews(before: string, after: string, maxPreviews = 5): ReplacementPreview[] {
   const beforeLines = before.split("\n");
   const afterLines = after.split("\n");
-  const limit = Math.max(beforeLines.length, afterLines.length);
   const previews: ReplacementPreview[] = [];
-
-  for (let i = 0; i < limit; i++) {
+  for (let i = 0; i < Math.max(beforeLines.length, afterLines.length); i++) {
     if ((beforeLines[i] ?? "") === (afterLines[i] ?? "")) continue;
     previews.push({ line: i + 1, before: beforeLines[i] ?? "", after: afterLines[i] ?? "" });
     if (previews.length >= maxPreviews) break;
   }
-
   return previews;
+}
+
+function assertReplacementCount(edit: ReplacementEdit, count: number): void {
+  if (edit.expectedReplacements !== undefined && count !== edit.expectedReplacements) {
+    throw new Error(`Expected ${edit.expectedReplacements} replacement${edit.expectedReplacements === 1 ? "" : "s"} in ${edit.path}, got ${count}`);
+  }
+  if (edit.minReplacements !== undefined && count < edit.minReplacements) {
+    throw new Error(`Expected at least ${edit.minReplacements} replacement${edit.minReplacements === 1 ? "" : "s"} in ${edit.path}, got ${count}`);
+  }
+  if (edit.maxReplacements !== undefined && count > edit.maxReplacements) {
+    throw new Error(`Expected at most ${edit.maxReplacements} replacement${edit.maxReplacements === 1 ? "" : "s"} in ${edit.path}, got ${count}`);
+  }
+}
+
+function findTrimmedLinesMatch(text: string, oldText: string): { startLine: number; endLine: number } | null {
+  const lines = text.split("\n");
+  const oldLines = oldText.split("\n").map(line => line.trim());
+  for (let i = 0; i <= lines.length - oldLines.length; i++) {
+    const slice = lines.slice(i, i + oldLines.length).map(line => line.trim());
+    if (slice.every((line, idx) => line === oldLines[idx])) return { startLine: i, endLine: i + oldLines.length };
+  }
+  return null;
+}
+
+function replaceTrimmedLines(text: string, edit: ReplacementEdit): { after: string; count: number } {
+  if (edit.oldText === undefined) throw new Error(`oldText is required for trimmed_lines replacement in ${edit.path}`);
+  const lines = text.split("\n");
+  let count = 0;
+  let cursor = 0;
+  const output: string[] = [];
+  while (cursor < lines.length) {
+    const match = findTrimmedLinesMatch(lines.slice(cursor).join("\n"), edit.oldText);
+    if (!match) {
+      output.push(...lines.slice(cursor));
+      break;
+    }
+    const absoluteStart = cursor + match.startLine;
+    const absoluteEnd = cursor + match.endLine;
+    output.push(...lines.slice(cursor, absoluteStart), edit.newText);
+    count++;
+    cursor = absoluteEnd;
+    if (!edit.replaceAll) {
+      output.push(...lines.slice(cursor));
+      break;
+    }
+  }
+  if (count === 0) throw new Error(`No match for oldText in ${edit.path}.${nearMatchHint(text, edit.oldText)}`);
+  return { after: output.join("\n"), count };
+}
+
+function replaceNormalizedWhitespace(text: string, edit: ReplacementEdit): { after: string; count: number } {
+  if (edit.oldText === undefined) throw new Error(`oldText is required for normalized_whitespace replacement in ${edit.path}`);
+  const compactNeedle = compactWhitespace(edit.oldText);
+  const compactText = compactWhitespace(text);
+  if (!compactText.includes(compactNeedle)) throw new Error(`No match for oldText in ${edit.path}.${nearMatchHint(text, edit.oldText)}`);
+  if (compactText.indexOf(compactNeedle) !== compactText.lastIndexOf(compactNeedle) && !edit.replaceAll) {
+    throw new Error(`oldText matched multiple times in ${edit.path}; set replaceAll=true or use a more specific oldText`);
+  }
+  const replaced = edit.replaceAll
+    ? compactText.split(compactNeedle).join(edit.newText)
+    : compactText.replace(compactNeedle, edit.newText);
+  const count = compactText.split(compactNeedle).length - 1;
+  return { after: replaced, count: edit.replaceAll ? count : 1 };
 }
 
 export function inspectTextMatches(text: string, options: MatchOptions): TextMatch[] {
@@ -114,8 +208,7 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
     for (const match of text.matchAll(re)) {
       if (match.index === undefined) continue;
       const { line, column } = lineColumnAt(text, match.index);
-      const context = contextForLine(text, line, contextLines);
-      matches.push({ index: match.index, line, column, text: match[0], ...context });
+      matches.push({ index: match.index, line, column, text: match[0], ...contextForLine(text, line, contextLines) });
       if (matches.length >= maxMatches) break;
     }
     return matches;
@@ -128,8 +221,7 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
     const index = haystack.indexOf(needle, from);
     if (index < 0) break;
     const { line, column } = lineColumnAt(text, index);
-    const context = contextForLine(text, line, contextLines);
-    matches.push({ index, line, column, text: text.slice(index, index + options.query.length), ...context });
+    matches.push({ index, line, column, text: text.slice(index, index + options.query.length), ...contextForLine(text, line, contextLines) });
     from = index + Math.max(1, options.query.length);
   }
   return matches;
@@ -138,16 +230,31 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
 function exactReplacement(text: string, edit: ReplacementEdit): ReplacementPlan {
   if (edit.oldText === undefined) throw new Error(`oldText is required for exact replacement in ${edit.path}`);
   if (edit.oldText.length === 0) throw new Error(`oldText must not be empty in ${edit.path}`);
+  const mode = edit.matchMode ?? "exact";
+
+  if (mode === "trimmed_lines") {
+    const { after, count } = replaceTrimmedLines(text, edit);
+    assertReplacementCount(edit, count);
+    return { path: edit.path, before: text, after, replacements: count, previews: replacementPreviews(text, after) };
+  }
+
+  if (mode === "normalized_whitespace") {
+    const { after, count } = replaceNormalizedWhitespace(text, edit);
+    assertReplacementCount(edit, count);
+    return { path: edit.path, before: text, after, replacements: count, previews: replacementPreviews(text, after) };
+  }
+
   const occurrences = text.split(edit.oldText).length - 1;
   if (occurrences === 0) throw new Error(`No match for oldText in ${edit.path}.${nearMatchHint(text, edit.oldText)}`);
   if (occurrences > 1 && !edit.replaceAll) throw new Error(`oldText matched ${occurrences} times in ${edit.path}; set replaceAll=true or use a more specific oldText`);
+  const count = edit.replaceAll ? occurrences : 1;
+  assertReplacementCount(edit, count);
   const after = edit.replaceAll ? text.split(edit.oldText).join(edit.newText) : text.replace(edit.oldText, edit.newText);
-  return { path: edit.path, before: text, after, replacements: edit.replaceAll ? occurrences : 1, previews: replacementPreviews(text, after) };
+  return { path: edit.path, before: text, after, replacements: count, previews: replacementPreviews(text, after) };
 }
 
 function regexCanMatchEmpty(regex: string, flags: string): boolean {
-  const re = new RegExp(regex, flags.replaceAll("g", ""));
-  return re.test("");
+  return new RegExp(regex, flags.replaceAll("g", "")).test("");
 }
 
 function regexReplacement(text: string, edit: ReplacementEdit): ReplacementPlan {
@@ -159,9 +266,11 @@ function regexReplacement(text: string, edit: ReplacementEdit): ReplacementPlan 
   const occurrences = [...text.matchAll(re)].length;
   if (occurrences === 0) throw new Error(`No match for regex in ${edit.path}`);
   if (occurrences > 1 && !edit.replaceAll) throw new Error(`regex matched ${occurrences} times in ${edit.path}; set replaceAll=true or use a more specific regex`);
+  const count = edit.replaceAll ? occurrences : 1;
+  assertReplacementCount(edit, count);
   const single = new RegExp(edit.regex, flags.replaceAll("g", ""));
   const after = edit.replaceAll ? text.replace(re, edit.newText) : text.replace(single, edit.newText);
-  return { path: edit.path, before: text, after, replacements: edit.replaceAll ? occurrences : 1, previews: replacementPreviews(text, after) };
+  return { path: edit.path, before: text, after, replacements: count, previews: replacementPreviews(text, after) };
 }
 
 export function planReplacement(text: string, edit: ReplacementEdit): ReplacementPlan {
@@ -169,17 +278,12 @@ export function planReplacement(text: string, edit: ReplacementEdit): Replacemen
 }
 
 export function summarizePlan(plan: ReplacementPlan): string {
-  const beforeLines = plan.before.split("\n").length;
-  const afterLines = plan.after.split("\n").length;
-  const delta = afterLines - beforeLines;
+  const delta = plan.after.split("\n").length - plan.before.split("\n").length;
   return `${plan.path}: ${plan.replacements} replacement${plan.replacements === 1 ? "" : "s"}, line delta ${delta >= 0 ? "+" : ""}${delta}`;
 }
 
 export function formatPlanPreview(plan: ReplacementPlan): string {
-  if (plan.previews.length === 0) return "";
-  return plan.previews
-    .map(preview => [`line ${preview.line}:`, `- ${preview.before}`, `+ ${preview.after}`].join("\n"))
-    .join("\n");
+  return plan.previews.map(preview => [`line ${preview.line}:`, `- ${preview.before}`, `+ ${preview.after}`].join("\n")).join("\n");
 }
 
 export function resolveSafePath(cwd: string, inputPath: string): string {
@@ -194,7 +298,6 @@ export function isProbablyBinary(buffer: Buffer | Uint8Array): boolean {
   const sample = buffer.subarray(0, Math.min(buffer.length, 8192));
   if (sample.includes(0)) return true;
   if (sample.length === 0) return false;
-
   let suspicious = 0;
   for (const byte of sample) {
     if (byte === 9 || byte === 10 || byte === 13) continue;
@@ -202,4 +305,73 @@ export function isProbablyBinary(buffer: Buffer | Uint8Array): boolean {
     suspicious++;
   }
   return suspicious / sample.length > 0.3;
+}
+
+export function extensionsForLanguage(language: Language): string[] {
+  return LANGUAGE_EXTENSIONS[language];
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function matchesGlob(path: string, glob: string): boolean {
+  const pattern = glob.split("/").map(part => {
+    if (part === "**") return "(?:.*)?";
+    return escapeRegex(part).replaceAll("\\*", "[^/]*");
+  }).join("/");
+  return new RegExp(`^${pattern}$`).test(path);
+}
+
+export function shouldExcludePath(path: string, excludeGlobs: string[] = []): boolean {
+  return [...DEFAULT_EXCLUDE_GLOBS, ...excludeGlobs].some(glob => matchesGlob(path, glob));
+}
+
+export function matchesLanguage(path: string, language?: Language): boolean {
+  if (!language) return true;
+  return extensionsForLanguage(language).includes(extname(path));
+}
+
+export function inspectCodeStructure(text: string, language: Language): CodeStructure {
+  const imports: string[] = [];
+  const declarations: CodeDeclaration[] = [];
+  const lines = text.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    let m: RegExpMatchArray | null;
+
+    if (language === "typescript" || language === "javascript") {
+      m = line.match(/^import\s+(?:.+?\s+from\s+)?["']([^"']+)["']/);
+      if (m) imports.push(m[1]);
+      m = line.match(/^(?:export\s+)?(?:async\s+)?function\s+(\w+)/);
+      if (m) declarations.push({ kind: "function", name: m[1], line: i + 1 });
+      m = line.match(/^(?:export\s+)?class\s+(\w+)/);
+      if (m) declarations.push({ kind: "class", name: m[1], line: i + 1 });
+      m = line.match(/^(?:export\s+)?(?:type|interface)\s+(\w+)/);
+      if (m) declarations.push({ kind: "type", name: m[1], line: i + 1 });
+    }
+
+    if (language === "python") {
+      m = line.match(/^import\s+([\w.]+)/);
+      if (m) imports.push(m[1]);
+      m = line.match(/^from\s+([\w.]+)\s+import\s+/);
+      if (m) imports.push(m[1]);
+      m = line.match(/^def\s+(\w+)/);
+      if (m) declarations.push({ kind: "def", name: m[1], line: i + 1 });
+      m = line.match(/^class\s+(\w+)/);
+      if (m) declarations.push({ kind: "class", name: m[1], line: i + 1 });
+    }
+
+    if (language === "rust") {
+      m = line.match(/^use\s+([^;]+);/);
+      if (m) imports.push(m[1]);
+      m = line.match(/^(?:pub\s+)?fn\s+(\w+)/);
+      if (m) declarations.push({ kind: "fn", name: m[1], line: i + 1 });
+      m = line.match(/^(?:pub\s+)?(?:struct|enum|trait)\s+(\w+)/);
+      if (m) declarations.push({ kind: "type", name: m[1], line: i + 1 });
+    }
+  }
+
+  return { language, imports, declarations };
 }
