@@ -64,6 +64,12 @@ function relativePath(cwd: string, path: string): string {
   return relative(cwd, path).replace(/\\/g, "/");
 }
 
+const SOURCE_MUTATION_GUIDELINES = [
+  "For source-code edits, prefer plan_code_replacements/apply_code_replacements over built-in edit/write.",
+  "Do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection for repository file mutations.",
+  "Use built-in write only for new files or full-file rewrites until create_file is available.",
+];
+
 async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targets: string[]): Promise<PlannedReplacement[]> {
   const plannedByPath = new Map<string, PlannedReplacement>();
 
@@ -103,7 +109,11 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     label: "Inspect Text Matches",
     description: "Find text or regex matches in one or more files with line/context output.",
     promptSnippet: "Inspect file text matches",
-    promptGuidelines: ["Use before broad replacements."],
+    promptGuidelines: [
+      "Use before broad replacements.",
+      "Use to locate exact oldText before applying source-code edits.",
+      SOURCE_MUTATION_GUIDELINES[1],
+    ],
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "File path" })),
       file_glob: Type.Optional(Type.String({ description: "Target glob" })),
@@ -159,7 +169,10 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     label: "Inspect Code Structure",
     description: "Extract imports and top-level declarations from one file using lightweight language regexes.",
     promptSnippet: "Inspect imports/declarations",
-    promptGuidelines: ["Use for quick structure checks before codemods."],
+    promptGuidelines: [
+      "Use for quick structure checks before codemods.",
+      SOURCE_MUTATION_GUIDELINES[1],
+    ],
     parameters: Type.Object({
       path: Type.String({ description: "File path" }),
       language: stringEnum(["typescript", "javascript", "python", "rust"] as const),
@@ -183,7 +196,10 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     label: "Plan Code Replacements",
     description: "Dry-run exact or regex replacements across files without writing changes.",
     promptSnippet: "Plan batch replacements",
-    promptGuidelines: ["Use before apply_code_replacements for broad edits."],
+    promptGuidelines: [
+      "Use before apply_code_replacements for broad edits.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
     parameters: Type.Object({
       file_glob: Type.Optional(Type.String({ description: "Target glob" })),
       language: Type.Optional(stringEnum(["typescript", "javascript", "python", "rust"] as const)),
@@ -226,7 +242,10 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     label: "Apply Code Replacements",
     description: "Apply exact or regex replacements across files. Supports globs, languages, dry-run previews, match modes, and count guards.",
     promptSnippet: "Batch text/regex replacements",
-    promptGuidelines: ["Prefer exact oldText. Use dry_run before broad regex/glob edits."],
+    promptGuidelines: [
+      "Prefer exact oldText. Use dry_run before broad regex/glob edits.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
     parameters: Type.Object({
       dry_run: Type.Optional(Type.Boolean({ description: "Preview only" })),
       file_glob: Type.Optional(Type.String({ description: "Target glob" })),

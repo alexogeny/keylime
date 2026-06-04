@@ -164,6 +164,7 @@ export function reminderText(): string {
 
   if (activeGroups.includes("coding")) {
     lines.push("Git checkpoints handle rollback safety; do not spend extra turns on manual git safety unless asked.");
+    lines.push("For repository file mutations, use codemod tools; do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection.");
   }
 
   if (route.suggestedSkills.length > 0) {
