@@ -24,6 +24,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { isCapabilityActive } from "./shared/intent";
+import { researchKeyConfigured } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
@@ -89,7 +90,7 @@ function hasTools(pi: ExtensionAPI, ...names: string[]): boolean {
 function researchProviderAvailable(): boolean {
   if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
   if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
-  return Boolean(process.env.TAVILY_API_KEY || process.env.SERPER_API_KEY || process.env.BING_API_KEY);
+  return researchKeyConfigured();
 }
 
 // ─── Extension ────────────────────────────────────────────────────────────────
