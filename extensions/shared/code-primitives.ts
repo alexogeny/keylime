@@ -66,6 +66,7 @@ const DEFAULT_EXCLUDE_GLOBS = [
   "**/dist/**",
   "**/build/**",
   "**/target/**",
+  "target/**",
   "**/coverage/**",
   "**/.next/**",
   "**/.turbo/**",
