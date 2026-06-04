@@ -16,8 +16,8 @@
  *    - auto       → tries structural first, falls back to lexical
  *    Returns compressed results: never dumps full file content.
  *
- * The skeleton is invalidated and rebuilt after any write/edit tool call
- * touches a source file, keeping it fresh without per-turn cost.
+ * The skeleton is invalidated and rebuilt after source mutations touch source
+ * files, keeping it fresh without per-turn cost.
  *
  * Supported languages: TypeScript/JavaScript, Rust, Python, Go.
  * Falls back gracefully in repos with no recognised source files.
@@ -101,6 +101,11 @@ const LANGS: LangConfig[] = [
     declPattern: `^func\\s+(\\(\\w[^)]*\\)\\s+)?(\\w+)|^type\\s+(\\w+)`,
   },
 ];
+
+export function isIndexedSourcePath(filePath: string): boolean {
+  const ext = extname(filePath ?? "");
+  return LANGS.some(lang => lang.exts.includes(ext));
+}
 
 // ─── Ripgrep wrapper ──────────────────────────────────────────────────────────
 
@@ -328,6 +333,18 @@ interface IndexState {
 }
 
 const state: IndexState = { cwd: "", skeleton: "", dirty: true };
+
+export function isRepoIndexDirty(): boolean {
+  return state.dirty;
+}
+
+export function markRepoIndexCleanForTest(): void {
+  state.dirty = false;
+}
+
+function markRepoIndexDirty(): void {
+  state.dirty = true;
+}
 
 async function rebuildIndex(cwd: string): Promise<void> {
   if (cwd !== state.cwd) {
