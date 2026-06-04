@@ -58,4 +58,18 @@ describe("code_search file_glob handling", () => {
     expect(result.content[0].text).toContain(".hidden/secret.ts");
     expect(result.content[0].text).toContain("hiddenNeedle");
   });
+
+  test("no-match scoped searches point to matches outside the file_glob", async () => {
+    const tools = await registeredRepoIndexTools();
+    const result = await tools.code_search.execute("id", {
+      query: "apply_code_replacements",
+      mode: "auto",
+      file_glob: "extensions/shared/code-primitives.ts",
+      max_results: 5,
+    }, undefined, undefined, { cwd: process.cwd() });
+
+    expect(result.content[0].text).toContain("No matches inside file_glob");
+    expect(result.content[0].text).toContain("Matches exist outside that scope");
+    expect(result.content[0].text).toContain("extensions/code-primitives.ts");
+  });
 });
