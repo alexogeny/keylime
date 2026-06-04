@@ -1,6 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import dangerGuardExtension, { codingModeBlockReasonForToolCall, looksLikeCodingModeBashMutation } from "../extensions/danger-guard";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
+
+mock.module("@earendil-works/pi-coding-agent", () => ({
+  isToolCallEventType: (name: string, event: any) => event.toolName === name,
+}));
+
+const {
+  default: dangerGuardExtension,
+  codingModeBlockReasonForToolCall,
+  looksLikeCodingModeBashMutation,
+} = await import("../extensions/danger-guard");
 
 function setCodingMode() {
   setCurrentRoute(classifyIntent("implement this code change"));
