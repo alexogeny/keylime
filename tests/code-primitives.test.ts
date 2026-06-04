@@ -118,6 +118,21 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).toContain("promptGuidelines");
   });
 
+  test("inspect_text_matches falls back to literal search for invalid regex-looking queries", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "literal.ts"), "const value = foo(bar;\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.inspect_text_matches.execute("id", {
+      path: "src/literal.ts",
+      query: "foo(bar",
+    }, undefined, undefined, { cwd });
+
+    expect(result.details.count).toBe(1);
+    expect(result.content[0].text).toContain("foo(bar");
+  });
+
   test("source mutation tools warn against native runtime file mutations", () => {
     const tools = registeredCodePrimitiveTools();
     const guidelines = [
@@ -201,6 +216,26 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).toContain("src/a.ts: 1 replacement");
   });
 
+  test("apply_code_replacements accepts multiple whitespace-separated file_glob scopes", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await mkdir(join(cwd, "tests"));
+    await writeFile(join(cwd, "src", "a.ts"), "alpha\n", "utf8");
+    await writeFile(join(cwd, "tests", "a.test.ts"), "alpha\n", "utf8");
+    await writeFile(join(cwd, "README.md"), "alpha\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.apply_code_replacements.execute("id", {
+      file_glob: "src/*.ts tests/*.ts",
+      edits: [{ oldText: "alpha", newText: "beta" }],
+    }, undefined, undefined, { cwd });
+
+    expect(await readFile(join(cwd, "src", "a.ts"), "utf8")).toBe("beta\n");
+    expect(await readFile(join(cwd, "tests", "a.test.ts"), "utf8")).toBe("beta\n");
+    expect(await readFile(join(cwd, "README.md"), "utf8")).toBe("alpha\n");
+    expect(result.details.plans.map((plan: any) => plan.path).sort()).toEqual(["src/a.ts", "tests/a.test.ts"]);
+  });
+
   test("replacement errors include edit number and target file", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await writeFile(join(cwd, "x.ts"), "alpha alpha\n", "utf8");
@@ -278,6 +313,15 @@ describe("glob/language filtering", () => {
     expect(matchesGlob("src/a.ts", "src/*.ts")).toBe(true);
     expect(matchesGlob("src/nested/a.ts", "src/*.ts")).toBe(false);
     expect(matchesGlob("src/nested/a.ts", "src/**/*.ts")).toBe(true);
+  });
+
+  test("matches brace alternation and multiple glob scopes", async () => {
+    const { matchesGlob } = await import("../extensions/shared/code-primitives");
+
+    expect(matchesGlob("src/a.ts", "src/*.{ts,tsx}")).toBe(true);
+    expect(matchesGlob("src/a.tsx", "src/*.{ts,tsx}")).toBe(true);
+    expect(matchesGlob("tests/a.test.ts", "src/*.ts tests/*.ts")).toBe(true);
+    expect(matchesGlob("README.md", "src/*.ts tests/*.ts")).toBe(false);
   });
 
   test("default excludes skip vendor and build outputs", async () => {
