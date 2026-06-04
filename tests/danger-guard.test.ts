@@ -62,6 +62,14 @@ describe("danger guard coding-mode hard enforcement", () => {
     }
   });
 
+  test("allows read-only-looking bash commands in coding mode", () => {
+    const commands = ["rg foo src", "ls -la", "cat file.ts", "echo hi", "grep foo file.ts", "tee /dev/null"];
+
+    for (const command of commands) {
+      expect(looksLikeCodingModeBashMutation(command)).toBeNull();
+    }
+  });
+
   test("blocks mutation-looking bash commands in coding mode", () => {
     setCodingMode();
 
