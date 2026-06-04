@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
 
 const allToolNames = [
-  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "plan_code_replacements", "apply_code_replacements", "run_checks",
+  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "run_checks",
   "remember", "recall_memories", "recall_entity", "list_memories",
   "web_search", "research_topic", "fetch_url",
   "lookup_shoe", "query_shoes",
@@ -23,9 +23,12 @@ describe("activeToolNames", () => {
   test("coding keeps code tools and removes unrelated domain tools", () => {
     const tools = activeToolNames(pi(["web_search", "lookup_shoe", "custom_safe_tool"]), ["core", "repo", "coding", "memory-lite"]);
 
-    expect(tools).toContain("read");
-    expect(tools).toContain("edit");
+    expect(tools).not.toContain("read");
+    expect(tools).not.toContain("edit");
+    expect(tools).not.toContain("write");
     expect(tools).toContain("code_search");
+    expect(tools).toContain("inspect_lines");
+    expect(tools).toContain("create_file");
     expect(tools).toContain("remember");
     expect(tools).toContain("custom_safe_tool");
     expect(tools).not.toContain("web_search");
@@ -241,9 +244,13 @@ test("coding route exposes codemod primitives", () => {
   const tools = activeToolNames(pi(["custom_safe_tool"]), ["coding", "repo"]);
 
   expect(tools).toContain("inspect_text_matches");
+  expect(tools).toContain("inspect_lines");
   expect(tools).toContain("plan_code_replacements");
   expect(tools).toContain("apply_code_replacements");
+  expect(tools).toContain("create_file");
   expect(tools).toContain("run_checks");
+  expect(tools).not.toContain("edit");
+  expect(tools).not.toContain("write");
 });
 
 test("review mode narrows active tools to readonly repo tools", async () => {
@@ -279,5 +286,6 @@ test("coding reminders mention git checkpoint safety and codemod mutation policy
 
   expect(reminderText()).toContain("Git checkpoints handle rollback safety");
   expect(reminderText()).toContain("use codemod tools");
-  expect(reminderText()).toContain("do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
+  expect(reminderText()).toContain("do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
+  expect(reminderText()).toContain("prefer run_checks");
 });
