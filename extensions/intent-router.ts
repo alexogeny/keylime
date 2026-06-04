@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, stripSystemReminders, type CapabilityGroup, type IntentRoute } from "./shared/intent";
 import { getCurrentOperationalMode } from "./operational-modes";
+import { researchKeyConfigured } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
 
 const STATUS_KEY = "intent";
@@ -56,14 +57,10 @@ function lastUserPrompt(messages: any[]): string {
   return msg ? textFromContent(msg.content) : "";
 }
 
-function providerKeyPresent(): boolean {
-  return Boolean(process.env.TAVILY_API_KEY || process.env.SERPER_API_KEY || process.env.BING_API_KEY);
-}
-
 export function researchEnabled(): boolean {
   if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
   if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
-  return providerKeyPresent();
+  return researchKeyConfigured();
 }
 
 export function shoesEnabled(): boolean {
@@ -127,10 +124,25 @@ function routeForIntent(prompt: string): IntentRoute {
   return classifyIntent(prompt);
 }
 
+function sortedToolNames(tools: any[]): string[] {
+  return tools.map(toolName).filter(Boolean).sort() as string[];
+}
+
+function sameTools(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((name, index) => name === right[index]);
+}
+
+export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute): void {
+  const next = activeToolNames(pi, route.capabilityGroups);
+  const current = sortedToolNames(pi.getActiveTools());
+  if (sameTools(current, next)) return;
+  pi.setActiveTools(next);
+}
+
 export function routeForPrompt(pi: ExtensionAPI, prompt: string): IntentRoute {
   const route = routeForIntent(prompt);
   setCurrentRoute(route);
-  pi.setActiveTools(activeToolNames(pi, route.capabilityGroups));
+  applyRouteTools(pi, route);
   return route;
 }
 
@@ -189,9 +201,9 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     const prompt = lastUserPrompt(messages);
 
     // Tool results can cause additional context passes without a new input event.
-    // Reclassify here for reminder accuracy, but tool visibility was already set
-    // during input so the provider prompt sees the right active schema set.
-    if (prompt.trim()) setCurrentRoute(routeForIntent(prompt));
+    // Keep route state and tool visibility aligned; applyRouteTools is a no-op
+    // when the active schema set is already correct, avoiding prompt churn.
+    if (prompt.trim()) routeForPrompt(pi, prompt);
 
     const route = getCurrentRoute();
     ctx.ui.setStatus(
