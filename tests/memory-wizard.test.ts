@@ -4,7 +4,10 @@ import {
   convertDraftToRememberParams,
   parseCommaList,
   previewMemoryWizardDraft,
+  previewProfileFactDrafts,
   validateMemoryWizardDraft,
+  validateProfileFactValues,
+  buildProfileFactDrafts,
   type MemoryWizardDraft,
 } from "../extensions/user-memory/wizard";
 
@@ -85,6 +88,43 @@ describe("memory wizard draft validation", () => {
   });
 });
 
+describe("structured profile facts", () => {
+  test("converts profile schema values into pinned baseline fact drafts", () => {
+    const drafts = buildProfileFactDrafts({
+      preferred_name: " Alex ",
+      date_of_birth: "1990-01-02",
+      height: "183 cm",
+      employer: "Keylime Labs",
+    });
+
+    expect(drafts.map(draft => draft.content)).toEqual([
+      "User's preferred name is Alex.",
+      "User's date of birth is 1990-01-02.",
+      "User's height is 183 cm.",
+      "User's employer is Keylime Labs.",
+    ]);
+    expect(drafts[0].sensitivity).toBe("baseline");
+    expect(drafts[0].tags).toContain("name");
+    expect(drafts[1].dateRef).toBe("1990-01-02");
+    expect(convertDraftToRememberParams(drafts[2])).toMatchObject({
+      category: "fact",
+      subcategory: "body",
+      sensitivity: "baseline",
+      tags: ["profile", "height", "measurements", "body"],
+    });
+  });
+
+  test("validates date picker output as real YYYY-MM-DD dates", () => {
+    expect(validateProfileFactValues({ date_of_birth: "1990-02-30" })).toContain("date of birth is not a valid calendar date");
+    expect(validateProfileFactValues({ date_of_birth: "02/03/1990" })).toContain("date of birth must use YYYY-MM-DD");
+    expect(validateProfileFactValues({ date_of_birth: "1990-02-03" })).toEqual([]);
+  });
+
+  test("previews multiple profile facts", () => {
+    expect(previewProfileFactDrafts(buildProfileFactDrafts({ preferred_name: "Alex" }))).toBe("Profile fact preview\n- User's preferred name is Alex.");
+  });
+});
+
 describe("memory wizard command registration", () => {
   test("user-memory extension registers /memory-wizard", () => {
     const commands: Array<{ name: string; description?: string }> = [];
@@ -100,7 +140,7 @@ describe("memory wizard command registration", () => {
 
     expect(commands).toContainEqual({
       name: "memory-wizard",
-      description: "Interactively create a structured user memory",
+      description: "Interactively create structured user memories",
     });
     expect(tools.some(tool => tool.name === "remember")).toBe(true);
     expect(contextProviders.length).toBe(0);
