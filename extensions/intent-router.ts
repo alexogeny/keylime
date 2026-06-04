@@ -12,6 +12,8 @@ let intentOverride: IntentOverride | null = null;
 
 const ALWAYS_ON_CODE_TOOLS = [
   "code_search",
+  "list_files",
+  "inspect_json",
   "inspect_text_matches",
   "inspect_code_structure",
   "inspect_lines",
@@ -53,6 +55,8 @@ const DOMAIN_TOOLS = new Set([
   ...CAPABILITY_TOOLS.shoes,
   "fetch_url",
   "code_search",
+  "list_files",
+  "inspect_json",
   "inspect_text_matches",
   "inspect_code_structure",
   "inspect_lines",

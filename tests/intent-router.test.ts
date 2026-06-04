@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
 
 const allToolNames = [
-  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks", "commit_history", "see_file_commit_history", "git_status", "git_diff", "inspect_at_checkpoint",
+  "read", "bash", "edit", "write", "code_search", "list_files", "inspect_json", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks", "commit_history", "see_file_commit_history", "git_status", "git_diff", "inspect_at_checkpoint",
   "remember", "recall_memories", "recall_entity", "list_memories",
   "web_search", "research_topic", "fetch_url",
   "lookup_shoe", "query_shoes",
@@ -27,6 +27,8 @@ describe("activeToolNames", () => {
     expect(tools).not.toContain("edit");
     expect(tools).not.toContain("write");
     expect(tools).toContain("code_search");
+    expect(tools).toContain("list_files");
+    expect(tools).toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("create_file");
     expect(tools).toContain("create_directory");
@@ -47,6 +49,8 @@ describe("activeToolNames", () => {
     expect(tools).toContain("lookup_shoe");
     expect(tools).toContain("query_shoes");
     expect(tools).toContain("recall_memories");
+    expect(tools).toContain("list_files");
+    expect(tools).toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("apply_code_replacements");
     expect(tools).not.toContain("read");

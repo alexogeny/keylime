@@ -9,6 +9,7 @@ const {
   default: dangerGuardExtension,
   codingModeBlockReasonForToolCall,
   looksLikeCodingModeBashMutation,
+  looksLikeCodingModeBashNativeInspection,
 } = await import("../extensions/danger-guard");
 
 function setCodingMode() {
@@ -72,11 +73,31 @@ describe("danger guard coding-mode hard enforcement", () => {
     }
   });
 
-  test("allows read-only-looking bash commands in coding mode", () => {
-    const commands = ["rg foo src", "ls -la", "cat file.ts", "echo hi", "grep foo file.ts", "tee /dev/null", "grep foo src > /dev/null", "git status --short", "git log --oneline", "git diff", "git show HEAD:README.md"];
+  test("detects native repository inspection forms banned in coding mode", () => {
+    const commands = [
+      "find . -name '*.ts'",
+      "grep foo file.ts",
+      "rg foo src",
+      "jq '.memories' data.json",
+      "ls -la",
+      "cat file.ts",
+      "head -20 file.ts",
+      "tail -20 file.ts",
+      "wc -l file.ts",
+      "cat file.ts | grep foo",
+    ];
+
+    for (const command of commands) {
+      expect(looksLikeCodingModeBashNativeInspection(command)?.label).toContain("use first-class safe tools");
+    }
+  });
+
+  test("allows non-repository-inspection bash commands in coding mode", () => {
+    const commands = ["echo hi", "tee /dev/null", "git status --short", "git log --oneline", "git diff", "git show HEAD:README.md"];
 
     for (const command of commands) {
       expect(looksLikeCodingModeBashMutation(command)).toBeNull();
+      expect(looksLikeCodingModeBashNativeInspection(command)).toBeNull();
     }
   });
 
@@ -84,7 +105,8 @@ describe("danger guard coding-mode hard enforcement", () => {
     setCodingMode();
 
     expect(codingModeBlockReasonForToolCall("bash", { command: "cat > file.ts" })).toContain("bash file mutation");
-    expect(codingModeBlockReasonForToolCall("bash", { command: "rg foo src" })).toBeNull();
+    expect(codingModeBlockReasonForToolCall("bash", { command: "rg foo src" })).toContain("native repository inspection");
+    expect(codingModeBlockReasonForToolCall("bash", { command: "echo hi" })).toBeNull();
   });
 
   test("extension blocks coding-mode violations without confirmation", async () => {

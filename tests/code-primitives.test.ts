@@ -87,6 +87,13 @@ describe("planReplacement", () => {
     expect(formatPlanPreview(plan)).toContain("-b");
     expect(formatPlanPreview(plan)).toContain("+bee");
   });
+
+  test("can color replacement previews for TUI output", () => {
+    const plan = planReplacement("a\nb\nc", { path: "x.ts", oldText: "b", newText: "bee" });
+
+    expect(formatPlanPreview(plan, { color: true })).toContain("\x1b[31m-b\x1b[0m");
+    expect(formatPlanPreview(plan, { color: true })).toContain("\x1b[32m+bee\x1b[0m");
+  });
 });
 
 function registeredCodePrimitiveTools(): Record<string, any> {
@@ -96,6 +103,94 @@ function registeredCodePrimitiveTools(): Record<string, any> {
 }
 
 describe("code primitive extension tools", () => {
+  test("registers first-class fs/json tools with prompt guidance", () => {
+    const tools = registeredCodePrimitiveTools();
+
+    expect(tools.list_files.promptGuidelines.join("\n")).toContain("instead of bash ls/find");
+    expect(tools.inspect_text_matches.promptGuidelines.join("\n")).toContain("instead of bash grep/rg");
+    expect(tools.inspect_json.promptGuidelines.join("\n")).toContain("instead of jq");
+    expect(tools.inspect_lines.promptGuidelines.join("\n")).toContain("capped at 200 lines");
+  });
+
+  test("list_files lists sorted files, filters by language, excludes vendor dirs, and caps results", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await mkdir(join(cwd, "node_modules", "pkg"), { recursive: true });
+    await writeFile(join(cwd, "src", "a.ts"), "export {};\n", "utf8");
+    await writeFile(join(cwd, "src", "b.js"), "module.exports = {};\n", "utf8");
+    await writeFile(join(cwd, "node_modules", "pkg", "ignored.ts"), "export {};\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.list_files.execute("id", {
+      language: "typescript",
+      max_results: 10,
+    }, undefined, undefined, { cwd });
+
+    expect(result.details.entries.map((entry: any) => entry.path)).toEqual(["src/a.ts"]);
+    expect(result.content[0].text).toContain("src/a.ts");
+    expect(result.content[0].text).not.toContain("ignored.ts");
+  });
+
+  test("list_files can include directories and truncate large result sets", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "a.ts"), "a\n", "utf8");
+    await writeFile(join(cwd, "src", "b.ts"), "b\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.list_files.execute("id", {
+      include_dirs: true,
+      max_results: 1,
+    }, undefined, undefined, { cwd });
+
+    expect(result.details.truncated).toBe(true);
+    expect(result.details.entries).toHaveLength(1);
+    expect(result.content[0].text).toContain("truncated");
+  });
+
+  test("inspect_json projects simple paths and omits bulky keys by default", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "data.json"), JSON.stringify({ memories: [{ content: "hello", embedding: [1, 2, 3] }], profile: { body: { shoe_size: "AU 8" } } }), "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.inspect_json.execute("id", {
+      path: "data.json",
+      json_path: "memories[0]",
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain('"content": "hello"');
+    expect(result.content[0].text).not.toContain("embedding");
+    expect(result.details.json_path).toBe("memories[0]");
+  });
+
+  test("inspect_json supports wildcard array projection and output caps", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "data.json"), JSON.stringify({ memories: Array.from({ length: 30 }, (_, index) => ({ content: `alpha-${index}` })) }), "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.inspect_json.execute("id", {
+      path: "data.json",
+      json_path: "memories[*].content",
+      max_chars: 200,
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain("alpha-0");
+    expect(result.content[0].text).toContain("truncated");
+  });
+
+  test("apply_code_replacements uses colored diff previews", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "x.ts"), "const value = 1;\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.apply_code_replacements.execute("id", {
+      edits: [{ path: "x.ts", oldText: "1", newText: "2" }],
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain("\x1b[31m-const value = 1;\x1b[0m");
+    expect(result.content[0].text).toContain("\x1b[32m+const value = 2;\x1b[0m");
+  });
+
   test("inspect_text_matches treats regex-looking alternation queries as regex", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await mkdir(join(cwd, "src"));

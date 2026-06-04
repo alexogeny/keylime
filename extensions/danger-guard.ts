@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { isCapabilityActive } from "./shared/intent";
-import { classifyBashMutation, PROTECTED_WRITE_PATHS, writePathsForTool } from "./shared/safety-policy";
+import { classifyBashMutation, classifyBashNativeRepoInspection, PROTECTED_WRITE_PATHS, writePathsForTool } from "./shared/safety-policy";
 
 // ─── Pattern definitions ────────────────────────────────────────────────────
 
@@ -83,14 +83,22 @@ export function looksLikeCodingModeBashMutation(cmd: string): { flagged: boolean
   return hit ? { flagged: true, label: hit.label, severity: "block" } : null;
 }
 
+export function looksLikeCodingModeBashNativeInspection(cmd: string): { flagged: boolean; label: string; severity: "block" } | null {
+  const hit = classifyBashNativeRepoInspection(cmd);
+  return hit ? { flagged: true, label: hit.label, severity: "block" } : null;
+}
+
 export function codingModeBlockReasonForToolCall(toolName: string, input: any): string | null {
   if (!isCapabilityActive("coding")) return null;
   if (CODING_MODE_BLOCKED_TOOLS.has(toolName)) return `coding mode blocks built-in ${toolName}; use exposed code primitive tools`;
   if (toolName !== "bash") return null;
 
   const cmd = typeof input?.command === "string" ? input.command : "";
-  const hit = looksLikeCodingModeBashMutation(cmd);
-  return hit ? `coding mode blocks bash file mutation: ${hit.label}` : null;
+  const mutation = looksLikeCodingModeBashMutation(cmd);
+  if (mutation) return `coding mode blocks bash file mutation: ${mutation.label}`;
+  const nativeInspection = looksLikeCodingModeBashNativeInspection(cmd);
+  if (nativeInspection) return `coding mode blocks native repository inspection: ${nativeInspection.label}`;
+  return null;
 }
 
 function checkCommand(cmd: string, rules: Rules): { flagged: boolean; label: string; severity: "warn" | "block" } | null {

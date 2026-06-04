@@ -61,9 +61,13 @@ export type CodeStructure = {
 };
 
 const DEFAULT_EXCLUDE_GLOBS = [
+  "node_modules/**",
   "**/node_modules/**",
+  ".git/**",
   "**/.git/**",
+  "dist/**",
   "**/dist/**",
+  "build/**",
   "**/build/**",
   "**/target/**",
   "target/**",
@@ -281,11 +285,21 @@ export function summarizePlan(plan: ReplacementPlan): string {
   return `${plan.path}: ${plan.replacements} replacement${plan.replacements === 1 ? "" : "s"}, line delta ${delta >= 0 ? "+" : ""}${delta}`;
 }
 
-export function formatPlanPreview(plan: ReplacementPlan): string {
+const ANSI_RED = "\x1b[31m";
+const ANSI_GREEN = "\x1b[32m";
+const ANSI_DIM = "\x1b[2m";
+const ANSI_RESET = "\x1b[0m";
+
+function colorLine(text: string, color: string, enabled: boolean): string {
+  return enabled ? `${color}${text}${ANSI_RESET}` : text;
+}
+
+export function formatPlanPreview(plan: ReplacementPlan, options: { color?: boolean } = {}): string {
+  const color = options.color ?? false;
   return plan.previews.map(preview => [
-    `@@ -${preview.line} +${preview.line} @@`,
-    `-${preview.before}`,
-    `+${preview.after}`,
+    colorLine(`@@ -${preview.line} +${preview.line} @@`, ANSI_DIM, color),
+    colorLine(`-${preview.before}`, ANSI_RED, color),
+    colorLine(`+${preview.after}`, ANSI_GREEN, color),
   ].join("\n")).join("\n");
 }
 

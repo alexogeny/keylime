@@ -86,6 +86,88 @@ async function collectTargetFiles(cwd: string, options: { file_glob?: string; la
   });
 }
 
+type ListedEntry = { path: string; type: "file" | "dir"; bytes?: number };
+
+async function listEntries(cwd: string, options: {
+  path?: string;
+  recursive?: boolean;
+  include_dirs?: boolean;
+  file_glob?: string;
+  language?: Language;
+  exclude_globs?: string[];
+  max_results?: number;
+}): Promise<{ entries: ListedEntry[]; truncated: boolean }> {
+  const root = resolveSafePath(cwd, options.path ?? ".");
+  const rootInfo = await stat(root);
+  if (!rootInfo.isDirectory()) throw new Error(`Not a directory: ${options.path ?? "."}`);
+  const maxResults = Math.min(Math.max(1, options.max_results ?? 200), 1000);
+  const recursive = options.recursive ?? true;
+  const includeDirs = options.include_dirs ?? false;
+  const entries: ListedEntry[] = [];
+  let truncated = false;
+
+  async function visit(dir: string): Promise<void> {
+    if (truncated) return;
+    const dirents = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of dirents) {
+      if (truncated) return;
+      const fsPath = `${dir}/${entry.name}`;
+      const rel = relative(cwd, fsPath).replace(/\\/g, "/");
+      if (shouldExcludePath(rel, options.exclude_globs)) continue;
+      if (entry.isDirectory()) {
+        if (includeDirs && (!options.file_glob || matchesGlob(rel, options.file_glob))) entries.push({ path: rel, type: "dir" });
+        if (entries.length >= maxResults) { truncated = true; return; }
+        if (recursive) await visit(fsPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (options.file_glob && !matchesGlob(rel, options.file_glob)) continue;
+      if (!matchesLanguage(rel, options.language)) continue;
+      entries.push({ path: rel, type: "file", bytes: (await stat(fsPath)).size });
+      if (entries.length >= maxResults) { truncated = true; return; }
+    }
+  }
+
+  await visit(root);
+  return { entries, truncated };
+}
+
+function inspectJsonValue(value: unknown, pathExpression?: string): unknown {
+  if (!pathExpression || pathExpression === "$" || pathExpression === ".") return value;
+  const parts = pathExpression.replace(/^\$?\.?/, "").split(".").filter(Boolean);
+  let current: unknown = value;
+  for (const rawPart of parts) {
+    const match = /^(?<key>[^\[\]]+)?(?:\[(?<index>\d+|\*)\])?$/.exec(rawPart);
+    if (!match?.groups) throw new Error(`Unsupported json_path segment: ${rawPart}`);
+    const key = match.groups.key;
+    const index = match.groups.index;
+    if (key) {
+      if (Array.isArray(current)) current = current.map(item => item && typeof item === "object" ? (item as Record<string, unknown>)[key] : undefined);
+      else current = current && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined;
+    }
+    if (index === "*") {
+      if (!Array.isArray(current)) throw new Error(`json_path segment ${rawPart} expected an array`);
+    } else if (index !== undefined) {
+      if (!Array.isArray(current)) throw new Error(`json_path segment ${rawPart} expected an array`);
+      current = current[Number(index)];
+    }
+  }
+  return current;
+}
+
+function omitJsonKeys(value: unknown, keys: Set<string>): unknown {
+  if (Array.isArray(value)) return value.map(item => omitJsonKeys(item, keys));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !keys.has(key))
+    .map(([key, child]) => [key, omitJsonKeys(child, keys)]));
+}
+
+function compactJson(value: unknown, maxChars: number): string {
+  const text = JSON.stringify(value, null, 2);
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n… [truncated to ${maxChars} chars]`;
+}
+
 type PlannedReplacement = {
   fsPath: string;
   plan: ReplacementPlan;
@@ -96,6 +178,9 @@ function relativePath(cwd: string, path: string): string {
 }
 
 const SOURCE_MUTATION_GUIDELINES = [
+  "Use list_files instead of bash ls/find for repository file discovery.",
+  "Use inspect_text_matches instead of bash grep/rg for repository text search.",
+  "Use inspect_json instead of jq/cat/read for JSON inspection and projection.",
   "For existing source-code edits, use plan_code_replacements/apply_code_replacements instead of built-in edit/write.",
   "Use create_file for new source, config, test, markdown, and fixture files.",
   "Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands for repository file mutations.",
@@ -136,6 +221,73 @@ async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targe
 }
 
 export default function codePrimitivesExtension(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "list_files",
+    label: "List Files",
+    description: "List repository files/directories with glob, language, recursion, exclude, and result caps. Use instead of ls/find.",
+    promptSnippet: "List files/directories",
+    promptGuidelines: [
+      "Use instead of bash ls/find for repository file discovery.",
+      "Use file_glob/language/exclude_globs to narrow results before inspecting content.",
+      "Keep max_results bounded; follow with code_search, inspect_text_matches, or inspect_lines as needed.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      path: Type.Optional(Type.String({ description: "Directory path" })),
+      recursive: Type.Optional(Type.Boolean({ description: "Recurse into subdirectories" })),
+      include_dirs: Type.Optional(Type.Boolean({ description: "Include directories" })),
+      file_glob: Type.Optional(Type.String({ description: "Only paths matching glob(s)" })),
+      language: Type.Optional(stringEnum(["typescript", "javascript", "python", "rust"] as const)),
+      exclude_globs: Type.Optional(Type.Array(Type.String(), { description: "Extra excludes" })),
+      max_results: Type.Optional(Type.Number({ description: "Result cap, max 1000" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const { entries, truncated } = await listEntries(ctx.cwd, {
+        path: params.path,
+        recursive: params.recursive,
+        include_dirs: params.include_dirs,
+        file_glob: params.file_glob,
+        language: params.language as Language | undefined,
+        exclude_globs: params.exclude_globs,
+        max_results: params.max_results,
+      });
+      const lines = entries.map(entry => entry.type === "dir" ? `${entry.path}/` : `${entry.path}${entry.bytes === undefined ? "" : ` (${entry.bytes} bytes)`}`);
+      const header = `list_files: ${entries.length}${truncated ? "+" : ""} result${entries.length === 1 ? "" : "s"}${truncated ? " (truncated)" : ""}`;
+      return { content: [{ type: "text", text: [header, ...lines].join("\n") }], details: { entries, truncated } };
+    },
+  });
+
+  pi.registerTool({
+    name: "inspect_json",
+    label: "Inspect JSON",
+    description: "Inspect/project a JSON file safely. Supports simple dot paths, array indexes, wildcard array projection, omitted keys, and output caps.",
+    promptSnippet: "Inspect/query JSON",
+    promptGuidelines: [
+      "Use instead of jq, cat, or read when inspecting JSON files.",
+      "Use json_path to project small subtrees and omit_keys for bulky fields like embeddings.",
+      "Keep max_chars bounded; ask for a narrower json_path if output is truncated.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "JSON file path" }),
+      json_path: Type.Optional(Type.String({ description: "Simple path, e.g. profile.body or memories[0].content or memories.* via memories[*]" })),
+      omit_keys: Type.Optional(Type.Array(Type.String(), { description: "Keys to omit recursively" })),
+      max_chars: Type.Optional(Type.Number({ description: "Output character cap" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const raw = await readTextFileSafely(path);
+      const parsed = JSON.parse(raw);
+      const projected = inspectJsonValue(parsed, params.json_path);
+      const omitted = omitJsonKeys(projected, new Set(params.omit_keys ?? ["embedding"]));
+      const maxChars = Math.min(Math.max(200, params.max_chars ?? 12000), 50000);
+      return {
+        content: [{ type: "text", text: compactJson(omitted, maxChars) }],
+        details: { path: relativePath(ctx.cwd, path), json_path: params.json_path ?? "$", omittedKeys: params.omit_keys ?? ["embedding"] },
+      };
+    },
+  });
+
   pi.registerTool({
     name: "inspect_text_matches",
     label: "Inspect Text Matches",
@@ -234,6 +386,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       "Use only after code_search or inspect_text_matches fails to provide enough local context.",
       "Prefer code_search, inspect_text_matches, and inspect_code_structure before inspecting lines.",
       "Request the smallest useful line window; never dump whole files.",
+      "inspect_lines is capped at 200 lines; use a focused search radius from code_search/inspect_text_matches before requesting a window.",
       "Do not use read for source files; use inspect_lines as the bounded fallback.",
     ],
     parameters: Type.Object({
@@ -425,7 +578,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       }
 
       const summary = planned.map(({ plan }) => {
-        const preview = formatPlanPreview(plan);
+        const preview = formatPlanPreview(plan, { color: true });
         return preview ? `${summarizePlan(plan)}\n${preview}` : summarizePlan(plan);
       }).join("\n\n");
 
