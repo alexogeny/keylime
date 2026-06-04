@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { isCapabilityActive } from "./shared/intent";
+import { classifyBashMutation, PROTECTED_WRITE_PATHS, writePathsForTool } from "./shared/safety-policy";
 
 // ─── Pattern definitions ────────────────────────────────────────────────────
 
@@ -23,21 +24,6 @@ interface DangerPattern {
 }
 
 const CODING_MODE_BLOCKED_TOOLS = new Set(["read", "write", "edit"]);
-
-const CODING_MODE_BASH_MUTATION_PATTERNS: DangerPattern[] = [
-  { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file", severity: "block" },
-  { pattern: /<<-?\s*['"]?\w+['"]?/m, label: "heredoc shell input", severity: "block" },
-  { pattern: /\btee\b\s+(?:-[a-zA-Z]+\s+)*(?!\/dev\/null\b)[^\s|;&]+/i, label: "tee writing to a file", severity: "block" },
-  { pattern: /(?:^|[\s;|&])(?:echo|printf)\b[\s\S]*(?:>>?|&>)\s*(?!\/dev\/null\b)[^\s|;&]+/i, label: "shell output redirection to a file", severity: "block" },
-  { pattern: /(?:^|[\s;|&])(?:touch|mkdir|rm|cp|mv|chmod|chown)\b/i, label: "shell file mutation command", severity: "block" },
-  { pattern: /\b(?:sh|bash|zsh|fish)\b\s+-c\b/i, label: "shell command string", severity: "block" },
-  { pattern: /\bsed\b\s+(?:[^\n;&|]*\s)?(?:-[a-zA-Z]*i[a-zA-Z]*\b|--in-place\b)/i, label: "sed in-place edit", severity: "block" },
-  { pattern: /\bperl\b[\s\S]*(?:\s-pi\b|\s-[a-zA-Z]*i[a-zA-Z]*\b|\s-e\s+['"][\s\S]*(?:open|write))/i, label: "perl file mutation", severity: "block" },
-  { pattern: /\bruby\b[\s\S]*(?:\s-pi\b|\s-e\s+['"][\s\S]*(?:File\.(?:write|open)|\.write))/i, label: "ruby file mutation", severity: "block" },
-  { pattern: /\bpython(?:3(?:\.\d+)?)?\b[\s\S]*\s-c\s+['"][\s\S]*(?:open\s*\([\s\S]*[,)]\s*['"](?:w|a|x|\+)|\.write\s*\()/i, label: "python inline file write", severity: "block" },
-  { pattern: /\b(?:node|bun)\b[\s\S]*\s-e\s+['"][\s\S]*(?:writeFileSync|appendFileSync|createWriteStream|fs\.promises\.(?:writeFile|appendFile))/i, label: "javascript runtime inline file write", severity: "block" },
-  { pattern: /\bdeno\b[\s\S]*\beval\b[\s\S]*(?:writeTextFile|writeFile)/i, label: "deno inline file write", severity: "block" },
-];
 
 const BUILTIN_PATTERNS: DangerPattern[] = [
   // Recursive deletes
@@ -67,13 +53,6 @@ const BUILTIN_PATTERNS: DangerPattern[] = [
   { pattern: /\bcargo\s+publish\b/, label: "cargo publish", severity: "warn" },
 ];
 
-const PROTECTED_WRITE_PATHS: string[] = [
-  ".env", ".env.local", ".env.production", ".env.staging", ".env.secret",
-  "node_modules/", ".git/",
-  "~/.ssh/", "~/.gnupg/", "~/.aws/credentials",
-  "/etc/", "/usr/", "/bin/", "/sbin/", "/boot/",
-];
-
 // ─── Rules file ─────────────────────────────────────────────────────────────
 
 const RULES_DIR  = path.join(os.homedir(), ".config", "pi-agent-extensions", "danger-guard");
@@ -100,10 +79,8 @@ function ensureRulesDir() {
 // ─── Detection helpers ───────────────────────────────────────────────────────
 
 export function looksLikeCodingModeBashMutation(cmd: string): { flagged: boolean; label: string; severity: "block" } | null {
-  for (const { pattern, label } of CODING_MODE_BASH_MUTATION_PATTERNS) {
-    if (pattern.test(cmd)) return { flagged: true, label, severity: "block" };
-  }
-  return null;
+  const hit = classifyBashMutation(cmd);
+  return hit ? { flagged: true, label: hit.label, severity: "block" } : null;
 }
 
 export function codingModeBlockReasonForToolCall(toolName: string, input: any): string | null {
@@ -137,18 +114,6 @@ function checkPath(filePath: string, rules: Rules): boolean {
   const allProtected = [...PROTECTED_WRITE_PATHS, ...(rules.extraProtectedPaths ?? [])];
   const expanded = filePath.replace(/^~/, os.homedir());
   return allProtected.some(p => expanded.includes(p.replace(/^~/, os.homedir())));
-}
-
-function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit", "create_file"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
-  if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
-
-  const paths = new Set<string>();
-  if (typeof input?.file_glob === "string") paths.add(input.file_glob);
-  for (const edit of Array.isArray(input?.edits) ? input.edits : []) {
-    if (typeof edit?.path === "string") paths.add(edit.path);
-  }
-  return [...paths];
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────

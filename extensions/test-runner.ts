@@ -5,6 +5,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { customCheckCommand, defaultCheckCommands, detectProjectKind, type CheckSuite } from "./shared/test-runner";
 import { isCapabilityActive } from "./shared/intent";
+import { runChecksCommandBlockReason } from "./shared/safety-policy";
+export { runChecksCommandBlockReason } from "./shared/safety-policy";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,19 +20,6 @@ async function rootFiles(cwd: string): Promise<string[]> {
     const extensions = await readdir(`${cwd}/extensions`).catch(() => []);
     return [...root, ...extensions.map(file => `extensions/${file}`)];
   } catch { return []; }
-}
-
-const BLOCKED_CUSTOM_COMMANDS = new Set(["sh", "bash", "zsh", "fish", "python", "python3", "node", "bun", "deno", "perl", "ruby"]);
-
-export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {
-  if (/\s/.test(command)) return "shell-style custom command strings can bypass coding file-mutation policy; pass command and args separately";
-  const base = command.split("/").pop() ?? command;
-  if (["sh", "bash", "zsh", "fish"].includes(base) && args.includes("-c")) return `${base} -c can bypass coding file-mutation policy`;
-  if (["python", "python3", "node", "bun", "perl", "ruby"].includes(base) && args.some(arg => arg === "-c" || arg === "-e")) return `${base} inline execution can bypass coding file-mutation policy`;
-  if (base === "deno" && args.includes("eval")) return "deno eval can bypass coding file-mutation policy";
-  if (base === "bash" && args.includes("-lc")) return "shell command strings can bypass coding file-mutation policy";
-  if (BLOCKED_CUSTOM_COMMANDS.has(base) && args.length === 0) return null;
-  return null;
 }
 
 export default function testRunnerExtension(pi: ExtensionAPI) {

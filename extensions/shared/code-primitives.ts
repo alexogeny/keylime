@@ -182,19 +182,8 @@ function replaceTrimmedLines(text: string, edit: ReplacementEdit): { after: stri
   return { after: output.join("\n"), count };
 }
 
-function replaceNormalizedWhitespace(text: string, edit: ReplacementEdit): { after: string; count: number } {
-  if (edit.oldText === undefined) throw new Error(`oldText is required for normalized_whitespace replacement in ${edit.path}`);
-  const compactNeedle = compactWhitespace(edit.oldText);
-  const compactText = compactWhitespace(text);
-  if (!compactText.includes(compactNeedle)) throw new Error(`No match for oldText in ${edit.path}.${nearMatchHint(text, edit.oldText)}`);
-  if (compactText.indexOf(compactNeedle) !== compactText.lastIndexOf(compactNeedle) && !edit.replaceAll) {
-    throw new Error(`oldText matched multiple times in ${edit.path}; set replaceAll=true or use a more specific oldText`);
-  }
-  const replaced = edit.replaceAll
-    ? compactText.split(compactNeedle).join(edit.newText)
-    : compactText.replace(compactNeedle, edit.newText);
-  const count = compactText.split(compactNeedle).length - 1;
-  return { after: replaced, count: edit.replaceAll ? count : 1 };
+function replaceNormalizedWhitespace(_text: string, edit: ReplacementEdit): { after: string; count: number } {
+  throw new Error(`normalized_whitespace replacement is disabled for ${edit.path}; use exact or trimmed_lines to preserve file formatting`);
 }
 
 function looksLikeRegexQuery(query: string): boolean {

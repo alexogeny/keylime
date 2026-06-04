@@ -370,16 +370,13 @@ describe("path and binary safety", () => {
 });
 
 describe("advanced replacement modes and count guards", () => {
-  test("normalized_whitespace replaces equivalent text across line breaks", () => {
-    const plan = planReplacement("const x = 1;\nconst y = 2;", {
+  test("normalized_whitespace is disabled to preserve formatting", () => {
+    expect(() => planReplacement("const x = 1;\nconst y = 2;", {
       path: "x.ts",
       oldText: "const x = 1; const y = 2;",
       newText: "const z = 3;",
       matchMode: "normalized_whitespace",
-    });
-
-    expect(plan.after).toBe("const z = 3;");
-    expect(plan.replacements).toBe(1);
+    })).toThrow("normalized_whitespace replacement is disabled");
   });
 
   test("trimmed_lines ignores common indentation", () => {

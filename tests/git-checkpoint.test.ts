@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkpointAddCommand, looksSideEffectfulBash, shouldAutoCheckpointTool, shouldCheckpointTool } from "../extensions/git-checkpoint";
+import { autoCheckpointMode, checkpointAddCommand, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn, shouldCheckpointTool } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -28,14 +28,33 @@ describe("git checkpoint tool gating", () => {
     expect(looksSideEffectfulBash("git status --short")).toBe(false);
   });
 
-  test("checkpoint staging excludes pi usage logs", () => {
-    expect(checkpointAddCommand()).toContain("git add -A --");
-    expect(checkpointAddCommand()).toContain("':!.pi/usage/usage.ndjson'");
+  test("checkpoint staging excludes pi local state", () => {
+    expect(checkpointAddCommand()).toContain("git add -A -- .");
+    expect(checkpointAddCommand()).toContain("':!.pi'");
   });
 
-  test("auto-checkpoint runs only once per user input", () => {
-    expect(shouldAutoCheckpointTool("create_file", { path: "x" }, false)).toBe(true);
-    expect(shouldAutoCheckpointTool("create_file", { path: "x" }, true)).toBe(false);
-    expect(shouldAutoCheckpointTool("code_search", { query: "x" }, false)).toBe(false);
+  test("scores mutations for low-noise auto-checkpointing", () => {
+    expect(mutationScoreForTool("create_directory", { path: "x" })).toBe(1);
+    expect(mutationScoreForTool("create_file", { path: "x" })).toBe(2);
+    expect(mutationScoreForTool("apply_code_replacements", { edits: [{ path: "x" }] })).toBe(3);
+    expect(mutationScoreForTool("apply_code_replacements", { file_glob: "src/**/*.ts", edits: [{ oldText: "a", newText: "b" }] })).toBe(8);
+    expect(mutationScoreForTool("bash", { command: "mkdir x" })).toBe(8);
+    expect(mutationScoreForTool("code_search", { query: "x" })).toBe(0);
+  });
+
+  test("auto-checkpoint mode defaults to major and supports overrides", () => {
+    expect(autoCheckpointMode(undefined)).toBe("major");
+    expect(autoCheckpointMode("off")).toBe("off");
+    expect(autoCheckpointMode("any")).toBe("any");
+  });
+
+  test("auto-checkpoint turn policy is low noise by default", () => {
+    const now = 1_000_000;
+    expect(shouldAutoCheckpointTurn(0, 0, now, "major")).toBe(false);
+    expect(shouldAutoCheckpointTurn(2, now - 1_000, now, "major")).toBe(false);
+    expect(shouldAutoCheckpointTurn(8, now - 1_000, now, "major")).toBe(true);
+    expect(shouldAutoCheckpointTurn(2, now - 46 * 60 * 1000, now, "major")).toBe(true);
+    expect(shouldAutoCheckpointTurn(2, now - 1_000, now, "any")).toBe(true);
+    expect(shouldAutoCheckpointTurn(8, now - 46 * 60 * 1000, now, "off")).toBe(false);
   });
 });

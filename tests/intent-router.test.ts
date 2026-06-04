@@ -29,6 +29,7 @@ describe("activeToolNames", () => {
     expect(tools).toContain("code_search");
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("create_file");
+    expect(tools).toContain("create_directory");
     expect(tools).toContain("remember");
     expect(tools).toContain("custom_safe_tool");
     expect(tools).not.toContain("web_search");
@@ -283,6 +284,27 @@ test("review mode keeps always-on code primitives but removes unrelated domain t
   expect(tools).toContain("custom_safe_tool");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("web_search");
+});
+
+test("tool-policy command reports always-on and locked tools", async () => {
+  const { default: intentRouterExtension } = await import("../extensions/intent-router");
+  const commands: Record<string, any> = {};
+  let notification = "";
+  intentRouterExtension({
+    getAllTools: () => allToolNames.map(name => ({ name })),
+    getActiveTools: () => ["custom_safe_tool", "create_directory"],
+    setActiveTools: () => {},
+    on: () => {},
+    registerCommand: (name: string, command: any) => { commands[name] = command; },
+  } as any);
+
+  await commands["tool-policy"].handler("", {
+    ui: { notify: (text: string) => { notification = text; } },
+  });
+
+  expect(notification).toContain("always-on code tools");
+  expect(notification).toContain("create_directory");
+  expect(notification).toContain("locked built-ins");
 });
 
 test("coding reminders mention git checkpoint safety and codemod mutation policy", async () => {

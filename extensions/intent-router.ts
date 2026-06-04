@@ -54,6 +54,7 @@ const DOMAIN_TOOLS = new Set([
   "plan_code_replacements",
   "apply_code_replacements",
   "create_file",
+  "create_directory",
   "run_checks",
 ]);
 
@@ -274,6 +275,23 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
         `  confidence: ${Math.round(route.confidence * 100)}%`,
         `  research enabled: ${researchEnabled() ? "yes" : "no"}`,
         `  shoes enabled: ${shoesEnabled() ? "yes" : "no"}`,
+        `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
+      ].join("\n"), "info");
+    },
+  });
+
+  pi.registerCommand("tool-policy", {
+    description: "Show always-on, routed, locked, and currently active tools",
+    handler: async (_args, ctx) => {
+      const route = getCurrentRoute();
+      const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
+      const routed = [...new Set(activeGroups.flatMap(group => CAPABILITY_TOOLS[group]))].sort();
+      ctx.ui.notify([
+        "Tool Policy",
+        `  always-on code tools: ${ALWAYS_ON_CODE_TOOLS.join(", ")}`,
+        `  locked built-ins: read, write, edit; bash is routed and guarded`,
+        `  active groups: ${activeGroups.join(", ") || "none"}`,
+        `  routed tools: ${routed.join(", ") || "none"}`,
         `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
       ].join("\n"), "info");
     },

@@ -123,4 +123,26 @@ describe("danger guard coding-mode hard enforcement", () => {
 
     expect(confirmCalls).toBe(0);
   });
+
+  test("extension checks protected paths for create_directory", async () => {
+    setCurrentRoute(classifyIntent("hello"));
+    const handlers: Record<string, any> = {};
+    let confirmCalls = 0;
+    dangerGuardExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerCommand: () => {},
+    } as any);
+
+    const result = await handlers.tool_call(
+      { toolName: "create_directory", input: { path: ".git/hooks/generated" } },
+      {
+        ui: { confirm: async () => { confirmCalls += 1; return false; } },
+        sessionManager: { getEntries: () => [] },
+      },
+    );
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("protected path");
+    expect(confirmCalls).toBe(1);
+  });
 });

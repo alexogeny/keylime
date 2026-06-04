@@ -13,12 +13,14 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execSync } from "node:child_process";
+import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
+export { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
-const CHECKPOINT_EXCLUDED_PATHS = [".pi/usage/usage.ndjson"];
+const CHECKPOINT_EXCLUDED_PATHS = [".pi"];
 
 export function checkpointAddCommand(): string {
   const excludes = CHECKPOINT_EXCLUDED_PATHS.map(path => ` ':!${path}'`).join("");
-  return `git add -A --${excludes}`;
+  return `git add -A -- .${excludes}`;
 }
 
 // ─── Git helpers ─────────────────────────────────────────────────────────────
@@ -79,20 +81,8 @@ function makeCheckpoint(cwd: string): Checkpoint | null {
   };
 }
 
-export function looksSideEffectfulBash(command: string): boolean {
-  return /(^|\s)(rm|mv|cp|touch|mkdir|rmdir|chmod|chown|git\s+(commit|reset|checkout|switch|merge|rebase|clean|add)|npm|pnpm|yarn|bun|pip|python|pytest|cargo|make)(\s|$)/.test(command);
-}
-
 export function shouldCheckpointTool(toolName: string, input: any): boolean {
-  if (["write", "edit", "create_file", "create_directory"].includes(toolName)) return true;
-  if (toolName === "apply_code_replacements") return input?.dry_run !== true;
-  if (toolName !== "bash") return false;
-  const command = typeof input?.command === "string" ? input.command : "";
-  return looksSideEffectfulBash(command);
-}
-
-export function shouldAutoCheckpointTool(toolName: string, input: any, alreadyCheckpointedForInput: boolean): boolean {
-  return !alreadyCheckpointedForInput && shouldCheckpointTool(toolName, input);
+  return mutationScoreForTool(toolName, input) > 0;
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -100,7 +90,8 @@ export function shouldAutoCheckpointTool(toolName: string, input: any, alreadyCh
 export default function (pi: ExtensionAPI) {
   // Track the most recent checkpoint in memory (also in session for danger-guard)
   let latestCheckpoint: Checkpoint | null = null;
-  let checkpointedForCurrentInput = false;
+  let mutationScoreThisTurn = 0;
+  let lastAutoCheckpointAt = 0;
 
   function recordCheckpoint(cp: Checkpoint, ctx: any): void {
     latestCheckpoint = cp;
@@ -111,21 +102,28 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setStatus("checkpoint", label);
   }
 
-  // ── Auto-checkpoint before the first side-effectful tool per user input ──
+  // ── Low-noise auto-checkpoint at end of agent turn ───────────────────────
 
   pi.on("input", async () => {
-    checkpointedForCurrentInput = false;
+    mutationScoreThisTurn = 0;
   });
 
-  pi.on("tool_call", async (event: any, ctx) => {
-    if (!shouldAutoCheckpointTool(event.toolName, event.input, checkpointedForCurrentInput)) return;
-    checkpointedForCurrentInput = true;
+  pi.on("tool_result", async (event: any) => {
+    if (event.isError) return;
+    mutationScoreThisTurn += mutationScoreForTool(event.toolName, event.input);
+  });
+
+  pi.on("agent_end", async (_event, ctx) => {
+    const now = Date.now();
+    if (!shouldAutoCheckpointTurn(mutationScoreThisTurn, lastAutoCheckpointAt, now, autoCheckpointMode())) return;
 
     const cwd = ctx.cwd;
+    mutationScoreThisTurn = 0;
     if (!isGitRepo(cwd) || !hasChanges(cwd)) return;
 
     const cp = makeCheckpoint(cwd);
     if (!cp?.hadChanges) return;
+    lastAutoCheckpointAt = now;
     recordCheckpoint(cp, ctx);
   });
 
@@ -139,6 +137,7 @@ export default function (pi: ExtensionAPI) {
     if (cpEntries.length > 0) {
       latestCheckpoint = (cpEntries[cpEntries.length - 1] as any).data as Checkpoint;
       if (latestCheckpoint) {
+        lastAutoCheckpointAt = Date.parse(latestCheckpoint.ts) || 0;
         ctx.ui.setStatus("checkpoint", `📍 ${latestCheckpoint.hash.slice(0, 7)}`);
       }
     }
