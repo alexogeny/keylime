@@ -11,9 +11,9 @@ type IntentOverride = "programming";
 let intentOverride: IntentOverride | null = null;
 
 const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = {
-  core: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "plan_code_replacements", "apply_code_replacements", "run_checks"],
-  readonly: ["read", "bash", "code_search", "fetch_url", "inspect_text_matches"],
-  coding: ["read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "plan_code_replacements", "apply_code_replacements", "run_checks"],
+  core: ["bash", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "run_checks"],
+  readonly: ["read", "bash", "code_search", "fetch_url", "inspect_text_matches", "inspect_lines"],
+  coding: ["bash", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "run_checks"],
   repo: ["code_search", "inspect_text_matches", "inspect_code_structure"],
   project: ["save_project_plan", "update_feature_tdd", "log_decision", "manage_question"],
   memory: ["remember", "recall_memories", "update_memory", "forget_memory", "list_memories", "recall_entity", "list_entities"],
@@ -38,8 +38,10 @@ const DOMAIN_TOOLS = new Set([
   "code_search",
   "inspect_text_matches",
   "inspect_code_structure",
+  "inspect_lines",
   "plan_code_replacements",
   "apply_code_replacements",
+  "create_file",
   "run_checks",
 ]);
 
@@ -164,7 +166,8 @@ export function reminderText(): string {
 
   if (activeGroups.includes("coding")) {
     lines.push("Git checkpoints handle rollback safety; do not spend extra turns on manual git safety unless asked.");
-    lines.push("For repository file mutations, use codemod tools; do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection.");
+    lines.push("For repository file mutations, use codemod tools/create_file; do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection.");
+    lines.push("For verification, prefer run_checks; use bash only when run_checks cannot express the command.");
   }
 
   if (route.suggestedSkills.length > 0) {

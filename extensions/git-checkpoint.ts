@@ -77,7 +77,7 @@ export function looksSideEffectfulBash(command: string): boolean {
 }
 
 export function shouldCheckpointTool(toolName: string, input: any): boolean {
-  if (["write", "edit"].includes(toolName)) return true;
+  if (["write", "edit", "create_file"].includes(toolName)) return true;
   if (toolName === "apply_code_replacements") return input?.dry_run !== true;
   if (toolName !== "bash") return false;
   const command = typeof input?.command === "string" ? input.command : "";

@@ -105,7 +105,7 @@ function checkPath(filePath: string, rules: Rules): boolean {
 }
 
 function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["write", "edit", "create_file"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
   if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
 
   const paths = new Set<string>();
