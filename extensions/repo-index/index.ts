@@ -349,7 +349,7 @@ function markRepoIndexDirty(): void {
 async function rebuildIndex(cwd: string): Promise<void> {
   if (cwd !== state.cwd) {
     state.cwd   = cwd;
-    state.dirty = true;
+    markRepoIndexDirty();
   }
   if (!state.dirty) return;
 
@@ -411,21 +411,20 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
   pi.on("tool_result", async (event) => {
     const input = (event as any).input ?? {};
 
-    if (["write", "edit"].includes(event.toolName)) {
-      const ext = extname(input.path ?? "");
-      if (LANGS.some(l => l.exts.includes(ext))) state.dirty = true;
+    if (["write", "edit", "create_file"].includes(event.toolName)) {
+      if (isIndexedSourcePath(input.path ?? "")) markRepoIndexDirty();
       return;
     }
 
     if (event.toolName !== "apply_code_replacements" || input.dry_run === true) return;
     if (input.language || input.file_glob) {
-      state.dirty = true;
+      markRepoIndexDirty();
       return;
     }
 
     const edits = Array.isArray(input.edits) ? input.edits : [];
-    if (edits.some((edit: any) => LANGS.some(l => l.exts.includes(extname(edit?.path ?? ""))))) {
-      state.dirty = true;
+    if (edits.some((edit: any) => isIndexedSourcePath(edit?.path ?? ""))) {
+      markRepoIndexDirty();
     }
   });
 
