@@ -120,6 +120,31 @@ describe("structured profile facts", () => {
     expect(validateProfileFactValues({ date_of_birth: "1990-02-03" })).toEqual([]);
   });
 
+  test("records athlete metrics with measured-at timestamps and units", () => {
+    const drafts = buildProfileFactDrafts({
+      measurement_datetime: "2026-06-04 07:30",
+      vo2max: "55",
+      resting_heart_rate: "48",
+      hrv: "72",
+      race_prs: "5K 19:30",
+    });
+
+    expect(drafts.map(draft => draft.content)).toEqual([
+      "User's resting heart rate is 48 bpm measured at 2026-06-04 07:30.",
+      "User's HRV is 72 ms measured at 2026-06-04 07:30.",
+      "User's VO2 max is 55 ml/kg/min measured at 2026-06-04 07:30.",
+      "User's race PRs is 5K 19:30 measured at 2026-06-04 07:30.",
+    ]);
+    expect(drafts.every(draft => draft.dateRef === "2026-06-04 07:30")).toBe(true);
+    expect(drafts[0].sensitivity).toBe("context_gated");
+    expect(drafts[2].tags).toContain("vo2max");
+  });
+
+  test("validates athlete metric timestamps and numeric fields", () => {
+    expect(validateProfileFactValues({ measurement_datetime: "2026/06/04", vo2max: "55" })).toContain("metric measured at must use YYYY-MM-DD or YYYY-MM-DD HH:mm");
+    expect(validateProfileFactValues({ vo2max: "high" })).toContain("vo2 max must be numeric");
+  });
+
   test("previews multiple profile facts", () => {
     expect(previewProfileFactDrafts(buildProfileFactDrafts({ preferred_name: "Alex" }))).toBe("Profile fact preview\n- User's preferred name is Alex.");
   });

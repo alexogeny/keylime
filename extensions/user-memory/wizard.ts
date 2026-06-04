@@ -137,10 +137,12 @@ export function previewMemoryWizardDraft(draft: MemoryWizardDraft): string {
   return lines.join("\n");
 }
 
-export const PROFILE_FACT_SECTIONS = ["identity", "body", "life", "contact", "work"] as const;
+export const PROFILE_FACT_SECTIONS = [
+  "identity", "body", "health", "athlete", "mental", "life", "contact", "work", "preferences",
+] as const;
 export type ProfileFactSection = typeof PROFILE_FACT_SECTIONS[number];
 
-export type ProfileFactFieldKind = "text" | "date" | "select";
+export type ProfileFactFieldKind = "text" | "date" | "datetime" | "select" | "number";
 
 export type ProfileFactField = {
   id: string;
@@ -150,22 +152,85 @@ export type ProfileFactField = {
   placeholder?: string;
   tags: string[];
   options?: string[];
+  sensitivity?: MemoryWizardSensitivity;
+  measured?: boolean;
+  includeMeasurementTime?: boolean;
+  unit?: string;
+  contentLabel?: string;
 };
 
 export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
-  { id: "preferred_name", label: "Preferred name", section: "identity", kind: "text", placeholder: "Alex", tags: ["profile", "name"] },
-  { id: "legal_name", label: "Legal name", section: "identity", kind: "text", tags: ["profile", "name"] },
-  { id: "pronouns", label: "Pronouns", section: "identity", kind: "select", options: ["", "he/him", "she/her", "they/them", "he/they", "she/they", "other"], tags: ["profile", "identity"] },
-  { id: "date_of_birth", label: "Date of birth", section: "identity", kind: "date", placeholder: "YYYY-MM-DD", tags: ["profile", "dob", "birthday", "age"] },
-  { id: "height", label: "Height", section: "body", kind: "text", placeholder: "183 cm / 6 ft", tags: ["profile", "height", "measurements", "body"] },
-  { id: "weight", label: "Weight", section: "body", kind: "text", placeholder: "75 kg / 165 lb", tags: ["profile", "weight", "measurements", "body"] },
-  { id: "shoe_size", label: "Shoe size", section: "body", kind: "text", placeholder: "US 10 / EU 44", tags: ["profile", "measurements", "body", "shoe"] },
-  { id: "city", label: "City / region", section: "life", kind: "text", tags: ["profile", "location"] },
-  { id: "timezone", label: "Timezone", section: "life", kind: "text", placeholder: "Europe/London", tags: ["profile", "location"] },
-  { id: "email", label: "Email", section: "contact", kind: "text", tags: ["profile", "contact"] },
-  { id: "phone", label: "Phone", section: "contact", kind: "text", tags: ["profile", "contact"] },
-  { id: "employer", label: "Employer", section: "work", kind: "text", tags: ["profile", "work"] },
-  { id: "role", label: "Role / title", section: "work", kind: "text", tags: ["profile", "work"] },
+  // Identity / demographics
+  { id: "preferred_name", label: "Preferred name", section: "identity", kind: "text", placeholder: "Alex", tags: ["profile", "name"], sensitivity: "baseline" },
+  { id: "legal_name", label: "Legal name", section: "identity", kind: "text", tags: ["profile", "name"], sensitivity: "context_gated" },
+  { id: "pronouns", label: "Pronouns", section: "identity", kind: "select", options: ["", "he/him", "she/her", "they/them", "he/they", "she/they", "other"], tags: ["profile", "identity"], sensitivity: "baseline" },
+  { id: "gender", label: "Gender", section: "identity", kind: "text", tags: ["profile", "identity"], sensitivity: "context_gated" },
+  { id: "date_of_birth", label: "Date of birth", section: "identity", kind: "date", placeholder: "YYYY-MM-DD", tags: ["profile", "dob", "birthday", "age"], sensitivity: "baseline" },
+  { id: "languages", label: "Languages", section: "identity", kind: "text", placeholder: "English, Spanish", tags: ["profile", "identity", "language"], sensitivity: "general" },
+
+  // Physical stat sheet
+  { id: "height", label: "Height", section: "body", kind: "text", placeholder: "183 cm / 6 ft", tags: ["profile", "height", "measurements", "body"], sensitivity: "baseline" },
+  { id: "weight", label: "Weight", section: "body", kind: "text", placeholder: "75 kg / 165 lb", tags: ["profile", "weight", "measurements", "body"], sensitivity: "baseline", measured: true, includeMeasurementTime: true },
+  { id: "body_fat_percent", label: "Body fat %", section: "body", kind: "number", placeholder: "15", tags: ["profile", "measurements", "body", "body-composition"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "%" },
+  { id: "lean_mass", label: "Lean mass", section: "body", kind: "text", placeholder: "63 kg", tags: ["profile", "measurements", "body", "body-composition"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+  { id: "waist", label: "Waist", section: "body", kind: "text", placeholder: "82 cm", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+  { id: "chest", label: "Chest", section: "body", kind: "text", placeholder: "100 cm", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+  { id: "hips", label: "Hips", section: "body", kind: "text", placeholder: "96 cm", tags: ["profile", "measurements", "body"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+  { id: "inseam", label: "Inseam", section: "body", kind: "text", placeholder: "82 cm", tags: ["profile", "measurements", "body", "clothing"], sensitivity: "general" },
+  { id: "shoe_size", label: "Shoe size", section: "body", kind: "text", placeholder: "US 10 / EU 44", tags: ["profile", "measurements", "body", "shoe"], sensitivity: "baseline" },
+  { id: "dominant_hand", label: "Dominant hand", section: "body", kind: "select", options: ["", "right", "left", "ambidextrous"], tags: ["profile", "body"], sensitivity: "general" },
+  { id: "dominant_foot", label: "Dominant foot", section: "body", kind: "select", options: ["", "right", "left", "ambidextrous"], tags: ["profile", "body", "sport"], sensitivity: "general" },
+
+  // Health / biometrics
+  { id: "blood_type", label: "Blood type", section: "health", kind: "select", options: ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"], tags: ["profile", "health"], sensitivity: "context_gated" },
+  { id: "allergies", label: "Allergies", section: "health", kind: "text", tags: ["profile", "health", "allergy"], sensitivity: "context_gated" },
+  { id: "medications", label: "Medications", section: "health", kind: "text", tags: ["profile", "health", "medication"], sensitivity: "context_gated" },
+  { id: "conditions", label: "Health conditions", section: "health", kind: "text", tags: ["profile", "health"], sensitivity: "context_gated" },
+  { id: "injury_history", label: "Injury history", section: "health", kind: "text", tags: ["profile", "health", "injury", "sport"], sensitivity: "context_gated" },
+  { id: "resting_heart_rate", label: "Resting heart rate", section: "health", kind: "number", placeholder: "52", tags: ["profile", "health", "athlete", "rhr", "heart-rate"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "bpm" },
+  { id: "hrv", label: "HRV", section: "health", kind: "number", placeholder: "65", tags: ["profile", "health", "athlete", "hrv", "recovery"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "ms", contentLabel: "HRV" },
+  { id: "blood_pressure", label: "Blood pressure", section: "health", kind: "text", placeholder: "120/80", tags: ["profile", "health", "blood-pressure"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+  { id: "sleep_baseline", label: "Sleep baseline", section: "health", kind: "text", placeholder: "7.5h, 23:30-07:00", tags: ["profile", "health", "sleep", "recovery"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+
+  // Athlete profile / performance metrics
+  { id: "primary_sports", label: "Primary sports", section: "athlete", kind: "text", placeholder: "running, cycling", tags: ["profile", "athlete", "sport"], sensitivity: "general" },
+  { id: "training_goal", label: "Training goal", section: "athlete", kind: "text", placeholder: "sub-3 marathon", tags: ["profile", "athlete", "goal", "sport"], sensitivity: "general" },
+  { id: "training_volume", label: "Training volume", section: "athlete", kind: "text", placeholder: "50 km/week", tags: ["profile", "athlete", "training"], sensitivity: "general", measured: true, includeMeasurementTime: true },
+  { id: "vo2max", label: "VO2 max", section: "athlete", kind: "number", placeholder: "55", tags: ["profile", "athlete", "vo2max", "fitness"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "ml/kg/min", contentLabel: "VO2 max" },
+  { id: "max_heart_rate", label: "Max heart rate", section: "athlete", kind: "number", placeholder: "188", tags: ["profile", "athlete", "heart-rate"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "bpm" },
+  { id: "lactate_threshold_hr", label: "Lactate threshold HR", section: "athlete", kind: "number", placeholder: "172", tags: ["profile", "athlete", "threshold", "heart-rate"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "bpm" },
+  { id: "ftp", label: "Cycling FTP", section: "athlete", kind: "number", placeholder: "280", tags: ["profile", "athlete", "cycling", "ftp"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "W" },
+  { id: "critical_power", label: "Critical power", section: "athlete", kind: "number", placeholder: "300", tags: ["profile", "athlete", "power"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "W" },
+  { id: "running_threshold_pace", label: "Running threshold pace", section: "athlete", kind: "text", placeholder: "4:15/km", tags: ["profile", "athlete", "running", "threshold"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+  { id: "easy_pace", label: "Easy pace", section: "athlete", kind: "text", placeholder: "5:30/km", tags: ["profile", "athlete", "running", "pace"], sensitivity: "general", measured: true, includeMeasurementTime: true },
+  { id: "race_prs", label: "Race PRs", section: "athlete", kind: "text", placeholder: "5K 19:30; marathon 3:15", tags: ["profile", "athlete", "race", "prs"], sensitivity: "general", measured: true, includeMeasurementTime: true, contentLabel: "race PRs" },
+  { id: "zones", label: "Training zones", section: "athlete", kind: "text", placeholder: "Z2 130-145 bpm", tags: ["profile", "athlete", "training", "zones"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+  { id: "current_shoes", label: "Current running shoes", section: "athlete", kind: "text", tags: ["profile", "athlete", "running", "shoe"], sensitivity: "general" },
+  { id: "foot_strike", label: "Foot strike", section: "athlete", kind: "select", options: ["", "heel", "midfoot", "forefoot", "mixed"], tags: ["profile", "athlete", "running", "gait"], sensitivity: "general" },
+  { id: "pronation", label: "Pronation", section: "athlete", kind: "select", options: ["", "neutral", "overpronation", "supination", "unknown"], tags: ["profile", "athlete", "running", "gait"], sensitivity: "general" },
+  { id: "measurement_datetime", label: "Metric measured at", section: "athlete", kind: "datetime", placeholder: "YYYY-MM-DD HH:mm", tags: ["profile", "athlete", "measurement-date"], sensitivity: "temporal_gated" },
+
+  // Mental / cognitive profile
+  { id: "chronotype", label: "Chronotype", section: "mental", kind: "select", options: ["", "morning", "intermediate", "evening", "variable"], tags: ["profile", "mental", "sleep"], sensitivity: "context_gated" },
+  { id: "focus_style", label: "Focus style", section: "mental", kind: "text", placeholder: "deep work in morning", tags: ["profile", "mental", "work-style"], sensitivity: "general" },
+  { id: "learning_style", label: "Learning style", section: "mental", kind: "text", tags: ["profile", "mental", "learning"], sensitivity: "general" },
+  { id: "communication_style", label: "Communication style", section: "mental", kind: "text", tags: ["profile", "mental", "communication"], sensitivity: "general" },
+  { id: "stress_signals", label: "Stress signals", section: "mental", kind: "text", tags: ["profile", "mental", "stress"], sensitivity: "context_gated" },
+  { id: "support_needs", label: "Support needs", section: "mental", kind: "text", tags: ["profile", "mental", "support"], sensitivity: "context_gated" },
+  { id: "sensory_preferences", label: "Sensory preferences", section: "mental", kind: "text", tags: ["profile", "mental", "sensory"], sensitivity: "context_gated" },
+
+  // Life / contact / work / prefs
+  { id: "city", label: "City / region", section: "life", kind: "text", tags: ["profile", "location"], sensitivity: "general" },
+  { id: "timezone", label: "Timezone", section: "life", kind: "text", placeholder: "Europe/London", tags: ["profile", "location"], sensitivity: "general" },
+  { id: "email", label: "Email", section: "contact", kind: "text", tags: ["profile", "contact"], sensitivity: "context_gated" },
+  { id: "phone", label: "Phone", section: "contact", kind: "text", tags: ["profile", "contact"], sensitivity: "context_gated" },
+  { id: "emergency_contact", label: "Emergency contact", section: "contact", kind: "text", tags: ["profile", "contact", "emergency"], sensitivity: "context_gated" },
+  { id: "employer", label: "Employer", section: "work", kind: "text", tags: ["profile", "work"], sensitivity: "general" },
+  { id: "role", label: "Role / title", section: "work", kind: "text", tags: ["profile", "work"], sensitivity: "general" },
+  { id: "work_schedule", label: "Work schedule", section: "work", kind: "text", tags: ["profile", "work", "schedule"], sensitivity: "general" },
+  { id: "diet", label: "Diet", section: "preferences", kind: "text", tags: ["profile", "preference", "food"], sensitivity: "general" },
+  { id: "caffeine", label: "Caffeine", section: "preferences", kind: "text", placeholder: "coffee before noon", tags: ["profile", "preference", "food"], sensitivity: "general" },
+  { id: "accessibility", label: "Accessibility needs", section: "preferences", kind: "text", tags: ["profile", "preference", "accessibility"], sensitivity: "context_gated" },
 ];
 
 export type ProfileFactValues = Record<string, string>;
@@ -175,7 +240,31 @@ function cleanProfileFactValues(values: ProfileFactValues): ProfileFactValues {
 }
 
 function labelForField(field: ProfileFactField): string {
-  return field.label.toLowerCase();
+  return field.contentLabel ?? field.label.toLowerCase();
+}
+
+function validIsoDate(value: string): boolean {
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function validDateTime(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?$/.test(value) && validIsoDate(value.slice(0, 10));
+}
+
+function measuredAt(values: ProfileFactValues): string | undefined {
+  return cleanProfileFactValues(values).measurement_datetime;
+}
+
+function formatProfileValue(field: ProfileFactField, value: string): string {
+  if (field.unit && /^-?\d+(?:\.\d+)?$/.test(value)) return `${value} ${field.unit}`;
+  return value;
+}
+
+function profileFactContent(field: ProfileFactField, value: string, measuredAtValue: string | undefined): string {
+  const formatted = formatProfileValue(field, value);
+  const suffix = field.measured && measuredAtValue ? ` measured at ${measuredAtValue}` : "";
+  return `User's ${labelForField(field)} is ${formatted}${suffix}.`;
 }
 
 export function validateProfileFactValues(values: ProfileFactValues): string[] {
@@ -183,29 +272,39 @@ export function validateProfileFactValues(values: ProfileFactValues): string[] {
   const clean = cleanProfileFactValues(values);
   const dob = clean.date_of_birth;
   if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) errors.push("date of birth must use YYYY-MM-DD");
-  if (dob) {
-    const date = new Date(`${dob}T00:00:00Z`);
-    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== dob) errors.push("date of birth is not a valid calendar date");
+  if (dob && /^\d{4}-\d{2}-\d{2}$/.test(dob) && !validIsoDate(dob)) errors.push("date of birth is not a valid calendar date");
+
+  const metricTime = clean.measurement_datetime;
+  if (metricTime && !validDateTime(metricTime)) errors.push("metric measured at must use YYYY-MM-DD or YYYY-MM-DD HH:mm");
+
+  for (const field of PROFILE_FACT_FIELDS) {
+    const value = clean[field.id];
+    if (value && field.kind === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(value)) errors.push(`${field.label.toLowerCase()} must use YYYY-MM-DD`);
+    if (value && field.kind === "date" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !validIsoDate(value)) errors.push(`${field.label.toLowerCase()} is not a valid calendar date`);
+    if (value && field.kind === "datetime" && !validDateTime(value)) errors.push(`${field.label.toLowerCase()} must use YYYY-MM-DD or YYYY-MM-DD HH:mm`);
+    if (value && field.kind === "number" && Number.isNaN(Number(value))) errors.push(`${field.label.toLowerCase()} must be numeric`);
   }
-  return errors;
+
+  return [...new Set(errors)];
 }
 
 export function buildProfileFactDrafts(values: ProfileFactValues): MemoryWizardDraft[] {
   const clean = cleanProfileFactValues(values);
   const errors = validateProfileFactValues(clean);
   if (errors.length) throw new Error(errors.join("; "));
+  const metricTime = measuredAt(clean);
 
   return PROFILE_FACT_FIELDS
-    .filter(field => clean[field.id])
+    .filter(field => clean[field.id] && field.id !== "measurement_datetime")
     .map(field => ({
-      content: `User's ${labelForField(field)} is ${clean[field.id]}.`,
+      content: profileFactContent(field, clean[field.id], metricTime),
       category: "fact" as const,
       subcategory: field.section,
-      sensitivity: "baseline" as const,
+      sensitivity: field.sensitivity ?? "general",
       expiry: "permanent" as const,
       tags: field.tags,
       pinnedProfile: field.tags.some(tag => PINNED_PROFILE_TAGS.has(tag)),
-      dateRef: field.id === "date_of_birth" ? clean[field.id] : undefined,
+      dateRef: field.id === "date_of_birth" ? clean[field.id] : field.includeMeasurementTime ? metricTime : undefined,
       confidence: 1,
     }));
 }
@@ -251,7 +350,7 @@ class ProfileFactForm implements Component {
       const active = index === this.selected;
       const value = this.values[field.id] || "";
       const shown = value || this.theme.fg("dim", field.placeholder ?? "optional");
-      const picker = field.kind === "date" && active ? ` (${this.datePart})` : "";
+      const picker = (field.kind === "date" || field.kind === "datetime") && active ? ` (${this.datePart})` : "";
       const prefix = active ? this.theme.fg("accent", "›") : " ";
       lines.push(`${prefix} ${field.label}${picker}: ${shown}`.slice(0, Math.max(10, width - 1)));
     });
@@ -285,13 +384,15 @@ class ProfileFactForm implements Component {
       this.values[field.id] = options[(current + delta + options.length) % options.length];
       return;
     }
-    if (field.kind === "date" && (data === "\x1b[C" || data === "\x1b[D")) {
+    if ((field.kind === "date" || field.kind === "datetime") && (data === "\x1b[C" || data === "\x1b[D")) {
       if (data === "\x1b[C") this.datePart = this.datePart === "year" ? "month" : this.datePart === "month" ? "day" : "year";
       else this.datePart = this.datePart === "year" ? "day" : this.datePart === "month" ? "year" : "month";
       return;
     }
-    if (field.kind === "date" && (data === "+" || data === "=" || data === "-")) {
-      this.values[field.id] = shiftIsoDate(this.values[field.id] ?? "", this.datePart, data === "-" ? -1 : 1);
+    if ((field.kind === "date" || field.kind === "datetime") && (data === "+" || data === "=" || data === "-")) {
+      const current = this.values[field.id] ?? "";
+      const time = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2})$/.exec(current)?.[1] ?? "";
+      this.values[field.id] = `${shiftIsoDate(current.slice(0, 10), this.datePart, data === "-" ? -1 : 1)}${time}`;
       return;
     }
     if (/^[\x20-\x7E]$/.test(data)) {
