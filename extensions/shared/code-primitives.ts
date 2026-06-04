@@ -284,7 +284,11 @@ export function summarizePlan(plan: ReplacementPlan): string {
 }
 
 export function formatPlanPreview(plan: ReplacementPlan): string {
-  return plan.previews.map(preview => [`line ${preview.line}:`, `- ${preview.before}`, `+ ${preview.after}`].join("\n")).join("\n");
+  return plan.previews.map(preview => [
+    `@@ -${preview.line} +${preview.line} @@`,
+    `-${preview.before}`,
+    `+${preview.after}`,
+  ].join("\n")).join("\n");
 }
 
 export function resolveSafePath(cwd: string, inputPath: string): string {

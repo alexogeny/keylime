@@ -55,11 +55,14 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "inspect_text_matches",
     label: "Inspect Text Matches",
-    description: "Find text or regex matches in one file with line/context output.",
+    description: "Find text or regex matches in one or more files with line/context output.",
     promptSnippet: "Inspect file text matches",
     promptGuidelines: ["Use before broad replacements."],
     parameters: Type.Object({
-      path: Type.String({ description: "File path" }),
+      path: Type.Optional(Type.String({ description: "File path" })),
+      file_glob: Type.Optional(Type.String({ description: "Target glob" })),
+      language: Type.Optional(StringEnum(["typescript", "javascript", "python", "rust"] as const)),
+      exclude_globs: Type.Optional(Type.Array(Type.String(), { description: "Extra excludes" })),
       query: Type.String({ description: "Text or regex" }),
       regex: Type.Optional(Type.Boolean({ description: "Regex mode" })),
       case_sensitive: Type.Optional(Type.Boolean({ description: "Case-sensitive" })),
@@ -67,26 +70,40 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       max_matches: Type.Optional(Type.Number({ description: "Max matches" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
-      const text = await readTextFileSafely(path);
-      const matches = inspectTextMatches(text, {
-        query: params.query,
-        regex: params.regex,
-        caseSensitive: params.case_sensitive,
-        contextLines: params.context_lines,
-        maxMatches: params.max_matches,
-      });
+      const targets = params.path
+        ? [resolveSafePath(ctx.cwd, params.path)]
+        : await collectTargetFiles(ctx.cwd, {
+          file_glob: params.file_glob,
+          language: params.language as Language | undefined,
+          exclude_globs: params.exclude_globs,
+        });
+      if (targets.length === 0) throw new Error(`No target files; provide path, file_glob, or language`);
 
-      const lines = matches.flatMap(match => [
-        `${params.path}:${match.line}:${match.column} ${match.text}`,
-        ...match.before.map(line => `  ${line}`),
-        `> ${match.lineText}`,
-        ...match.after.map(line => `  ${line}`),
-      ]);
+      const blocks = [];
+      const details = [];
+      for (const path of targets) {
+        const rel = relative(ctx.cwd, path).replace(/\\/g, "/");
+        const text = await readTextFileSafely(path);
+        const matches = inspectTextMatches(text, {
+          query: params.query,
+          regex: params.regex,
+          caseSensitive: params.case_sensitive,
+          contextLines: params.context_lines,
+          maxMatches: params.max_matches,
+        });
+        details.push({ path: rel, count: matches.length, matches });
+        blocks.push(...matches.flatMap(match => [
+          `${rel}:${match.line}:${match.column} ${match.text}`,
+          ...match.before.map(line => `  ${line}`),
+          `> ${match.lineText}`,
+          ...match.after.map(line => `  ${line}`),
+        ]));
+      }
 
+      const count = details.reduce((total, file) => total + file.count, 0);
       return {
-        content: [{ type: "text", text: lines.length ? lines.join("\n") : `No matches in ${params.path}` }],
-        details: { count: matches.length, matches },
+        content: [{ type: "text", text: blocks.length ? blocks.join("\n") : `No matches in ${targets.length} file${targets.length === 1 ? "" : "s"}` }],
+        details: { count, files: details },
       };
     },
   });
@@ -112,6 +129,59 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         ...structure.declarations.map(d => `- ${d.line}: ${d.kind} ${d.name}`),
       ];
       return { content: [{ type: "text", text: lines.join("\n") }], details: structure };
+    },
+  });
+
+  pi.registerTool({
+    name: "plan_code_replacements",
+    label: "Plan Code Replacements",
+    description: "Dry-run exact or regex replacements across files without writing changes.",
+    promptSnippet: "Plan batch replacements",
+    promptGuidelines: ["Use before apply_code_replacements for broad edits."],
+    parameters: Type.Object({
+      file_glob: Type.Optional(Type.String({ description: "Target glob" })),
+      language: Type.Optional(StringEnum(["typescript", "javascript", "python", "rust"] as const)),
+      exclude_globs: Type.Optional(Type.Array(Type.String(), { description: "Extra excludes" })),
+      edits: Type.Array(Type.Object({
+        path: Type.Optional(Type.String({ description: "File path" })),
+        oldText: Type.Optional(Type.String({ description: "Exact old text" })),
+        regex: Type.Optional(Type.String({ description: "Regex pattern" })),
+        flags: Type.Optional(Type.String({ description: "Regex flags" })),
+        newText: Type.String({ description: "Replacement text" }),
+        replaceAll: Type.Optional(Type.Boolean({ description: "Replace all matches" })),
+        matchMode: Type.Optional(StringEnum(["exact", "trimmed_lines", "normalized_whitespace"] as const)),
+        expectedReplacements: Type.Optional(Type.Number({ description: "Expected replacements" })),
+        minReplacements: Type.Optional(Type.Number({ description: "Minimum replacements" })),
+        maxReplacements: Type.Optional(Type.Number({ description: "Maximum replacements" })),
+      }), { description: "Edits" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const targets = await collectTargetFiles(ctx.cwd, {
+        file_glob: params.file_glob,
+        language: params.language as Language | undefined,
+        exclude_globs: params.exclude_globs,
+      });
+      const plans = [];
+
+      for (const rawEdit of params.edits as ReplacementEdit[]) {
+        const paths = rawEdit.path ? [resolveSafePath(ctx.cwd, rawEdit.path)] : targets;
+        if (paths.length === 0) throw new Error(`No target files for edit; provide path, file_glob, or language`);
+        for (const path of paths) {
+          const edit = { ...rawEdit, path };
+          const before = await readTextFileSafely(path);
+          plans.push(planReplacement(before, edit));
+        }
+      }
+
+      const summary = plans.map(plan => {
+        const preview = formatPlanPreview(plan);
+        return preview ? `${summarizePlan(plan)}\n${preview}` : summarizePlan(plan);
+      }).join("\n\n");
+
+      return {
+        content: [{ type: "text", text: `Plan:\n${summary}` }],
+        details: { dryRun: true, plans: plans.map(plan => ({ path: plan.path, replacements: plan.replacements, previews: plan.previews })) },
+      };
     },
   });
 

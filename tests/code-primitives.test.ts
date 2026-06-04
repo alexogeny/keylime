@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import codePrimitivesExtension from "../extensions/code-primitives";
 import {
   formatPlanPreview,
   inspectTextMatches,
@@ -79,9 +83,50 @@ describe("planReplacement", () => {
   test("formats dry-run previews", () => {
     const plan = planReplacement("a\nb\nc", { path: "x.ts", oldText: "b", newText: "bee" });
 
-    expect(formatPlanPreview(plan)).toContain("line 2");
-    expect(formatPlanPreview(plan)).toContain("- b");
-    expect(formatPlanPreview(plan)).toContain("+ bee");
+    expect(formatPlanPreview(plan)).toContain("@@ -2 +2 @@");
+    expect(formatPlanPreview(plan)).toContain("-b");
+    expect(formatPlanPreview(plan)).toContain("+bee");
+  });
+});
+
+function registeredCodePrimitiveTools(): Record<string, any> {
+  const tools: Record<string, any> = {};
+  codePrimitivesExtension({ registerTool: (tool: any) => { tools[tool.name] = tool; } } as any);
+  return tools;
+}
+
+describe("code primitive extension tools", () => {
+  test("inspect_text_matches supports file_glob and language filters", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "a.ts"), "const needle = true;\n", "utf8");
+    await writeFile(join(cwd, "src", "b.py"), "needle = True\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.inspect_text_matches.execute("id", {
+      file_glob: "src/*",
+      language: "typescript",
+      query: "needle",
+    }, undefined, undefined, { cwd });
+
+    expect(result.details.count).toBe(1);
+    expect(result.details.files.map((file: any) => file.path)).toEqual(["src/a.ts"]);
+    expect(result.content[0].text).toContain("src/a.ts:1:7 needle");
+  });
+
+  test("plan_code_replacements previews without writing files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "x.ts"), "alpha\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.plan_code_replacements.execute("id", {
+      edits: [{ path: "x.ts", oldText: "alpha", newText: "beta" }],
+    }, undefined, undefined, { cwd });
+
+    expect(await readFile(join(cwd, "x.ts"), "utf8")).toBe("alpha\n");
+    expect(result.content[0].text).toContain("Plan:");
+    expect(result.content[0].text).toContain("@@ -1 +1 @@");
+    expect(result.details.dryRun).toBe(true);
   });
 });
 

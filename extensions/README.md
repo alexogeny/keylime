@@ -7,7 +7,7 @@ The extension stack is optimized around two shared layers:
 
 Most domain tools are still registered by their own extensions, but the router keeps them out of the provider prompt unless the current intent needs them.
 
-`code-primitives.ts` adds repository-native edit helpers (`inspect_text_matches`, `apply_code_replacements`) so repetitive TypeScript/Python/Rust edits do not need ad hoc shell or Python scripts.
+`code-primitives.ts` adds repository-native edit helpers (`inspect_text_matches`, `plan_code_replacements`, `apply_code_replacements`, `inspect_code_structure`) so repetitive TypeScript/Python/Rust edits do not need ad hoc shell or Python scripts. Replacement previews use compact unified diff hunks, and text inspection supports path, glob, and language-scoped searches.
 
 ## Environment flags
 

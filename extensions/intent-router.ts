@@ -32,6 +32,7 @@ const DOMAIN_TOOLS = new Set([
   "code_search",
   "inspect_text_matches",
   "inspect_code_structure",
+  "plan_code_replacements",
   "apply_code_replacements",
   "run_checks",
 ]);
@@ -116,6 +117,10 @@ export function reminderText(): string {
   }
 
   lines.push(`Intent: ${route.primaryIntent}; tools: ${enabledGroups(route.capabilityGroups).join(", ") || "none"}.`);
+
+  if (route.capabilityGroups.includes("coding")) {
+    lines.push("Git checkpoints handle rollback safety; do not spend extra turns on manual git safety unless asked.");
+  }
 
   if (route.suggestedSkills.length > 0) {
     lines.push(`Skill hint: ${route.suggestedSkills.map(s => `/skill:${s}`).join(", ")} only if materially useful.`);
