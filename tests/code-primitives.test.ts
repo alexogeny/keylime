@@ -142,7 +142,8 @@ describe("code primitive extension tools", () => {
     ].join("\n");
 
     expect(guidelines).toContain("prefer plan_code_replacements/apply_code_replacements");
-    expect(guidelines).toContain("Do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
+    expect(guidelines).toContain("Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection");
+    expect(guidelines).toContain("Use create_file for new source, config, test, markdown, and fixture files");
   });
 
   test("inspect_text_matches supports file_glob and language filters", async () => {
