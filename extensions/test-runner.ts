@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { defaultCheckCommands, detectProjectKind, type CheckSuite } from "./shared/test-runner";
+import { customCheckCommand, defaultCheckCommands, detectProjectKind, type CheckSuite } from "./shared/test-runner";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,7 +34,7 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
       const commands = params.command
-        ? [{ command: params.command, args: params.args ?? [], label: [params.command, ...(params.args ?? [])].join(" ") }]
+        ? [customCheckCommand(params.command, params.args)]
         : defaultCheckCommands(detectProjectKind(await rootFiles(ctx.cwd)), (params.suite ?? "all") as CheckSuite);
 
       if (commands.length === 0) throw new Error("No default check command for this project/suite; provide command + args.");
@@ -50,7 +50,8 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
           });
           results.push({ ...cmd, ok: true, stdout: result.stdout, stderr: result.stderr });
         } catch (err: any) {
-          results.push({ ...cmd, ok: false, stdout: err.stdout ?? "", stderr: err.stderr ?? err.message ?? "", code: err.code });
+          const stderr = typeof err.stderr === "string" && err.stderr.trim() ? err.stderr : err.message ?? "";
+          results.push({ ...cmd, ok: false, stdout: err.stdout ?? "", stderr, code: err.code });
           break;
         }
       }

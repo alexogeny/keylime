@@ -7,6 +7,12 @@ export type CheckCommand = {
   label: string;
 };
 
+export function customCheckCommand(command: string, args?: string[]): CheckCommand {
+  if (args) return { command, args, label: [command, ...args].join(" ") };
+  if (/\s/.test(command.trim())) return { command: "bash", args: ["-lc", command], label: command };
+  return { command, args: [], label: command };
+}
+
 export function detectProjectKind(files: string[]): ProjectKind {
   const set = new Set(files);
   if (set.has("Cargo.toml")) return "rust";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultCheckCommands, detectProjectKind } from "../extensions/shared/test-runner";
+import { customCheckCommand, defaultCheckCommands, detectProjectKind } from "../extensions/shared/test-runner";
 
 describe("test runner defaults", () => {
   test("detects project kind", () => {
@@ -20,5 +20,19 @@ describe("test runner defaults", () => {
   test("builds Rust and Python defaults", () => {
     expect(defaultCheckCommands("rust", "typecheck")[0].label).toBe("cargo check");
     expect(defaultCheckCommands("python", "test")[0].label).toBe("pytest");
+  });
+
+  test("custom command accepts either argv or a shell-style command string", () => {
+    expect(customCheckCommand("bun", ["test", "tests"])).toEqual({
+      command: "bun",
+      args: ["test", "tests"],
+      label: "bun test tests",
+    });
+
+    expect(customCheckCommand("bun test tests")).toEqual({
+      command: "bash",
+      args: ["-lc", "bun test tests"],
+      label: "bun test tests",
+    });
   });
 });
