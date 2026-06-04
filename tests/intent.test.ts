@@ -56,6 +56,16 @@ test("routes docs and URL prompts to research/fetch", () => {
 });
 
 
+test("explicit research requests route to research even when keyword score is low", () => {
+  const route = classifyIntent("research the latest on cold water immersion");
+
+  expect(route.primaryIntent).toBe("research");
+  expect(route.temporal.explicitResearchRequested).toBe(true);
+  expect(route.capabilityGroups).toContain("research");
+  expect(route.capabilityGroups).toContain("fetch");
+});
+
+
 test("routes latest shoe model prompts to shoe lookup not research", () => {
   const route = classifyIntent("tell me about the latest brooks ghost");
 
