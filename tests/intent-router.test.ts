@@ -35,12 +35,16 @@ describe("activeToolNames", () => {
     expect(tools).not.toContain("lookup_shoe");
   });
 
-  test("shoe intent exposes shoe tools without web tools", () => {
+  test("shoe intent exposes shoe tools and always-on code primitives without web tools", () => {
     const tools = activeToolNames(pi(["custom_safe_tool"]), ["shoes", "memory-lite"]);
 
     expect(tools).toContain("lookup_shoe");
     expect(tools).toContain("query_shoes");
     expect(tools).toContain("recall_memories");
+    expect(tools).toContain("inspect_lines");
+    expect(tools).toContain("apply_code_replacements");
+    expect(tools).not.toContain("read");
+    expect(tools).not.toContain("bash");
     expect(tools).not.toContain("web_search");
   });
 });
@@ -253,7 +257,7 @@ test("coding route exposes codemod primitives", () => {
   expect(tools).not.toContain("write");
 });
 
-test("review mode narrows active tools to readonly repo tools", async () => {
+test("review mode keeps always-on code primitives but removes unrelated domain tools", async () => {
   const { default: operationalModesExtension } = await import("../extensions/operational-modes");
   const commands: Record<string, any> = {};
   operationalModesExtension({
@@ -273,6 +277,8 @@ test("review mode narrows active tools to readonly repo tools", async () => {
   expect(tools).toContain("read");
   expect(tools).toContain("code_search");
   expect(tools).toContain("inspect_code_structure");
+  expect(tools).toContain("apply_code_replacements");
+  expect(tools).toContain("create_file");
   expect(tools).toContain("custom_safe_tool");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("web_search");
