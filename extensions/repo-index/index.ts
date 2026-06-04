@@ -113,6 +113,11 @@ function resolveRgPath(): string {
     if (existsSync(candidate)) return candidate;
   }
 
+  for (const dir of ["/home/alex/.pi/agent/bin", "/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"]) {
+    const candidate = join(dir, RG_PATH);
+    if (existsSync(candidate)) return candidate;
+  }
+
   return RG_PATH;
 }
 
@@ -384,14 +389,27 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
     return { systemPrompt: event.systemPrompt + "\n\n" + state.skeleton };
   });
 
-  // ── Invalidate index after write/edit to source files ──────────────────────
+  // ── Invalidate index after source file writes ──────────────────────────────
 
   pi.on("tool_result", async (event) => {
-    if (!["write", "edit"].includes(event.toolName)) return;
-    const path = (event as any).input?.path ?? "";
-    const ext  = extname(path);
-    const isSource = LANGS.some(l => l.exts.includes(ext));
-    if (isSource) state.dirty = true;
+    const input = (event as any).input ?? {};
+
+    if (["write", "edit"].includes(event.toolName)) {
+      const ext = extname(input.path ?? "");
+      if (LANGS.some(l => l.exts.includes(ext))) state.dirty = true;
+      return;
+    }
+
+    if (event.toolName !== "apply_code_replacements" || input.dry_run === true) return;
+    if (input.language || input.file_glob) {
+      state.dirty = true;
+      return;
+    }
+
+    const edits = Array.isArray(input.edits) ? input.edits : [];
+    if (edits.some((edit: any) => LANGS.some(l => l.exts.includes(extname(edit?.path ?? ""))))) {
+      state.dirty = true;
+    }
   });
 
   // ── code_search tool ────────────────────────────────────────────────────────

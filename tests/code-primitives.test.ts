@@ -126,7 +126,55 @@ describe("code primitive extension tools", () => {
     expect(await readFile(join(cwd, "x.ts"), "utf8")).toBe("alpha\n");
     expect(result.content[0].text).toContain("Plan:");
     expect(result.content[0].text).toContain("@@ -1 +1 @@");
+    expect(result.content[0].text).toContain("x.ts: 1 replacement");
     expect(result.details.dryRun).toBe(true);
+    expect(result.details.plans[0].path).toBe("x.ts");
+  });
+
+  test("apply_code_replacements applies multiple edits to the same file sequentially", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "x.ts"), "alpha beta\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.apply_code_replacements.execute("id", {
+      edits: [
+        { path: "x.ts", oldText: "alpha", newText: "gamma" },
+        { path: "x.ts", oldText: "beta", newText: "delta" },
+      ],
+    }, undefined, undefined, { cwd });
+
+    expect(await readFile(join(cwd, "x.ts"), "utf8")).toBe("gamma delta\n");
+    expect(result.details.plans).toHaveLength(1);
+    expect(result.details.plans[0].replacements).toBe(2);
+  });
+
+  test("apply_code_replacements targets file_glob and language safely", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "a.ts"), "alpha\n", "utf8");
+    await writeFile(join(cwd, "src", "b.py"), "alpha\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.apply_code_replacements.execute("id", {
+      file_glob: "src/*",
+      language: "typescript",
+      edits: [{ oldText: "alpha", newText: "beta" }],
+    }, undefined, undefined, { cwd });
+
+    expect(await readFile(join(cwd, "src", "a.ts"), "utf8")).toBe("beta\n");
+    expect(await readFile(join(cwd, "src", "b.py"), "utf8")).toBe("alpha\n");
+    expect(result.details.plans.map((plan: any) => plan.path)).toEqual(["src/a.ts"]);
+    expect(result.content[0].text).toContain("src/a.ts: 1 replacement");
+  });
+
+  test("replacement errors include edit number and target file", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "x.ts"), "alpha alpha\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.plan_code_replacements.execute("id", {
+      edits: [{ path: "x.ts", oldText: "alpha", newText: "beta", expectedReplacements: 1, replaceAll: true }],
+    }, undefined, undefined, { cwd })).rejects.toThrow("Edit 1 failed for x.ts: Expected 1 replacement");
   });
 });
 

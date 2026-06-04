@@ -23,7 +23,6 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -33,6 +32,10 @@ import { isCapabilityActive } from "./shared/intent";
 import { registerContextProvider } from "./shared/turn-context";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
+
+function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
+  return Type.Union(values.map(value => Type.Literal(value)), options);
+}
 
 interface TechStack {
   language:      string;
@@ -364,7 +367,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use at red, green, refactored, and done transitions."],
     parameters: Type.Object({
       feature_name: Type.String({ description: "Feature name (partial match OK)" }),
-      tdd_status:   StringEnum(["red", "green", "refactored", "done"] as const, {
+      tdd_status:   stringEnum(["red", "green", "refactored", "done"] as const, {
         description: "New TDD status: red=test written+failing, green=tests pass, refactored=clean, done=committed",
       }),
       notes: Type.Optional(Type.String({ description: "What was done at this stage, key decisions, test names, etc." })),
@@ -425,7 +428,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use for non-trivial choices; document why and consequences."],
     parameters: Type.Object({
       topic:        Type.String({ description: "Short title, e.g. 'Use Zod for validation', 'PostgreSQL over SQLite'" }),
-      status:       StringEnum(["proposed", "accepted", "superseded", "deprecated"] as const, {
+      status:       stringEnum(["proposed", "accepted", "superseded", "deprecated"] as const, {
         description: "ADR status. Use 'accepted' for finalised decisions.",
       }),
       decision:     Type.String({ description: "What was decided (one clear sentence)" }),
@@ -520,7 +523,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
     description: "Add or answer a project question.",
     promptSnippet: "Manage project questions",
     parameters: Type.Object({
-      action:   StringEnum(["add", "answer"] as const),
+      action:   stringEnum(["add", "answer"] as const),
       question: Type.String({ description: "The question text (for add), or partial match of existing question (for answer)" }),
       answer:   Type.Optional(Type.String({ description: "The answer (required when action=answer)" })),
     }),

@@ -1,6 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -8,9 +7,16 @@ import { defaultCheckCommands, detectProjectKind, type CheckSuite } from "./shar
 
 const execFileAsync = promisify(execFile);
 
+function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
+  return Type.Union(values.map(value => Type.Literal(value)), options);
+}
+
 async function rootFiles(cwd: string): Promise<string[]> {
-  try { return await readdir(cwd); }
-  catch { return []; }
+  try {
+    const root = await readdir(cwd);
+    const extensions = await readdir(`${cwd}/extensions`).catch(() => []);
+    return [...root, ...extensions.map(file => `extensions/${file}`)];
+  } catch { return []; }
 }
 
 export default function testRunnerExtension(pi: ExtensionAPI) {
@@ -21,7 +27,7 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
     promptSnippet: "Run tests or type checks",
     promptGuidelines: ["Use after code edits to verify behavior."],
     parameters: Type.Object({
-      suite: Type.Optional(StringEnum(["all", "test", "typecheck", "lint"] as const, { description: "Check suite" })),
+      suite: Type.Optional(stringEnum(["all", "test", "typecheck", "lint"] as const, { description: "Check suite" })),
       command: Type.Optional(Type.String({ description: "Custom command" })),
       args: Type.Optional(Type.Array(Type.String(), { description: "Custom args" })),
       timeout_ms: Type.Optional(Type.Number({ description: "Timeout ms" })),

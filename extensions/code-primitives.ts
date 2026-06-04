@@ -15,6 +15,7 @@ import {
   summarizePlan,
   type Language,
   type ReplacementEdit,
+  type ReplacementPlan,
 } from "./shared/code-primitives";
 
 function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
@@ -52,6 +53,48 @@ async function collectTargetFiles(cwd: string, options: { file_glob?: string; la
     if (!matchesLanguage(rel, options.language)) return false;
     return true;
   });
+}
+
+type PlannedReplacement = {
+  fsPath: string;
+  plan: ReplacementPlan;
+};
+
+function relativePath(cwd: string, path: string): string {
+  return relative(cwd, path).replace(/\\/g, "/");
+}
+
+async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targets: string[]): Promise<PlannedReplacement[]> {
+  const plannedByPath = new Map<string, PlannedReplacement>();
+
+  for (const [index, rawEdit] of edits.entries()) {
+    const paths = rawEdit.path ? [resolveSafePath(cwd, rawEdit.path)] : targets;
+    if (paths.length === 0) throw new Error(`Edit ${index + 1}: no target files; provide path, file_glob, or language`);
+    for (const fsPath of paths) {
+      const relPath = relativePath(cwd, fsPath);
+      try {
+        const existing = plannedByPath.get(fsPath);
+        const before = existing?.plan.before ?? await readTextFileSafely(fsPath);
+        const current = existing?.plan.after ?? before;
+        const step = planReplacement(current, { ...rawEdit, path: relPath });
+        plannedByPath.set(fsPath, {
+          fsPath,
+          plan: {
+            path: relPath,
+            before,
+            after: step.after,
+            replacements: (existing?.plan.replacements ?? 0) + step.replacements,
+            previews: [...(existing?.plan.previews ?? []), ...step.previews].slice(0, 5),
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Edit ${index + 1} failed for ${relPath}: ${message}`);
+      }
+    }
+  }
+
+  return [...plannedByPath.values()];
 }
 
 export default function codePrimitivesExtension(pi: ExtensionAPI) {
@@ -164,26 +207,16 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         language: params.language as Language | undefined,
         exclude_globs: params.exclude_globs,
       });
-      const plans = [];
+      const planned = await planCodeReplacements(ctx.cwd, params.edits as ReplacementEdit[], targets);
 
-      for (const rawEdit of params.edits as ReplacementEdit[]) {
-        const paths = rawEdit.path ? [resolveSafePath(ctx.cwd, rawEdit.path)] : targets;
-        if (paths.length === 0) throw new Error(`No target files for edit; provide path, file_glob, or language`);
-        for (const path of paths) {
-          const edit = { ...rawEdit, path };
-          const before = await readTextFileSafely(path);
-          plans.push(planReplacement(before, edit));
-        }
-      }
-
-      const summary = plans.map(plan => {
+      const summary = planned.map(({ plan }) => {
         const preview = formatPlanPreview(plan);
         return preview ? `${summarizePlan(plan)}\n${preview}` : summarizePlan(plan);
       }).join("\n\n");
 
       return {
         content: [{ type: "text", text: `Plan:\n${summary}` }],
-        details: { dryRun: true, plans: plans.map(plan => ({ path: plan.path, replacements: plan.replacements, previews: plan.previews })) },
+        details: { dryRun: true, plans: planned.map(({ plan }) => ({ path: plan.path, replacements: plan.replacements, previews: plan.previews })) },
       };
     },
   });
@@ -219,32 +252,22 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         language: params.language as Language | undefined,
         exclude_globs: params.exclude_globs,
       });
-      const plans = [];
-
-      for (const rawEdit of params.edits as ReplacementEdit[]) {
-        const paths = rawEdit.path ? [resolveSafePath(ctx.cwd, rawEdit.path)] : targets;
-        if (paths.length === 0) throw new Error(`No target files for edit; provide path, file_glob, or language`);
-        for (const path of paths) {
-          const edit = { ...rawEdit, path };
-          const before = await readTextFileSafely(path);
-          plans.push(planReplacement(before, edit));
-        }
-      }
+      const planned = await planCodeReplacements(ctx.cwd, params.edits as ReplacementEdit[], targets);
 
       if (!dryRun) {
-        for (const plan of plans) {
-          if (plan.before !== plan.after) await writeFile(plan.path, plan.after, "utf8");
+        for (const { fsPath, plan } of planned) {
+          if (plan.before !== plan.after) await writeFile(fsPath, plan.after, "utf8");
         }
       }
 
-      const summary = plans.map(plan => {
+      const summary = planned.map(({ plan }) => {
         const preview = formatPlanPreview(plan);
         return preview ? `${summarizePlan(plan)}\n${preview}` : summarizePlan(plan);
       }).join("\n\n");
 
       return {
         content: [{ type: "text", text: `${dryRun ? "Dry run" : "Applied"}:\n${summary}` }],
-        details: { dryRun, plans: plans.map(plan => ({ path: plan.path, replacements: plan.replacements, previews: plan.previews })) },
+        details: { dryRun, plans: planned.map(({ plan }) => ({ path: plan.path, replacements: plan.replacements, previews: plan.previews })) },
       };
     },
   });

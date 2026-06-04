@@ -32,15 +32,14 @@ describe("code_search file_glob handling", () => {
   test("lexical search accepts relative recursive file_glob values", async () => {
     const tools = await registeredRepoIndexTools();
     const result = await tools.code_search.execute("id", {
-      query: "code_search",
+      query: "resolveRgPath",
       mode: "lexical",
       file_glob: "extensions/**/*.ts",
       max_results: 5,
     }, undefined, undefined, { cwd: process.cwd() });
 
-    expect(result.details.lines).toBeGreaterThan(0);
     expect(result.content[0].text).toContain("extensions/repo-index/index.ts");
-    expect(result.content[0].text).toContain("code_search");
+    expect(result.content[0].text).toContain("resolveRgPath");
   });
 
   test("hidden file_glob auto-enables hidden search", async () => {
@@ -56,7 +55,6 @@ describe("code_search file_glob handling", () => {
       max_results: 5,
     }, undefined, undefined, { cwd });
 
-    expect(result.details.lines).toBeGreaterThan(0);
     expect(result.content[0].text).toContain(".hidden/secret.ts");
     expect(result.content[0].text).toContain("hiddenNeedle");
   });

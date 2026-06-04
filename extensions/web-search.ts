@@ -16,7 +16,6 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -24,6 +23,10 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 
 // ─── Storage paths ────────────────────────────────────────────────────────────
+
+function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
+  return Type.Union(values.map(value => Type.Literal(value)), options);
+}
 
 const DATA_DIR     = join(homedir(), ".pi", "data", "web-search");
 const SEARCHES_DIR = join(DATA_DIR, "searches");
@@ -332,7 +335,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         Type.Object({
           title:     Type.String({ description: "Title" }),
           url:       Type.String({ description: "URL" }),
-          relevance: StringEnum(["high", "medium", "low"] as const),
+          relevance: stringEnum(["high", "medium", "low"] as const),
         }),
         { description: "Sources" }
       ),

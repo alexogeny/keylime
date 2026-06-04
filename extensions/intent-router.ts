@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, stripSystemReminders, type CapabilityGroup, type IntentRoute } from "./shared/intent";
+import { getCurrentOperationalMode } from "./operational-modes";
 import { registerContextProvider } from "./shared/turn-context";
 
 const STATUS_KEY = "intent";
@@ -77,11 +78,19 @@ function toolName(tool: any): string | undefined {
   return typeof tool === "string" ? tool : tool?.name;
 }
 
+export function modeAdjustedGroups(groups: CapabilityGroup[]): CapabilityGroup[] {
+  const mode = getCurrentOperationalMode();
+  if (mode === "REVIEW") return ["readonly", "repo"];
+  if (mode === "RESEARCH") return ["research", "fetch", "memory-lite"];
+  if (mode === "PERSONAL") return ["personal", "memory-lite"];
+  return groups;
+}
+
 export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): string[] {
   const available = new Set(pi.getAllTools().map(toolName).filter(Boolean) as string[]);
   const desired = new Set<string>();
 
-  for (const group of enabledGroups(groups)) {
+  for (const group of enabledGroups(modeAdjustedGroups(groups))) {
     for (const name of CAPABILITY_TOOLS[group]) desired.add(name);
   }
 
@@ -116,9 +125,10 @@ export function reminderText(): string {
     lines.push("Research requested but web tools are disabled: say so if it affects the answer.");
   }
 
-  lines.push(`Intent: ${route.primaryIntent}; tools: ${enabledGroups(route.capabilityGroups).join(", ") || "none"}.`);
+  const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
+  lines.push(`Intent: ${route.primaryIntent}; tools: ${activeGroups.join(", ") || "none"}.`);
 
-  if (route.capabilityGroups.includes("coding")) {
+  if (activeGroups.includes("coding")) {
     lines.push("Git checkpoints handle rollback safety; do not spend extra turns on manual git safety unless asked.");
   }
 
@@ -146,7 +156,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
 
     ctx.ui.setStatus(
       STATUS_KEY,
-      ctx.ui.theme.fg("dim", `${route.primaryIntent}:${enabledGroups(route.capabilityGroups).join("+")}`),
+      ctx.ui.theme.fg("dim", `${route.primaryIntent}:${enabledGroups(modeAdjustedGroups(route.capabilityGroups)).join("+")}`),
     );
 
     return { action: "continue" };
@@ -164,7 +174,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     const route = getCurrentRoute();
     ctx.ui.setStatus(
       STATUS_KEY,
-      ctx.ui.theme.fg("dim", `${route.primaryIntent}:${enabledGroups(route.capabilityGroups).join("+")}`),
+      ctx.ui.theme.fg("dim", `${route.primaryIntent}:${enabledGroups(modeAdjustedGroups(route.capabilityGroups)).join("+")}`),
     );
 
     return;

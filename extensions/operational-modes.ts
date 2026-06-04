@@ -30,7 +30,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 // ─── Mode definitions ─────────────────────────────────────────────────────────
 
 const MODES = ["CONVERSATIONAL", "CODE", "RESEARCH", "PERSONAL", "TDD", "REVIEW"] as const;
-type Mode = (typeof MODES)[number];
+export type Mode = (typeof MODES)[number];
 
 interface ModeConfig {
   icon:        string;
@@ -38,6 +38,13 @@ interface ModeConfig {
   description: string;
   /** Injected at the end of the system prompt each turn. null = no injection (default CODE). */
   injection:   string | null;
+}
+
+let currentMode: Mode = "CONVERSATIONAL";
+let modeLocked = false;
+
+export function getCurrentOperationalMode(): Mode {
+  return currentMode;
 }
 
 const MODE_CONFIG: Record<Mode, ModeConfig> = {
@@ -115,9 +122,6 @@ const MODE_CONFIG: Record<Mode, ModeConfig> = {
 // ─── Extension ────────────────────────────────────────────────────────────────
 
 export default function operationalModesExtension(pi: ExtensionAPI) {
-  let currentMode: Mode = "CONVERSATIONAL";
-  let modeLocked = false;
-
   // ── Status helpers ──────────────────────────────────────────────────────────
 
   function applyStatus(ctx: ExtensionContext): void {

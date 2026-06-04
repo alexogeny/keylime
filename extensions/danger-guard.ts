@@ -104,6 +104,18 @@ function checkPath(filePath: string, rules: Rules): boolean {
   return allProtected.some(p => expanded.includes(p.replace(/^~/, os.homedir())));
 }
 
+function writePathsForTool(toolName: string, input: any): string[] {
+  if (["write", "edit"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
+
+  const paths = new Set<string>();
+  if (typeof input?.file_glob === "string") paths.add(input.file_glob);
+  for (const edit of Array.isArray(input?.edits) ? input.edits : []) {
+    if (typeof edit?.path === "string") paths.add(edit.path);
+  }
+  return [...paths];
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -133,28 +145,15 @@ export default function (pi: ExtensionAPI) {
       if (!ok) return { block: true, reason: `danger-guard blocked: ${hit.label}` };
     }
 
-    // ── Write: protected path check ─────────────────────────────────────────
-    if (isToolCallEventType("write", event)) {
-      const p = (event.input as { path: string }).path ?? "";
-      if (checkPath(p, rules)) {
-        const ok = await ctx.ui.confirm(
-          `⛔ Protected path: ${p}`,
-          `Writing to this path may be sensitive.\n\nProceed?`
-        );
-        if (!ok) return { block: true, reason: `danger-guard blocked write to protected path: ${p}` };
-      }
-    }
-
-    // ── Edit: protected path check ──────────────────────────────────────────
-    if (isToolCallEventType("edit", event)) {
-      const p = (event.input as { path: string }).path ?? "";
-      if (checkPath(p, rules)) {
-        const ok = await ctx.ui.confirm(
-          `⛔ Protected path: ${p}`,
-          `Editing this path may be sensitive.\n\nProceed?`
-        );
-        if (!ok) return { block: true, reason: `danger-guard blocked edit to protected path: ${p}` };
-      }
+    // ── File-writing tools: protected path check ────────────────────────────
+    const protectedPaths = writePathsForTool(event.toolName, (event as any).input).filter(p => checkPath(p, rules));
+    if (protectedPaths.length > 0) {
+      const label = protectedPaths.slice(0, 5).join(", ");
+      const ok = await ctx.ui.confirm(
+        `⛔ Protected path: ${label}`,
+        `Writing to this path may be sensitive.\n\nProceed?`
+      );
+      if (!ok) return { block: true, reason: `danger-guard blocked write to protected path: ${label}` };
     }
   });
 

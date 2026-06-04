@@ -117,6 +117,31 @@ test("coding route exposes codemod primitives", () => {
   expect(tools).toContain("run_checks");
 });
 
+test("review mode narrows active tools to readonly repo tools", async () => {
+  const { default: operationalModesExtension } = await import("../extensions/operational-modes");
+  const commands: Record<string, any> = {};
+  operationalModesExtension({
+    appendEntry: () => {},
+    on: () => {},
+    registerShortcut: () => {},
+    registerCommand: (name: string, command: any) => { commands[name] = command; },
+  } as any);
+  const ctx = {
+    ui: { notify: () => {}, setStatus: () => {}, theme: { fg: (_style: string, text: string) => text } },
+  };
+
+  await commands.mode.handler("review", ctx);
+  const tools = activeToolNames(pi(["custom_safe_tool", "web_search", "edit"]), ["coding", "research", "memory-lite"]);
+  await commands.mode.handler("conversational", ctx);
+
+  expect(tools).toContain("read");
+  expect(tools).toContain("code_search");
+  expect(tools).toContain("inspect_code_structure");
+  expect(tools).toContain("custom_safe_tool");
+  expect(tools).not.toContain("edit");
+  expect(tools).not.toContain("web_search");
+});
+
 test("coding reminders mention git checkpoint safety", async () => {
   const { classifyIntent, setCurrentRoute } = await import("../extensions/shared/intent");
   const { reminderText } = await import("../extensions/intent-router");

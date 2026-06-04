@@ -19,7 +19,6 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -28,6 +27,10 @@ import { isCapabilityActive } from "./shared/intent";
 import { registerContextProvider } from "./shared/turn-context";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
+
+function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
+  return Type.Union(values.map(value => Type.Literal(value)), options);
+}
 
 const DATA_DIR     = join(homedir(), ".pi", "data", "web-search");
 const SEARCHES_DIR = join(DATA_DIR, "searches");
@@ -238,7 +241,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
     ],
     parameters: Type.Object({
       topic: Type.String({ description: "The topic or question to research thoroughly" }),
-      depth: Type.Optional(StringEnum(["quick", "standard", "deep"] as const, {
+      depth: Type.Optional(stringEnum(["quick", "standard", "deep"] as const, {
         description: "quick = 1 search; standard = 2–3 searches (default); deep = 4+ searches with follow-ups",
       })),
       recency_required: Type.Optional(Type.Boolean({
