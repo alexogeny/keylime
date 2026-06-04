@@ -325,7 +325,7 @@ export function previewMemoryWizardDraft(draft: MemoryWizardDraft): string {
 }
 
 export const PROFILE_FACT_SECTIONS = [
-  "identity", "body", "health", "athlete", "mental", "life", "contact", "work", "preferences",
+  "identity", "body", "appearance", "health", "athlete", "mental", "life", "contact", "work", "preferences",
 ] as const;
 export type ProfileFactSection = typeof PROFILE_FACT_SECTIONS[number];
 
@@ -370,6 +370,21 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
   { id: "shoe_size", label: "Shoe size", section: "body", kind: "text", placeholder: "US 10 / EU 44", tags: ["profile", "measurements", "body", "shoe"], sensitivity: "baseline" },
   { id: "dominant_hand", label: "Dominant hand", section: "body", kind: "select", options: ["", "right", "left", "ambidextrous"], tags: ["profile", "body"], sensitivity: "general" },
   { id: "dominant_foot", label: "Dominant foot", section: "body", kind: "select", options: ["", "right", "left", "ambidextrous"], tags: ["profile", "body", "sport"], sensitivity: "general" },
+
+  // Appearance / physical description
+  { id: "hair_color", label: "Hair color", section: "appearance", kind: "text", placeholder: "brown, black, blonde, auburn, dyed blue", tags: ["profile", "appearance", "hair", "hair-color"], sensitivity: "general" },
+  { id: "hair_style", label: "Hair style", section: "appearance", kind: "text", placeholder: "bob, pixie, ponytail, curly, shaved sides", tags: ["profile", "appearance", "hair", "hair-style"], sensitivity: "general" },
+  { id: "hair_length", label: "Hair length", section: "appearance", kind: "select", options: ["", "shaved", "buzzed", "short", "chin-length", "shoulder-length", "medium", "long", "very long", "other / custom"], tags: ["profile", "appearance", "hair", "hair-length"], sensitivity: "general" },
+  { id: "eye_color", label: "Eye color", section: "appearance", kind: "text", placeholder: "brown, blue, green, hazel, grey", tags: ["profile", "appearance", "eyes", "eye-color"], sensitivity: "general" },
+  { id: "skin_tone", label: "Skin tone / complexion", section: "appearance", kind: "text", placeholder: "optional self-described complexion", tags: ["profile", "appearance", "skin", "complexion"], sensitivity: "context_gated" },
+  { id: "face_shape", label: "Face shape", section: "appearance", kind: "text", placeholder: "oval, round, heart-shaped, angular", tags: ["profile", "appearance", "face"], sensitivity: "general" },
+  { id: "build", label: "Build / frame", section: "appearance", kind: "text", placeholder: "slim, athletic, curvy, broad-shouldered", tags: ["profile", "appearance", "build", "body"], sensitivity: "general" },
+  { id: "distinguishing_features", label: "Distinguishing features", section: "appearance", kind: "text", placeholder: "freckles, dimples, birthmark, scar", tags: ["profile", "appearance", "features"], sensitivity: "context_gated" },
+  { id: "tattoos", label: "Tattoos", section: "appearance", kind: "text", placeholder: "locations/styles, or none", tags: ["profile", "appearance", "tattoos"], sensitivity: "context_gated" },
+  { id: "piercings", label: "Piercings", section: "appearance", kind: "text", placeholder: "ears, nose, etc., or none", tags: ["profile", "appearance", "piercings"], sensitivity: "context_gated" },
+  { id: "glasses", label: "Glasses / contacts", section: "appearance", kind: "select", options: ["", "none", "glasses", "contacts", "both", "sometimes", "other / custom"], tags: ["profile", "appearance", "glasses", "vision"], sensitivity: "general" },
+  { id: "style_aesthetic", label: "Style aesthetic", section: "appearance", kind: "text", placeholder: "minimal, sporty, goth, corporate, colourful", tags: ["profile", "appearance", "style", "clothing"], sensitivity: "general" },
+  { id: "usual_makeup", label: "Usual makeup", section: "appearance", kind: "text", placeholder: "none, natural, winged liner, bold lip", tags: ["profile", "appearance", "makeup"], sensitivity: "general" },
 
   // Health / biometrics
   { id: "blood_type", label: "Blood type", section: "health", kind: "select", options: ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"], tags: ["profile", "health"], sensitivity: "context_gated" },

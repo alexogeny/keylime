@@ -37,7 +37,7 @@ import { registerContextProvider } from "../shared/turn-context";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import {
-  type Entity, type EntityStore,
+  type Entity, type EntityStore, type ExtractedEntity,
   loadEntityStore, saveEntityStore,
   extractEntities, upsertEntity, unlinkMemory, queryEntities, findEntity,
 } from "./entity.js";
@@ -439,6 +439,74 @@ export function shouldPromptToAddTimelineMemory(query: string, hits: Array<{ mem
   const timelineHits = hits.filter(hit => hit.memory.timeline || hit.memory.subcategory?.startsWith("timeline/"));
   const bestTimelineScore = timelineHits[0]?.score ?? 0;
   return { shouldPrompt: !!inferredSubkind && bestTimelineScore < threshold, inferredSubkind };
+}
+
+function splitLinkedNames(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(splitLinkedNames);
+  if (typeof value !== "string") return [];
+  return value.split(",").map(part => part.trim()).filter(Boolean);
+}
+
+function relationshipSubtype(value: unknown): string {
+  const text = String(value ?? "").toLowerCase();
+  if (/mum|mom|mother|dad|father|parent|sister|brother|sibling|cousin|aunt|uncle|grand|wife|husband|spouse|partner|son|daughter/.test(text)) return "family";
+  if (/boss|manager|colleague|coworker|teammate|mentor|client/.test(text)) return "work";
+  if (/doctor|therapist|gp|psych/.test(text)) return "health";
+  return "social";
+}
+
+function uniqueStructuredEntities(entities: ExtractedEntity[]): ExtractedEntity[] {
+  const seen = new Set<string>();
+  return entities.filter(entity => {
+    const key = `${entity.type}:${entity.subtype ?? ""}:${entity.canonical.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function timelineLinkedEntities(timeline: TimelineMemoryPayload | undefined): ExtractedEntity[] {
+  if (!timeline) return [];
+  const entities: ExtractedEntity[] = [];
+  const data = timeline.data ?? {};
+  const add = (raw: string, type: ExtractedEntity["type"], subtype?: string) => {
+    const canonical = raw.trim();
+    if (!canonical) return;
+    entities.push({ raw: canonical, canonical, type, subtype, source: "proper_noun" });
+  };
+
+  if (timeline.subkind === "person") {
+    const name = String(data.name ?? timeline.label ?? "").trim();
+    if (name) add(name, "person", relationshipSubtype(data.relationship));
+  }
+  if (timeline.subkind === "life_event" || timeline.subkind === "relationship" || timeline.subkind === "custom") {
+    for (const person of splitLinkedNames(data.people)) add(person, "person", "social");
+    for (const place of splitLinkedNames(data.places)) add(place, "place");
+  }
+  if (timeline.subkind === "employment") {
+    const employer = String(data.employer ?? timeline.label ?? "").trim();
+    if (employer) add(employer, "organization", "work");
+    for (const person of splitLinkedNames(data.people)) add(person, "person", "work");
+  }
+  if (timeline.subkind === "education") {
+    const institution = String(data.institution ?? timeline.label ?? "").trim();
+    if (institution) add(institution, "organization", "education");
+    for (const person of splitLinkedNames(data.people)) add(person, "person", "education");
+  }
+  if (timeline.subkind === "residence") {
+    for (const place of [data.street, data.city, data.region, data.country, data.places].flatMap(splitLinkedNames)) add(place, "place");
+    for (const person of splitLinkedNames(data.people)) add(person, "person", "social");
+  }
+  if (timeline.subkind === "pet") {
+    const name = String(data.name ?? timeline.label ?? "").trim();
+    if (name) add(name, "person", "pet");
+  }
+
+  return uniqueStructuredEntities(entities);
+}
+
+function memoryEntities(content: string, timeline?: TimelineMemoryPayload): ExtractedEntity[] {
+  return uniqueStructuredEntities([...extractEntities(content), ...timelineLinkedEntities(timeline)]);
 }
 
 // ─── Human-readable age ───────────────────────────────────────────────────────
@@ -1239,7 +1307,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       const { promoted, note: promoNote } = checkPromotion(dup, now);
 
       // Extract entities from updated content
-      const newEntities = extractEntities(params.content);
+      const newEntities = memoryEntities(params.content, params.timeline);
       for (const e of newEntities) {
         const eid = upsertEntity(entityStore, e, dup.id, now);
         if (!dup.entity_refs.includes(eid)) dup.entity_refs.push(eid);
@@ -1290,7 +1358,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     }
 
     // Extract and link entities
-    const entities = extractEntities(params.content);
+    const entities = memoryEntities(params.content, params.timeline);
     for (const e of entities) {
       const eid = upsertEntity(entityStore, e, mem.id, now);
       mem.entity_refs.push(eid);

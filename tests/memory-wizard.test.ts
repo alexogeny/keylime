@@ -20,7 +20,7 @@ import {
   validateTimelineEntryDraft,
   type MemoryWizardDraft,
 } from "../extensions/user-memory/wizard";
-import { shouldPromptToAddTimelineMemory, temporalContextForMemory } from "../extensions/user-memory";
+import { shouldPromptToAddTimelineMemory, temporalContextForMemory, timelineLinkedEntities } from "../extensions/user-memory";
 
 describe("memory wizard draft validation", () => {
   test("normalizes tags and converts expiry/sensitivity to remember params", () => {
@@ -129,6 +129,33 @@ describe("structured profile facts", () => {
     expect(validateProfileFactValues({ date_of_birth: "1990-02-30" })).toContain("date of birth is not a valid calendar date");
     expect(validateProfileFactValues({ date_of_birth: "02/03/1990" })).toContain("date of birth must use YYYY-MM-DD");
     expect(validateProfileFactValues({ date_of_birth: "1990-02-03" })).toEqual([]);
+  });
+
+  test("supports structured appearance fields for a physical description", () => {
+    const patch = buildProfilePatch({
+      hair_color: "dark brown",
+      hair_style: "curly bob",
+      hair_length: "chin-length",
+      eye_color: "hazel",
+      glasses: "sometimes",
+      style_aesthetic: "minimal sporty",
+    });
+
+    expect(patch).toEqual({
+      appearance: {
+        hair_color: "dark brown",
+        hair_style: "curly bob",
+        hair_length: "chin-length",
+        eye_color: "hazel",
+        glasses: "sometimes",
+        style_aesthetic: "minimal sporty",
+      },
+    });
+    expect(sectionCompleteness(profilePatchToFactValues(patch), "appearance")).toBeGreaterThan(0);
+    expect(buildProfileFactDrafts({ eye_color: "hazel" })[0]).toMatchObject({
+      content: "User's eye color is hazel.",
+      subcategory: "appearance",
+    });
   });
 
   test("supports structured select fields for gender and coffee preferences", () => {
@@ -279,6 +306,31 @@ describe("timeline memory wizard and retrieval helpers", () => {
     expect(event.content).toContain("people: Sam, Jo");
     expect(event.content).toContain("places: Brisbane, Pashen Street");
     expect(event.tags).toEqual(expect.arrayContaining(["life_event", "sam", "jo", "brisbane", "pashen street"]));
+  });
+
+  test("extracts first-class entities from significant people and linked life events", () => {
+    expect(timelineLinkedEntities({
+      kind: "profile.timeline",
+      subkind: "person",
+      entity: "user",
+      label: "Sam",
+      interval: { current: true },
+      data: { name: "Sam", relationship: "friend" },
+    })).toEqual([{ raw: "Sam", canonical: "Sam", type: "person", subtype: "social", source: "proper_noun" }]);
+
+    expect(timelineLinkedEntities({
+      kind: "profile.timeline",
+      subkind: "life_event",
+      entity: "user",
+      label: "Moved to Brisbane",
+      interval: { start: { value: "2018", precision: "year" } },
+      data: { people: "Sam, Jo", places: "Brisbane, Pashen Street" },
+    })).toEqual([
+      { raw: "Sam", canonical: "Sam", type: "person", subtype: "social", source: "proper_noun" },
+      { raw: "Jo", canonical: "Jo", type: "person", subtype: "social", source: "proper_noun" },
+      { raw: "Brisbane", canonical: "Brisbane", type: "place", subtype: undefined, source: "proper_noun" },
+      { raw: "Pashen Street", canonical: "Pashen Street", type: "place", subtype: undefined, source: "proper_noun" },
+    ]);
   });
 
   test("infers timeline add prompts and suppresses them when a strong timeline hit exists", () => {
