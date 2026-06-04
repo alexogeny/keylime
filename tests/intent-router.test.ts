@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
 
 const allToolNames = [
-  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "apply_code_replacements",
+  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "inspect_code_structure", "apply_code_replacements", "run_checks",
   "remember", "recall_memories", "recall_entity", "list_memories",
   "web_search", "research_topic", "fetch_url",
   "lookup_shoe", "query_shoes",
@@ -113,6 +113,7 @@ test("coding route exposes codemod primitives", () => {
 
   expect(tools).toContain("inspect_text_matches");
   expect(tools).toContain("apply_code_replacements");
+  expect(tools).toContain("run_checks");
 });
 
 test("coding reminders mention git checkpoint safety", async () => {
