@@ -122,6 +122,27 @@ describe("structured profile facts", () => {
     expect(validateProfileFactValues({ date_of_birth: "1990-02-03" })).toEqual([]);
   });
 
+  test("supports structured select fields for gender and coffee preferences", () => {
+    const drafts = buildProfileFactDrafts({
+      gender: "nonbinary",
+      coffee_temperature: "iced",
+      coffee_style: "latte",
+      coffee_milk: "oat milk",
+      coffee_sweetener: "none",
+      caffeine_timing: "before noon",
+    });
+
+    expect(drafts.map(draft => draft.content)).toEqual([
+      "User's gender is nonbinary.",
+      "User's coffee temperature is iced.",
+      "User's coffee style is latte.",
+      "User's coffee milk is oat milk.",
+      "User's coffee sweetener is none.",
+      "User's caffeine timing is before noon.",
+    ]);
+    expect(drafts.every(draft => draft.tags.includes("profile"))).toBe(true);
+  });
+
   test("supports unit conversion hints, unit selectors, cup size, and section completeness", () => {
     expect(convertedUnitHint("32", "in")).toBe("81.3 cm");
     expect(convertedUnitHint("183", "cm")).toBe("72.0 in");

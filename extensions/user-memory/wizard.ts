@@ -165,9 +165,10 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
   { id: "preferred_name", label: "Preferred name", section: "identity", kind: "text", placeholder: "Alex", tags: ["profile", "name"], sensitivity: "baseline" },
   { id: "legal_name", label: "Legal name", section: "identity", kind: "text", tags: ["profile", "name"], sensitivity: "context_gated" },
   { id: "pronouns", label: "Pronouns", section: "identity", kind: "select", options: ["", "he/him", "she/her", "they/them", "he/they", "she/they", "other"], tags: ["profile", "identity"], sensitivity: "baseline" },
-  { id: "gender", label: "Gender", section: "identity", kind: "text", tags: ["profile", "identity"], sensitivity: "context_gated" },
+  { id: "gender", label: "Gender", section: "identity", kind: "select", options: ["", "woman", "man", "nonbinary", "agender", "genderfluid", "trans woman", "trans man", "questioning", "prefer not to say", "other / custom"], tags: ["profile", "identity"], sensitivity: "context_gated" },
   { id: "date_of_birth", label: "Date of birth", section: "identity", kind: "date", placeholder: "YYYY-MM-DD", tags: ["profile", "dob", "birthday", "age"], sensitivity: "baseline" },
-  { id: "languages", label: "Languages", section: "identity", kind: "text", placeholder: "English, Spanish", tags: ["profile", "identity", "language"], sensitivity: "general" },
+  { id: "primary_language", label: "Primary language", section: "identity", kind: "select", options: ["", "English", "Spanish", "French", "German", "Italian", "Portuguese", "Dutch", "Arabic", "Mandarin", "Japanese", "Korean", "Hindi", "other / custom"], tags: ["profile", "identity", "language"], sensitivity: "general" },
+  { id: "other_languages", label: "Other languages", section: "identity", kind: "text", placeholder: "type comma-separated languages", tags: ["profile", "identity", "language"], sensitivity: "general" },
 
   // Physical stat sheet
   { id: "height", label: "Height", section: "body", kind: "number", placeholder: "183", tags: ["profile", "height", "measurements", "body"], sensitivity: "baseline", unitOptions: ["cm", "in", "ft/in"] },
@@ -185,7 +186,7 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
 
   // Health / biometrics
   { id: "blood_type", label: "Blood type", section: "health", kind: "select", options: ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "unknown"], tags: ["profile", "health"], sensitivity: "context_gated" },
-  { id: "allergies", label: "Allergies", section: "health", kind: "text", tags: ["profile", "health", "allergy"], sensitivity: "context_gated" },
+  { id: "allergies", label: "Allergies", section: "health", kind: "text", placeholder: "type allergy list, or 'none known'", tags: ["profile", "health", "allergy"], sensitivity: "context_gated" },
   { id: "medications", label: "Medications", section: "health", kind: "text", tags: ["profile", "health", "medication"], sensitivity: "context_gated" },
   { id: "conditions", label: "Health conditions", section: "health", kind: "text", tags: ["profile", "health"], sensitivity: "context_gated" },
   { id: "injury_history", label: "Injury history", section: "health", kind: "text", tags: ["profile", "health", "injury", "sport"], sensitivity: "context_gated" },
@@ -214,9 +215,9 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
 
   // Mental / cognitive profile
   { id: "chronotype", label: "Chronotype", section: "mental", kind: "select", options: ["", "morning", "intermediate", "evening", "variable"], tags: ["profile", "mental", "sleep"], sensitivity: "context_gated" },
-  { id: "focus_style", label: "Focus style", section: "mental", kind: "text", placeholder: "deep work in morning", tags: ["profile", "mental", "work-style"], sensitivity: "general" },
-  { id: "learning_style", label: "Learning style", section: "mental", kind: "text", tags: ["profile", "mental", "learning"], sensitivity: "general" },
-  { id: "communication_style", label: "Communication style", section: "mental", kind: "text", tags: ["profile", "mental", "communication"], sensitivity: "general" },
+  { id: "focus_style", label: "Focus style", section: "mental", kind: "select", options: ["", "deep work blocks", "short sprints", "body doubling", "deadline-driven", "morning focus", "evening focus", "variable", "other / custom"], tags: ["profile", "mental", "work-style"], sensitivity: "general" },
+  { id: "learning_style", label: "Learning style", section: "mental", kind: "select", options: ["", "examples first", "theory first", "visual", "hands-on", "written docs", "video", "conversation", "other / custom"], tags: ["profile", "mental", "learning"], sensitivity: "general" },
+  { id: "communication_style", label: "Communication style", section: "mental", kind: "select", options: ["", "direct", "gentle", "concise", "detailed", "step-by-step", "high context", "low context", "other / custom"], tags: ["profile", "mental", "communication"], sensitivity: "general" },
   { id: "stress_signals", label: "Stress signals", section: "mental", kind: "text", tags: ["profile", "mental", "stress"], sensitivity: "context_gated" },
   { id: "support_needs", label: "Support needs", section: "mental", kind: "text", tags: ["profile", "mental", "support"], sensitivity: "context_gated" },
   { id: "sensory_preferences", label: "Sensory preferences", section: "mental", kind: "text", tags: ["profile", "mental", "sensory"], sensitivity: "context_gated" },
@@ -230,9 +231,14 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
   { id: "employer", label: "Employer", section: "work", kind: "text", tags: ["profile", "work"], sensitivity: "general" },
   { id: "role", label: "Role / title", section: "work", kind: "text", tags: ["profile", "work"], sensitivity: "general" },
   { id: "work_schedule", label: "Work schedule", section: "work", kind: "text", tags: ["profile", "work", "schedule"], sensitivity: "general" },
-  { id: "diet", label: "Diet", section: "preferences", kind: "text", tags: ["profile", "preference", "food"], sensitivity: "general" },
-  { id: "caffeine", label: "Caffeine", section: "preferences", kind: "text", placeholder: "coffee before noon", tags: ["profile", "preference", "food"], sensitivity: "general" },
-  { id: "accessibility", label: "Accessibility needs", section: "preferences", kind: "text", tags: ["profile", "preference", "accessibility"], sensitivity: "context_gated" },
+  { id: "diet", label: "Diet", section: "preferences", kind: "select", options: ["", "omnivore", "vegetarian", "vegan", "pescatarian", "gluten-free", "dairy-free", "low FODMAP", "keto", "halal", "kosher", "other / custom"], tags: ["profile", "preference", "food"], sensitivity: "general" },
+  { id: "coffee_temperature", label: "Coffee temperature", section: "preferences", kind: "select", options: ["", "hot", "iced", "either"], tags: ["profile", "preference", "coffee", "food"], sensitivity: "general" },
+  { id: "coffee_style", label: "Coffee style", section: "preferences", kind: "select", options: ["", "black coffee", "espresso", "americano", "latte", "flat white", "cappuccino", "mocha", "cold brew", "filter coffee", "tea instead", "no caffeine", "other / custom"], tags: ["profile", "preference", "coffee", "food"], sensitivity: "general" },
+  { id: "coffee_milk", label: "Coffee milk", section: "preferences", kind: "select", options: ["", "none / black", "whole milk", "semi-skimmed milk", "skimmed milk", "oat milk", "soy milk", "almond milk", "coconut milk", "lactose-free milk", "cream", "other / custom"], tags: ["profile", "preference", "coffee", "food"], sensitivity: "general" },
+  { id: "coffee_sweetener", label: "Coffee sweetener", section: "preferences", kind: "select", options: ["", "none", "sugar", "brown sugar", "honey", "syrup", "stevia", "sweetener", "other / custom"], tags: ["profile", "preference", "coffee", "food"], sensitivity: "general" },
+  { id: "coffee_size", label: "Coffee size", section: "preferences", kind: "select", options: ["", "small", "medium", "large", "single", "double", "one cup", "two cups", "other / custom"], tags: ["profile", "preference", "coffee", "food"], sensitivity: "general" },
+  { id: "caffeine_timing", label: "Caffeine timing", section: "preferences", kind: "select", options: ["", "morning only", "before noon", "afternoon ok", "all day", "none", "other / custom"], tags: ["profile", "preference", "caffeine", "food"], sensitivity: "general" },
+  { id: "accessibility", label: "Accessibility needs", section: "preferences", kind: "text", placeholder: "type specific needs, or 'none'", tags: ["profile", "preference", "accessibility"], sensitivity: "context_gated" },
 ];
 
 export type ProfileFactValues = Record<string, string>;
@@ -284,13 +290,14 @@ export function sectionCompleteness(values: ProfileFactValues, section: ProfileF
 }
 
 function formatProfileValue(field: ProfileFactField, value: string, values: ProfileFactValues): string {
+  const cleanValue = value.replace(/^custom: /, "");
   const unit = values[unitKey(field)] || defaultUnit(field);
-  if (unit && /^-?\d+(?:\.\d+)?$/.test(value)) {
-    const hint = convertedUnitHint(value, unit);
-    return `${value} ${unit}${hint ? ` (${hint})` : ""}`;
+  if (unit && /^-?\d+(?:\.\d+)?$/.test(cleanValue)) {
+    const hint = convertedUnitHint(cleanValue, unit);
+    return `${cleanValue} ${unit}${hint ? ` (${hint})` : ""}`;
   }
-  if (field.unit && /^-?\d+(?:\.\d+)?$/.test(value)) return `${value} ${field.unit}`;
-  return value;
+  if (field.unit && /^-?\d+(?:\.\d+)?$/.test(cleanValue)) return `${cleanValue} ${field.unit}`;
+  return cleanValue;
 }
 
 function profileFactContent(field: ProfileFactField, value: string, measuredAtValue: string | undefined, values: ProfileFactValues): string {
@@ -357,17 +364,43 @@ function shiftIsoDate(value: string, part: "year" | "month" | "day", delta: numb
   return date.toISOString().slice(0, 10);
 }
 
+type ProfileFactFormResult =
+  | { action: "done"; values: ProfileFactValues }
+  | { action: "back"; dirty: boolean };
+
 class ProfileFactForm implements Component {
   private selected = 0;
   private datePart: "year" | "month" | "day" = "year";
+  private dirty = false;
 
   constructor(
     private readonly theme: { fg: (name: string, text: string) => string; bold: (text: string) => string },
     private readonly section: ProfileFactSection,
     private readonly fields: ProfileFactField[],
     private readonly values: ProfileFactValues,
-    private readonly done: (result: ProfileFactValues | null) => void,
+    private readonly done: (result: ProfileFactFormResult) => void,
   ) {}
+
+  private dateDisplay(field: ProfileFactField, value: string): string {
+    const base = /^\d{4}-\d{2}-\d{2}/.test(value) ? value : "1990-01-01";
+    const time = field.kind === "datetime" ? (/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2})$/.exec(value)?.[1] ?? " HH:mm") : "";
+    const [year, month, day] = base.slice(0, 10).split("-");
+    const part = (name: "year" | "month" | "day", text: string) => name === this.datePart ? this.theme.fg("accent", this.theme.bold(text)) : text;
+    return `${part("year", year)}-${part("month", month)}-${part("day", day)}${time}`;
+  }
+
+  private optionDisplay(field: ProfileFactField): string[] {
+    const options = field.options ?? [];
+    if (!options.length) return [];
+    const current = this.values[field.id] ?? "";
+    return [`  ${this.theme.fg("dim", "options:")} ${options.map(option => option === current ? this.theme.fg("accent", `[${option || "blank"}]`) : (option || "blank")).join("  ")}`];
+  }
+
+  private unitDisplay(field: ProfileFactField): string[] {
+    if (!field.unitOptions) return [];
+    const current = this.values[unitKey(field)] || defaultUnit(field);
+    return [`  ${this.theme.fg("dim", "units:")} ${field.unitOptions.map(unit => unit === current ? this.theme.fg("accent", `[${unit}]`) : unit).join("  ")}`];
+  }
 
   render(width: number): string[] {
     const completeness = sectionCompleteness(this.values, this.section);
@@ -375,7 +408,8 @@ class ProfileFactForm implements Component {
       this.theme.fg("accent", this.theme.bold(`Structured profile facts › ${this.section} (${completeness}% complete)`)),
       this.theme.fg("dim", "ENTER preview/save this section · ESC goes back without saving this edit screen"),
       this.theme.fg("dim", "TAB or ↑↓ changes field · type edits · BACKSPACE deletes"),
-      this.theme.fg("dim", "Select fields: ←/→ cycles options · Unit fields: ←/→ cycles units · Date fields: ←/→ choose Y/M/D, +/- changes value"),
+      this.theme.fg("dim", "Select fields show all choices below: ←/→ cycles · choose other/custom then type for custom text"),
+      this.theme.fg("dim", "Unit fields show unit chips below: ←/→ cycles units · Date fields: ←/→ choose Y/M/D, +/- changes value"),
       "",
     ];
     this.fields.forEach((field, index) => {
@@ -383,11 +417,17 @@ class ProfileFactForm implements Component {
       const value = this.values[field.id] || "";
       const unit = field.unitOptions ? ` ${this.theme.fg("accent", `[${this.values[unitKey(field)] || defaultUnit(field)}]`)}` : "";
       const hint = field.unitOptions && value ? this.theme.fg("dim", ` ≈ ${convertedUnitHint(value, this.values[unitKey(field)] || defaultUnit(field)) ?? ""}`) : "";
-      const shown = value || this.theme.fg("dim", field.placeholder ?? "optional");
-      const picker = (field.kind === "date" || field.kind === "datetime") && active ? ` (${this.datePart})` : "";
-      const kindHint = field.kind === "select" ? this.theme.fg("dim", " ←/→") : field.unitOptions ? this.theme.fg("dim", " ←/→ unit") : "";
+      const shown = (field.kind === "date" || field.kind === "datetime") ? this.dateDisplay(field, value) : (value || this.theme.fg("dim", field.placeholder ?? "optional"));
+      const picker = (field.kind === "date" || field.kind === "datetime") && active ? ` (${this.datePart}; +/- changes selected part)` : "";
+      const kindHint = field.kind === "select" ? this.theme.fg("dim", " ←/→ choose") : field.unitOptions ? this.theme.fg("dim", " ←/→ unit") : "";
       const prefix = active ? this.theme.fg("accent", "›") : " ";
       lines.push(`${prefix} ${field.label}${picker}${unit}: ${shown}${hint}${kindHint}`.slice(0, Math.max(10, width - 1)));
+      if (active) {
+        lines.push(...this.optionDisplay(field), ...this.unitDisplay(field));
+        if (field.kind === "text") lines.push(`  ${this.theme.fg("dim", "text input: type the exact value you want saved")}`);
+        if (field.kind === "number") lines.push(`  ${this.theme.fg("dim", "number input: type digits/decimal; unit chip is saved with conversion hint when available")}`);
+        if (field.kind === "date" || field.kind === "datetime") lines.push(`  ${this.theme.fg("dim", "date picker: highlighted part changes with +/-, move highlight with ←/→")}`);
+      }
     });
     lines.push("");
     lines.push(this.theme.fg("warning", "Important: ESC cancels/back-outs. Press ENTER when you want to preview and save."));
@@ -398,8 +438,8 @@ class ProfileFactForm implements Component {
 
   handleInput(data: string) {
     const field = this.fields[this.selected];
-    if (data === "\x1b") return this.done(null);
-    if (data === "\r" || data === "\n") return this.done(cleanProfileFactValues(this.values));
+    if (data === "\x1b") return this.done({ action: "back", dirty: this.dirty });
+    if (data === "\r" || data === "\n") return this.done({ action: "done", values: cleanProfileFactValues(this.values) });
     if (data === "\t" || data === "\x1b[B") {
       this.selected = (this.selected + 1) % this.fields.length;
       return;
@@ -409,7 +449,9 @@ class ProfileFactForm implements Component {
       return;
     }
     if (data === "\x7f" || data === "\b") {
-      this.values[field.id] = (this.values[field.id] ?? "").slice(0, -1);
+      this.values[field.id] = (this.values[field.id] ?? "").replace(/^custom: /, "").slice(0, -1);
+      if (field.kind === "select" && this.values[field.id]) this.values[field.id] = `custom: ${this.values[field.id]}`;
+      this.dirty = true;
       return;
     }
     if (field.unitOptions && (data === "\x1b[C" || data === "\x1b[D")) {
@@ -417,6 +459,7 @@ class ProfileFactForm implements Component {
       const current = Math.max(0, options.indexOf(this.values[unitKey(field)] ?? defaultUnit(field) ?? options[0]));
       const delta = data === "\x1b[C" ? 1 : -1;
       this.values[unitKey(field)] = options[(current + delta + options.length) % options.length];
+      this.dirty = true;
       return;
     }
     if (field.kind === "select" && (data === "\x1b[C" || data === "\x1b[D")) {
@@ -424,6 +467,7 @@ class ProfileFactForm implements Component {
       const current = Math.max(0, options.indexOf(this.values[field.id] ?? ""));
       const delta = data === "\x1b[C" ? 1 : -1;
       this.values[field.id] = options[(current + delta + options.length) % options.length];
+      this.dirty = true;
       return;
     }
     if ((field.kind === "date" || field.kind === "datetime") && (data === "\x1b[C" || data === "\x1b[D")) {
@@ -435,10 +479,20 @@ class ProfileFactForm implements Component {
       const current = this.values[field.id] ?? "";
       const time = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2})$/.exec(current)?.[1] ?? "";
       this.values[field.id] = `${shiftIsoDate(current.slice(0, 10), this.datePart, data === "-" ? -1 : 1)}${time}`;
+      this.dirty = true;
       return;
     }
     if (/^[\x20-\x7E]$/.test(data)) {
+      if (field.kind === "select") {
+        const existing = this.values[field.id] ?? "";
+        if (existing === "other / custom" || existing.startsWith("custom: ")) {
+          this.values[field.id] = `custom: ${existing.replace(/^custom: |^other \/ custom$/, "")}${data}`;
+          this.dirty = true;
+        }
+        return;
+      }
       this.values[field.id] = `${this.values[field.id] ?? ""}${data}`;
+      this.dirty = true;
     }
   }
 }
@@ -457,8 +511,9 @@ function sectionFromLabel(label: string | undefined): ProfileFactSection | undef
 }
 
 async function editProfileFactSection(ctx: any, section: ProfileFactSection, values: ProfileFactValues): Promise<ProfileFactValues | null> {
+  const before = { ...values };
   const fields = PROFILE_FACT_FIELDS.filter(field => field.section === section);
-  return ctx.ui.custom<ProfileFactValues | null>((tui: { requestRender: () => void }, theme: any, _kb: unknown, done: (result: ProfileFactValues | null) => void) => {
+  const result = await ctx.ui.custom<ProfileFactFormResult>((tui: { requestRender: () => void }, theme: any, _kb: unknown, done: (result: ProfileFactFormResult) => void) => {
     const form = new ProfileFactForm(theme, section, fields, values, done);
     return {
       render: (width: number) => form.render(width),
@@ -469,6 +524,20 @@ async function editProfileFactSection(ctx: any, section: ProfileFactSection, val
       },
     };
   });
+
+  if (result.action === "done") return result.values;
+  if (!result.dirty) return null;
+
+  const discard = await ctx.ui.confirm(
+    "Go back without saving this section?",
+    "You changed fields on this screen. Choose Yes to discard those edits and return to the category menu, or No to keep editing.",
+  );
+  if (discard) {
+    for (const key of Object.keys(values)) delete values[key];
+    Object.assign(values, before);
+    return null;
+  }
+  return editProfileFactSection(ctx, section, values);
 }
 
 async function runStructuredProfileFactFlow(ctx: any, save: (params: RememberParams) => Promise<{ text: string }>) {
