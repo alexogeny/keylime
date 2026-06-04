@@ -28,7 +28,7 @@ import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { join, relative, dirname, extname } from "node:path";
+import { join, relative, dirname, extname, delimiter } from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -104,7 +104,19 @@ const LANGS: LangConfig[] = [
 
 // ─── Ripgrep wrapper ──────────────────────────────────────────────────────────
 
-const RG = existsSync(RG_PATH) ? RG_PATH : "rg";
+function resolveRgPath(): string {
+  if (existsSync(RG_PATH)) return RG_PATH;
+
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, RG_PATH);
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return RG_PATH;
+}
+
+const RG = resolveRgPath();
 
 function ignoredDirArgs(): string[] {
   return IGNORED_DIRS.flatMap(d => ["--glob", `!${d}`]);
