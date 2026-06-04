@@ -13,8 +13,13 @@ import {
   previewProfilePatch,
   sectionCompleteness,
   fitTuiLine,
+  convertTimelineDraftToRememberParams,
+  inferTimelineSubkindFromQuery,
+  previewTimelineEntryDraft,
+  validateTimelineEntryDraft,
   type MemoryWizardDraft,
 } from "../extensions/user-memory/wizard";
+import { shouldPromptToAddTimelineMemory, temporalContextForMemory } from "../extensions/user-memory";
 
 describe("memory wizard draft validation", () => {
   test("normalizes tags and converts expiry/sensitivity to remember params", () => {
@@ -215,6 +220,42 @@ describe("structured profile facts", () => {
   });
 });
 
+describe("timeline memory wizard and retrieval helpers", () => {
+  test("converts employment timeline entries into searchable temporal memories", () => {
+    const draft = {
+      subkind: "employment" as const,
+      label: "Airbus",
+      data: { employer: "Airbus", title: "Systems Engineer", location: "Bristol" },
+      interval: { start: { value: "2018-03", precision: "month" as const }, end: { value: "2020-09", precision: "month" as const }, current: false },
+      tags: ["Work", "airbus"],
+    };
+
+    expect(validateTimelineEntryDraft(draft).ok).toBe(true);
+    const params = convertTimelineDraftToRememberParams(draft);
+    expect(params.category).toBe("fact");
+    expect(params.subcategory).toBe("timeline/employment");
+    expect(params.temporal).toBe(true);
+    expect(params.date_ref).toBe("2018-03 → 2020-09");
+    expect(params.timeline?.data.employer).toBe("Airbus");
+    expect(params.tags).toContain("timeline");
+    expect(previewTimelineEntryDraft(draft)).toContain("Timeline memory preview");
+  });
+
+  test("infers timeline add prompts and suppresses them when a strong timeline hit exists", () => {
+    expect(inferTimelineSubkindFromQuery("remember when I worked at Airbus")).toBe("employment");
+    expect(shouldPromptToAddTimelineMemory("remember when I worked at Airbus", []).shouldPrompt).toBe(true);
+    expect(shouldPromptToAddTimelineMemory("remember when I worked at Airbus", [{ memory: { timeline: { subkind: "employment" } }, score: 0.9 } as any]).shouldPrompt).toBe(false);
+  });
+
+  test("expands matching timeline memories with overlapping temporal context", () => {
+    const airbus = { id: "job", content: "Airbus", timeline: { kind: "profile.timeline", subkind: "employment", entity: "user", interval: { start: { value: "2018-03", precision: "month" }, end: { value: "2020-09", precision: "month" } }, data: { employer: "Airbus" } } } as any;
+    const bristol = { id: "home", content: "Lived in Bristol", timeline: { kind: "profile.timeline", subkind: "residence", entity: "user", interval: { start: { value: "2017", precision: "year" }, end: { value: "2021", precision: "year" } }, data: { city: "Bristol" } } } as any;
+    const later = { id: "later", content: "Later job", timeline: { kind: "profile.timeline", subkind: "employment", entity: "user", interval: { start: { value: "2022", precision: "year" }, end: { value: "2023", precision: "year" } }, data: { employer: "Other" } } } as any;
+
+    expect(temporalContextForMemory(airbus, [airbus, bristol, later]).map(memory => memory.id)).toEqual(["home"]);
+  });
+});
+
 describe("memory wizard command registration", () => {
   test("user-memory extension registers /memory-wizard", () => {
     const commands: Array<{ name: string; description?: string }> = [];
@@ -230,9 +271,10 @@ describe("memory wizard command registration", () => {
 
     expect(commands).toContainEqual({
       name: "memory-wizard",
-      description: "Interactively edit the structured user profile",
+      description: "Interactively edit structured profile, timeline history, or freeform memories",
     });
     expect(tools.some(tool => tool.name === "remember")).toBe(true);
+    expect(tools.some(tool => tool.name === "remember_timeline")).toBe(true);
     expect(contextProviders.length).toBe(0);
   });
 });

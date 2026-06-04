@@ -4,6 +4,34 @@ import type { Component } from "@earendil-works/pi-tui";
 export const MEMORY_CATEGORIES = ["preference", "fact", "event", "goal", "skill", "context"] as const;
 export type MemoryCategory = typeof MEMORY_CATEGORIES[number];
 
+export const TIMELINE_SUBKINDS = ["residence", "employment", "education", "pet", "relationship", "health", "custom"] as const;
+export type TimelineSubkind = typeof TIMELINE_SUBKINDS[number];
+export type TimelineDatePrecision = "day" | "month" | "year" | "approximate" | "unknown";
+
+export type TimelineDatePoint = {
+  value?: string;
+  precision: TimelineDatePrecision;
+  approximate?: boolean;
+};
+
+export type TimelineInterval = {
+  start?: TimelineDatePoint;
+  end?: TimelineDatePoint;
+  current?: boolean;
+};
+
+export type TimelineEntryDraft = {
+  subkind: TimelineSubkind;
+  label?: string;
+  entity?: string;
+  data: Record<string, string | boolean | undefined>;
+  interval: TimelineInterval;
+  notes?: string;
+  sensitivity?: MemoryWizardSensitivity;
+  confidence?: number;
+  tags?: string[];
+};
+
 export const SENSITIVITY_TIERS = ["auto", "baseline", "general", "context_gated", "temporal_gated"] as const;
 export type MemoryWizardSensitivity = typeof SENSITIVITY_TIERS[number];
 export type StoredSensitivityTier = Exclude<MemoryWizardSensitivity, "auto">;
@@ -60,14 +88,26 @@ export type RememberParams = {
   confidence?: number;
   expiry_tier?: "2d" | "7d" | "30d";
   sensitivity?: StoredSensitivityTier;
+  timeline?: TimelineMemoryPayload;
+};
+
+export type TimelineMemoryPayload = {
+  kind: "profile.timeline";
+  subkind: TimelineSubkind;
+  entity: "user";
+  label?: string;
+  interval: TimelineInterval;
+  data: Record<string, string | boolean>;
+  notes?: string;
 };
 
 export type MemoryWizardValidationResult =
   | { ok: true; draft: MemoryWizardDraft }
   | { ok: false; errors: string[] };
 
-function uniqueCleanTags(tags: string[] | undefined): string[] {
+function uniqueCleanTags(tags: Array<string | undefined> | undefined): string[] {
   return [...new Set((tags ?? [])
+    .filter((tag): tag is string => typeof tag === "string")
     .map(tag => tag.trim().replace(/^#/, "").toLowerCase())
     .filter(Boolean))];
 }
@@ -84,8 +124,120 @@ function isExpiryChoice(value: string): value is MemoryWizardExpiryChoice {
   return (EXPIRY_CHOICES as readonly string[]).includes(value);
 }
 
+function isTimelineSubkind(value: string): value is TimelineSubkind {
+  return (TIMELINE_SUBKINDS as readonly string[]).includes(value);
+}
+
+export function inferTimelineSubkindFromQuery(query: string): TimelineSubkind | undefined {
+  const q = query.toLowerCase();
+  if (/\b(work(?:ed|ing)?|job|employ(?:ed|er|ment)?|company|role|position)\b/.test(q)) return "employment";
+  if (/\b(lived|live|address|residence|resident|home|apartment|house)\b/.test(q)) return "residence";
+  if (/\b(school|uni(?:versity)?|college|stud(?:y|ied|ent)|degree|education)\b/.test(q)) return "education";
+  if (/\b(pet|dog|cat|bird|horse|rabbit)\b/.test(q)) return "pet";
+  if (/\b(dated|partner|married|relationship|spouse)\b/.test(q)) return "relationship";
+  if (/\b(health|diagnos(?:ed|is)|injury|illness|condition)\b/.test(q)) return "health";
+  return undefined;
+}
+
+function datePrecision(value: string | undefined, approximate = false): TimelineDatePrecision {
+  if (!value?.trim()) return "unknown";
+  if (approximate) return "approximate";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return "day";
+  if (/^\d{4}-\d{2}$/.test(value)) return "month";
+  if (/^\d{4}$/.test(value)) return "year";
+  return "approximate";
+}
+
+function cleanTimelineDate(value: string | undefined, approximate = false): TimelineDatePoint | undefined {
+  const cleaned = value?.trim();
+  const precision = datePrecision(cleaned, approximate);
+  if (precision === "unknown") return undefined;
+  return { value: cleaned, precision, approximate: approximate || precision === "approximate" };
+}
+
 export function parseCommaList(input: string | undefined): string[] {
   return uniqueCleanTags(input?.split(","));
+}
+
+export function validateTimelineEntryDraft(draft: TimelineEntryDraft): { ok: true; draft: TimelineEntryDraft } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+  const normalized: TimelineEntryDraft = {
+    ...draft,
+    label: draft.label?.trim() || undefined,
+    entity: draft.entity?.trim() || undefined,
+    notes: draft.notes?.trim() || undefined,
+    sensitivity: draft.sensitivity ?? "auto",
+    confidence: draft.confidence ?? 1,
+    tags: uniqueCleanTags(draft.tags),
+    data: Object.fromEntries(Object.entries(draft.data ?? {}).map(([key, value]) => [key, typeof value === "string" ? value.trim() || undefined : value])),
+    interval: {
+      start: draft.interval.start?.value ? cleanTimelineDate(draft.interval.start.value, draft.interval.start.approximate) : draft.interval.start,
+      end: draft.interval.end?.value ? cleanTimelineDate(draft.interval.end.value, draft.interval.end.approximate) : draft.interval.end,
+      current: draft.interval.current ?? false,
+    },
+  };
+  if (!isTimelineSubkind(normalized.subkind)) errors.push(`unsupported timeline type: ${normalized.subkind}`);
+  if (!normalized.label && !normalized.entity && !Object.values(normalized.data).some(Boolean)) errors.push("timeline entry needs a label, entity, or data field");
+  if (!isSensitivity(normalized.sensitivity ?? "auto")) errors.push(`unsupported sensitivity: ${normalized.sensitivity}`);
+  if ((normalized.confidence ?? 1) < 0 || (normalized.confidence ?? 1) > 1) errors.push("confidence must be between 0 and 1");
+  if (normalized.interval.current && normalized.interval.end?.value) errors.push("current timeline entries cannot also have an end date");
+  return errors.length ? { ok: false, errors } : { ok: true, draft: normalized };
+}
+
+function timelineRangeText(interval: TimelineInterval): string {
+  const start = interval.start?.value ?? "unknown";
+  const end = interval.current ? "present" : (interval.end?.value ?? "unknown");
+  return `${start} → ${end}`;
+}
+
+export function timelineContent(draft: TimelineEntryDraft): string {
+  const subject = draft.label || draft.entity || String(draft.data.employer || draft.data.institution || draft.data.name || draft.data.city || draft.subkind);
+  const details = Object.entries(draft.data ?? {})
+    .filter(([, value]) => value !== undefined && value !== "")
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(", ");
+  return `Timeline ${draft.subkind}: ${subject} (${timelineRangeText(draft.interval)})${details ? ` — ${details}` : ""}${draft.notes ? ` Notes: ${draft.notes}` : ""}`;
+}
+
+export function convertTimelineDraftToRememberParams(draft: TimelineEntryDraft): RememberParams {
+  const result = validateTimelineEntryDraft(draft);
+  if (!result.ok) throw new Error(result.errors.join("; "));
+  const normalized = result.draft;
+  const tags = uniqueCleanTags(["timeline", normalized.subkind, normalized.entity, normalized.label, ...Object.values(normalized.data).filter((v): v is string => typeof v === "string"), ...(normalized.tags ?? [])]);
+  const payload: TimelineMemoryPayload = {
+    kind: "profile.timeline",
+    subkind: normalized.subkind,
+    entity: "user",
+    label: normalized.label || normalized.entity,
+    interval: normalized.interval,
+    data: Object.fromEntries(Object.entries(normalized.data).filter((entry): entry is [string, string | boolean] => entry[1] !== undefined && entry[1] !== "")),
+    notes: normalized.notes,
+  };
+  const params: RememberParams = {
+    content: timelineContent(normalized),
+    category: "fact",
+    subcategory: `timeline/${normalized.subkind}`,
+    tags,
+    temporal: true,
+    date_ref: timelineRangeText(normalized.interval),
+    confidence: normalized.confidence,
+    timeline: payload,
+  };
+  if (normalized.sensitivity && normalized.sensitivity !== "auto") params.sensitivity = normalized.sensitivity;
+  return params;
+}
+
+export function previewTimelineEntryDraft(draft: TimelineEntryDraft): string {
+  const params = convertTimelineDraftToRememberParams(draft);
+  const lines = [
+    "Timeline memory preview",
+    `type: ${params.timeline?.subkind}`,
+    `range: ${params.date_ref}`,
+    `content: ${params.content}`,
+    `sensitivity: ${params.sensitivity ?? "auto"}`,
+  ];
+  if (params.tags?.length) lines.push(`tags: ${params.tags.map(tag => `#${tag}`).join(" ")}`);
+  return lines.join("\n");
 }
 
 export function validateMemoryWizardDraft(draft: MemoryWizardDraft): MemoryWizardValidationResult {
@@ -644,6 +796,79 @@ async function runStructuredProfileFactFlow(ctx: any, save: (patch: ProfilePatch
   ctx.ui.notify(result.text, "success");
 }
 
+async function runTimelineMemoryFlow(ctx: any, save: (params: RememberParams) => Promise<{ text: string }>) {
+  const subkind = await ctx.ui.select("Timeline entry type", [...TIMELINE_SUBKINDS]);
+  if (!subkind || !isTimelineSubkind(subkind)) return;
+
+  const label = await ctx.ui.input("Label / primary name (optional)", "");
+  const fields: Record<string, string> = {};
+  const promptField = async (key: string, prompt: string) => {
+    const value = await ctx.ui.input(prompt, "");
+    if (value?.trim()) fields[key] = value.trim();
+  };
+
+  if (subkind === "employment") {
+    await promptField("employer", "Employer");
+    await promptField("title", "Title / role");
+    await promptField("location", "Location (optional)");
+  } else if (subkind === "residence") {
+    await promptField("city", "City");
+    await promptField("region", "State / region (optional)");
+    await promptField("country", "Country (optional)");
+    await promptField("street", "Street/address line (optional, sensitive)");
+  } else if (subkind === "education") {
+    await promptField("institution", "Institution");
+    await promptField("credential", "Credential / course (optional)");
+    await promptField("location", "Location (optional)");
+  } else if (subkind === "pet") {
+    await promptField("name", "Pet name");
+    await promptField("species", "Species");
+    await promptField("breed", "Breed (optional)");
+    await promptField("status", "Status (current/previous/deceased/unknown)");
+  } else {
+    await promptField("name", "Name / entity (optional)");
+    await promptField("detail", "Detail (optional)");
+  }
+
+  const startValue = await ctx.ui.input("Start date (YYYY, YYYY-MM, YYYY-MM-DD, approximate text, or blank)", "");
+  const current = await ctx.ui.confirm("Is this current?", "Choose Yes for entries valid through the present.");
+  const endValue = current ? "" : await ctx.ui.input("End date (YYYY, YYYY-MM, YYYY-MM-DD, approximate text, or blank)", "");
+  const notes = await ctx.ui.input("Notes (optional)", "");
+  const sensitivity = await ctx.ui.select("Sensitivity", [...SENSITIVITY_TIERS]);
+  if (!sensitivity || !isSensitivity(sensitivity)) return;
+  const tagInput = await ctx.ui.input("Extra tags, comma-separated (optional)", "");
+
+  const draft: TimelineEntryDraft = {
+    subkind,
+    label,
+    data: fields,
+    interval: {
+      start: cleanTimelineDate(startValue),
+      end: cleanTimelineDate(endValue),
+      current,
+    },
+    notes,
+    sensitivity,
+    confidence: 1,
+    tags: parseCommaList(tagInput),
+  };
+
+  const validation = validateTimelineEntryDraft(draft);
+  if (!validation.ok) {
+    ctx.ui.notify(`Invalid timeline entry: ${validation.errors.join("; ")}`, "error");
+    return;
+  }
+
+  const ok = await ctx.ui.confirm("Save timeline memory?", previewTimelineEntryDraft(validation.draft));
+  if (!ok) {
+    ctx.ui.notify("Timeline memory not saved", "info");
+    return;
+  }
+
+  const result = await save(convertTimelineDraftToRememberParams(validation.draft));
+  ctx.ui.notify(result.text, "success");
+}
+
 async function runFreeformMemoryFlow(ctx: any, save: (params: RememberParams) => Promise<{ text: string }>) {
   const category = await ctx.ui.select("Memory category", [...MEMORY_CATEGORIES]);
   if (!category || !isMemoryCategory(category)) return;
@@ -705,12 +930,16 @@ async function runFreeformMemoryFlow(ctx: any, save: (params: RememberParams) =>
 
 export function registerMemoryWizardCommand(
   pi: ExtensionAPI,
-  save: (patch: ProfilePatch) => Promise<{ text: string }>,
+  saveProfile: (patch: ProfilePatch) => Promise<{ text: string }>,
+  saveMemory?: (params: RememberParams) => Promise<{ text: string }>,
 ) {
   pi.registerCommand("memory-wizard", {
-    description: "Interactively edit the structured user profile",
+    description: "Interactively edit structured profile, timeline history, or freeform memories",
     handler: async (_args, ctx) => {
-      await runStructuredProfileFactFlow(ctx, save);
+      const mode = await ctx.ui.select("Memory wizard mode", ["structured profile facts", "timeline / history entry", "freeform memory"]);
+      if (mode === "timeline / history entry" && saveMemory) return runTimelineMemoryFlow(ctx, saveMemory);
+      if (mode === "freeform memory" && saveMemory) return runFreeformMemoryFlow(ctx, saveMemory);
+      return runStructuredProfileFactFlow(ctx, saveProfile);
     },
   });
 }

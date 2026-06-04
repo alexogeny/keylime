@@ -45,7 +45,15 @@ import {
   type PendingClarification,
   detectThirdPartyShare, detectBorderlineScope, detectContradiction,
 } from "./clarify.js";
-import { registerMemoryWizardCommand, type ProfilePatch, type RememberParams as WizardRememberParams } from "./wizard.js";
+import {
+  registerMemoryWizardCommand,
+  inferTimelineSubkindFromQuery,
+  convertTimelineDraftToRememberParams,
+  type ProfilePatch,
+  type RememberParams as WizardRememberParams,
+  type TimelineMemoryPayload,
+  type TimelineSubkind,
+} from "./wizard.js";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -96,6 +104,8 @@ interface Memory {
   sensitivity?:     SensitivityTier;  // injection control (default: "general")
   trace_only?:      boolean;          // true = minimal episodic trace, not for active injection
   source_memories?: string[];         // for narrative/summary memories, IDs of originals
+  // ── Structured temporal profile memories ──
+  timeline?: TimelineMemoryPayload;   // first-class multi-entry temporal profile/history data
 }
 
 interface ProfileMetric {
@@ -387,7 +397,48 @@ function memoryText(m: Memory): string {
   if (m.subcategory) parts.push(m.subcategory);
   if (m.tags.length) parts.push(m.tags.join(" "));
   if (m.date_ref)    parts.push(m.date_ref);
-  return parts.join(" ");
+  if (m.timeline) {
+    parts.push("profile.timeline", m.timeline.subkind, m.timeline.label ?? "");
+    parts.push(...Object.values(m.timeline.data).map(String));
+    if (m.timeline.notes) parts.push(m.timeline.notes);
+    if (m.timeline.interval.start?.value) parts.push(m.timeline.interval.start.value);
+    if (m.timeline.interval.end?.value) parts.push(m.timeline.interval.end.value);
+    if (m.timeline.interval.current) parts.push("present current now");
+  }
+  return parts.filter(Boolean).join(" ");
+}
+
+function sortableTimelineDate(value: string | undefined, current = false): number | undefined {
+  if (current) return Number.POSITIVE_INFINITY;
+  if (!value) return undefined;
+  const match = value.match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?/);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2] ?? "01");
+  const day = Number(match[3] ?? "01");
+  return Date.UTC(year, month - 1, day);
+}
+
+function timelineOverlaps(a: TimelineMemoryPayload, b: TimelineMemoryPayload): boolean {
+  const aStart = sortableTimelineDate(a.interval.start?.value) ?? Number.NEGATIVE_INFINITY;
+  const aEnd = sortableTimelineDate(a.interval.end?.value, a.interval.current) ?? Number.POSITIVE_INFINITY;
+  const bStart = sortableTimelineDate(b.interval.start?.value) ?? Number.NEGATIVE_INFINITY;
+  const bEnd = sortableTimelineDate(b.interval.end?.value, b.interval.current) ?? Number.POSITIVE_INFINITY;
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+export function temporalContextForMemory(memory: Memory, memories: Memory[], limit = 6): Memory[] {
+  if (!memory.timeline) return [];
+  return memories
+    .filter(candidate => candidate.id !== memory.id && candidate.timeline && timelineOverlaps(memory.timeline!, candidate.timeline))
+    .slice(0, limit);
+}
+
+export function shouldPromptToAddTimelineMemory(query: string, hits: Array<{ memory: Memory; score: number }>, threshold = 0.22): { shouldPrompt: boolean; inferredSubkind?: TimelineSubkind } {
+  const inferredSubkind = inferTimelineSubkindFromQuery(query);
+  const timelineHits = hits.filter(hit => hit.memory.timeline || hit.memory.subcategory?.startsWith("timeline/"));
+  const bestTimelineScore = timelineHits[0]?.score ?? 0;
+  return { shouldPrompt: !!inferredSubkind && bestTimelineScore < threshold, inferredSubkind };
 }
 
 // ─── Human-readable age ───────────────────────────────────────────────────────
@@ -1180,6 +1231,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       if (params.expires_at)       dup.expires_at = params.expires_at;
       if (params.temporal != null) dup.temporal = params.temporal;
       if (params.sensitivity)      dup.sensitivity = params.sensitivity as SensitivityTier;
+      if (params.timeline)         dup.timeline = params.timeline;
       dup.confidence = params.confidence ?? 1.0;
       if (await checkOllama()) dup.embedding = await embedText(params.content) ?? undefined;
 
@@ -1225,6 +1277,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       temporal:     params.temporal ?? false,
       date_ref:     params.date_ref,
       sensitivity:   params.sensitivity as SensitivityTier | undefined,
+      timeline:      params.timeline,
       mentions:     1,
       first_seen:   now,
       entity_refs:  [],
@@ -1280,7 +1333,10 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
 
   // ── Command: memory-wizard ─────────────────────────────────────────────────
 
-  registerMemoryWizardCommand(pi, updateProfile);
+  registerMemoryWizardCommand(pi, updateProfile, async (params) => {
+    const result = await rememberStructuredMemory(params);
+    return { text: result.content[0]?.text ?? "Memory saved" };
+  });
 
   // ── Tool: remember ────────────────────────────────────────────────────────
 
@@ -1311,6 +1367,51 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
 
     async execute(_id, params, _signal) {
       return rememberStructuredMemory(params as WizardRememberParams);
+    },
+  });
+
+  // ── Tool: remember_timeline ───────────────────────────────────────────────
+
+  pi.registerTool({
+    name:        "remember_timeline",
+    label:       "Remember Timeline Entry",
+    description: "Store a structured temporal profile/history memory such as residence, employment, education, or pets.",
+    promptSnippet: "Store structured temporal profile history",
+    promptGuidelines: ["Use for addresses, employment history, schooling, pets, relationships, and other multi-entry temporal profile facts."],
+    parameters: Type.Object({
+      subkind: Type.Union([
+        Type.Literal("residence"), Type.Literal("employment"), Type.Literal("education"),
+        Type.Literal("pet"), Type.Literal("relationship"), Type.Literal("health"), Type.Literal("custom"),
+      ]),
+      label: Type.Optional(Type.String()),
+      data: Type.Object({}, { additionalProperties: true }),
+      start: Type.Optional(Type.String({ description: "Start date as YYYY, YYYY-MM, YYYY-MM-DD, or approximate text" })),
+      end: Type.Optional(Type.String({ description: "End date as YYYY, YYYY-MM, YYYY-MM-DD, or approximate text" })),
+      current: Type.Optional(Type.Boolean({ description: "Whether this entry is current/present" })),
+      notes: Type.Optional(Type.String()),
+      tags: Type.Optional(Type.Array(Type.String())),
+      sensitivity: Type.Optional(Type.Union([
+        Type.Literal("baseline"), Type.Literal("general"),
+        Type.Literal("context_gated"), Type.Literal("temporal_gated"),
+      ])),
+      confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
+    }),
+    async execute(_id, params, _signal) {
+      const rememberParams = convertTimelineDraftToRememberParams({
+        subkind: params.subkind,
+        label: params.label,
+        data: params.data ?? {},
+        interval: {
+          start: params.start ? { value: params.start, precision: "unknown" } : undefined,
+          end: params.end ? { value: params.end, precision: "unknown" } : undefined,
+          current: params.current ?? false,
+        },
+        notes: params.notes,
+        tags: params.tags,
+        sensitivity: params.sensitivity,
+        confidence: params.confidence,
+      });
+      return rememberStructuredMemory(rememberParams);
     },
   });
 
@@ -1345,12 +1446,22 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       );
 
       const profileHits = profileSearchLines(store.profile, params.query, params.top_k ?? 8);
+      const addPrompt = shouldPromptToAddTimelineMemory(params.query, hits);
 
       if (hits.length === 0 && profileHits.length === 0) {
+        const text = addPrompt.shouldPrompt
+          ? `No memories found matching "${params.query}". This looks like ${addPrompt.inferredSubkind} history; open /memory-wizard → timeline / history entry to add it.`
+          : `No memories found matching "${params.query}".`;
         return {
-          content: [{ type: "text", text: `No memories found matching "${params.query}".` }],
-          details: { count: 0, hits: [], profileHits: [] },
+          content: [{ type: "text", text }],
+          details: { count: 0, hits: [], profileHits: [], addTimelinePrompt: addPrompt },
         };
+      }
+
+      const contextByHit = new Map<string, Memory[]>();
+      for (const hit of hits) {
+        const context = temporalContextForMemory(hit.memory, store.memories, 4);
+        if (context.length) contextByHit.set(hit.memory.id, context);
       }
 
       const lines: string[] = [`Found ${hits.length + profileHits.length} memory/profile results for "${params.query}":\n`];
@@ -1367,11 +1478,28 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
           m.tags.length ? `  🏷  ${m.tags.join(", ")}` : "",
           "",
         );
+        const temporalContext = contextByHit.get(m.id) ?? [];
+        if (temporalContext.length) {
+          lines.push("  Same temporal context:");
+          for (const related of temporalContext) {
+            lines.push(`  - [${related.id.slice(0,8)}] ${related.timeline?.subkind ?? related.subcategory}: ${related.content}`);
+          }
+          lines.push("");
+        }
+      }
+      if (addPrompt.shouldPrompt) {
+        lines.push(`No strong ${addPrompt.inferredSubkind} timeline match was found. To add it, run /memory-wizard → timeline / history entry.`);
       }
 
       return {
         content: [{ type: "text", text: lines.filter(Boolean).join("\n") }],
-        details: { count: hits.length + profileHits.length, hits: hits.map(h => ({ id: h.memory.id, score: h.score, content: h.memory.content })), profileHits },
+        details: {
+          count: hits.length + profileHits.length,
+          hits: hits.map(h => ({ id: h.memory.id, score: h.score, content: h.memory.content, timeline: h.memory.timeline })),
+          profileHits,
+          temporalContext: Object.fromEntries([...contextByHit.entries()].map(([id, related]) => [id, related.map(m => m.id)])),
+          addTimelinePrompt: addPrompt,
+        },
       };
     },
   });
