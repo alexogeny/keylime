@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { relative } from "node:path";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, relative } from "node:path";
 import {
   formatPlanPreview,
   inspectCodeStructure,
@@ -28,6 +28,28 @@ async function readTextFileSafely(path: string): Promise<string> {
   const buffer = await readFile(path);
   if (isProbablyBinary(buffer)) throw new Error(`Refusing to read probable binary file: ${path}`);
   return buffer.toString("utf8");
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    const info = await stat(path);
+    return info.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function normalizeCreatedContent(content: string, newline: "preserve" | "ensure_final"): string {
+  if (newline === "preserve" || content.endsWith("\n")) return content;
+  return `${content}\n`;
+}
+
+function compactFilePreview(content: string): string {
+  const lines = content.split("\n");
+  const preview = lines.length <= 8
+    ? lines
+    : [...lines.slice(0, 4), "…", ...lines.slice(-3)];
+  return preview.map((line, index) => `${String(index + 1).padStart(4, " ")} | ${line}`).join("\n");
 }
 
 async function walkFiles(root: string, dir = root): Promise<string[]> {
@@ -66,8 +88,8 @@ function relativePath(cwd: string, path: string): string {
 
 const SOURCE_MUTATION_GUIDELINES = [
   "For source-code edits, prefer plan_code_replacements/apply_code_replacements over built-in edit/write.",
-  "Do not use bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection for repository file mutations.",
-  "Use built-in write only for new files or full-file rewrites until create_file is available.",
+  "Use create_file for new source, config, test, markdown, and fixture files.",
+  "Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, or shell redirection for repository file mutations.",
 ];
 
 async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targets: string[]): Promise<PlannedReplacement[]> {
@@ -188,6 +210,86 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         ...structure.declarations.map(d => `- ${d.line}: ${d.kind} ${d.name}`),
       ];
       return { content: [{ type: "text", text: lines.join("\n") }], details: structure };
+    },
+  });
+
+  pi.registerTool({
+    name: "inspect_lines",
+    label: "Inspect Lines",
+    description: "Inspect a bounded numbered line window from one text file. Use only when search/context tools are insufficient.",
+    promptSnippet: "Inspect specific file lines",
+    promptGuidelines: [
+      "Use only after code_search or inspect_text_matches fails to provide enough local context.",
+      "Prefer code_search, inspect_text_matches, and inspect_code_structure before inspecting lines.",
+      "Request the smallest useful line window; never dump whole files.",
+      "Do not use read for source files.",
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "File path" }),
+      start: Type.Number({ description: "Start line, 1-indexed" }),
+      end: Type.Optional(Type.Number({ description: "End line, inclusive" })),
+      context: Type.Optional(Type.Number({ description: "Context lines around start/end" })),
+      max_lines: Type.Optional(Type.Number({ description: "Maximum lines allowed (default 80)" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const text = await readTextFileSafely(path);
+      const lines = text.split("\n");
+      const context = Math.max(0, params.context ?? 0);
+      const maxLines = Math.max(1, Math.min(params.max_lines ?? 80, 200));
+      const start = Math.max(1, Math.floor(params.start) - context);
+      const end = Math.min(lines.length, Math.floor(params.end ?? params.start) + context);
+      const requested = end - start + 1;
+      if (requested > maxLines) throw new Error(`Requested line window exceeds max_lines (${requested} > ${maxLines})`);
+
+      const rel = relativePath(ctx.cwd, path);
+      const body = lines.slice(start - 1, end).map((line, index) => `${start + index} | ${line}`).join("\n");
+      return {
+        content: [{ type: "text", text: `${rel}:${start}-${end}\n${body}` }],
+        details: { path: rel, start, end, lines: requested },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "create_file",
+    label: "Create File",
+    description: "Create a new text/source file. Refuses overwrites, supports parent directory creation, and returns a compact preview.",
+    promptSnippet: "Create a new file",
+    promptGuidelines: [
+      "Use create_file for new source, config, test, markdown, and fixture files.",
+      "Never use write, edit, bash, node, python, sed, awk, tee, heredocs, or shell redirection to create repository files.",
+      "Use apply_code_replacements for existing files; do not overwrite existing files with create_file.",
+      "Set create_dirs=true only when the parent directory does not already exist.",
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "New file path" }),
+      content: Type.String({ description: "Text content" }),
+      create_dirs: Type.Optional(Type.Boolean({ description: "Create parent directories" })),
+      if_exists: Type.Optional(stringEnum(["error", "skip"] as const, { description: "Behavior if file exists" })),
+      newline: Type.Optional(stringEnum(["preserve", "ensure_final"] as const, { description: "Final newline handling" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const rel = relativePath(ctx.cwd, path);
+      if (await fileExists(path)) {
+        if (params.if_exists === "skip") {
+          return { content: [{ type: "text", text: `Skipped existing file ${rel}` }], details: { path: rel, skipped: true } };
+        }
+        throw new Error(`File already exists: ${rel}`);
+      }
+
+      const content = normalizeCreatedContent(params.content, params.newline ?? "ensure_final");
+      const buffer = Buffer.from(content, "utf8");
+      if (isProbablyBinary(buffer)) throw new Error(`Refusing to create probable binary file: ${rel}`);
+      if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, content, { encoding: "utf8", flag: "wx" });
+
+      const lineCount = content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+      return {
+        content: [{ type: "text", text: `Created ${rel} (${buffer.byteLength} bytes, ${lineCount} lines)\n${compactFilePreview(content)}` }],
+        details: { path: rel, bytes: buffer.byteLength, lines: lineCount, skipped: false },
+      };
     },
   });
 
