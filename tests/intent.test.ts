@@ -97,3 +97,23 @@ test("ignores system reminders during intent classification", () => {
   expect(route.primaryIntent).toBe("chat");
   expect(route.capabilityGroups).toEqual(["readonly", "memory-lite"]);
 });
+
+test("routes Python codemod requests to codemod skill", () => {
+  const route = classifyIntent("modernize python typing across these files");
+
+  expect(route.primaryIntent).toBe("python_engineering");
+  expect(route.suggestedSkills).toContain("python-codemod");
+});
+
+test("routes Rust codemod requests to codemod skill", () => {
+  const route = classifyIntent("codemod rust and rename rust module imports");
+
+  expect(route.suggestedSkills).toContain("rust-codemod");
+});
+
+test("routes generic bulk edit requests to coding tools", () => {
+  const route = classifyIntent("replace across files and do a bulk edit");
+
+  expect(route.primaryIntent).toBe("coding");
+  expect(route.capabilityGroups).toContain("coding");
+});

@@ -107,3 +107,10 @@ describe("routeForPrompt", () => {
     expect(tools).not.toContain("web_search");
   });
 });
+
+test("coding route exposes codemod primitives", () => {
+  const tools = activeToolNames(pi(["custom_safe_tool"]), ["coding", "repo"]);
+
+  expect(tools).toContain("inspect_text_matches");
+  expect(tools).toContain("apply_code_replacements");
+});
