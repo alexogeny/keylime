@@ -453,7 +453,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
       const mode       = params.mode ?? "auto";
       const maxResults = Math.min(params.max_results ?? 30, 100);
       const globArgs   = params.file_glob
-        ? ["--glob", params.file_glob]
+        ? params.file_glob.split(/\s+/).map(glob => glob.trim()).filter(Boolean).flatMap(glob => ["--glob", glob])
         : [];
       const includeHidden = params.include_hidden ?? shouldIncludeHidden(params.file_glob);
       const hiddenArgs = includeHidden ? ["--hidden"] : [];
@@ -545,7 +545,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
             cwd,
             SEARCH_TIMEOUT,
           );
-          const outsideLines = outsideScope.split("\n").filter(line => line.trim()).slice(0, 12);
+          const outsideLines = outsideScope.split("\n").filter(line => line.trim()).slice(0, 40);
           if (outsideLines.length > 0) {
             scopedHint = `\nNo matches inside file_glob: ${params.file_glob}\n` +
               `Matches exist outside that scope:\n${outsideLines.join("\n")}`;
