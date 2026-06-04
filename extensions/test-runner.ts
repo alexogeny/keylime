@@ -23,6 +23,7 @@ async function rootFiles(cwd: string): Promise<string[]> {
 const BLOCKED_CUSTOM_COMMANDS = new Set(["sh", "bash", "zsh", "fish", "python", "python3", "node", "bun", "deno", "perl", "ruby"]);
 
 export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {
+  if (/\s/.test(command)) return "shell-style custom command strings can bypass coding file-mutation policy; pass command and args separately";
   const base = command.split("/").pop() ?? command;
   if (["sh", "bash", "zsh", "fish"].includes(base) && args.includes("-c")) return `${base} -c can bypass coding file-mutation policy`;
   if (["python", "python3", "node", "bun", "perl", "ruby"].includes(base) && args.some(arg => arg === "-c" || arg === "-e")) return `${base} inline execution can bypass coding file-mutation policy`;
