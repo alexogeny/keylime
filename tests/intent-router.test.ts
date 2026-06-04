@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
 
 const allToolNames = [
-  "read", "bash", "edit", "write", "code_search",
+  "read", "bash", "edit", "write", "code_search", "inspect_text_matches", "apply_code_replacements",
   "remember", "recall_memories", "recall_entity", "list_memories",
   "web_search", "research_topic", "fetch_url",
   "lookup_shoe", "query_shoes",
