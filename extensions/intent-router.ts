@@ -10,11 +10,22 @@ type IntentOverride = "programming";
 
 let intentOverride: IntentOverride | null = null;
 
+const ALWAYS_ON_CODE_TOOLS = [
+  "code_search",
+  "inspect_text_matches",
+  "inspect_code_structure",
+  "inspect_lines",
+  "plan_code_replacements",
+  "apply_code_replacements",
+  "create_file",
+  "run_checks",
+];
+
 const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = {
-  core: ["bash", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "run_checks"],
-  readonly: ["read", "bash", "code_search", "fetch_url", "inspect_text_matches", "inspect_lines"],
-  coding: ["bash", "code_search", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "run_checks"],
-  repo: ["code_search", "inspect_text_matches", "inspect_code_structure"],
+  core: ["bash"],
+  readonly: ["read", "bash", "fetch_url"],
+  coding: ["bash"],
+  repo: [],
   project: ["save_project_plan", "update_feature_tdd", "log_decision", "manage_question"],
   memory: ["remember", "recall_memories", "update_memory", "forget_memory", "list_memories", "recall_entity", "list_entities"],
   "memory-lite": ["remember", "recall_memories", "recall_entity"],
@@ -93,12 +104,15 @@ export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): st
   const available = new Set(pi.getAllTools().map(toolName).filter(Boolean) as string[]);
   const desired = new Set<string>();
 
+  for (const name of ALWAYS_ON_CODE_TOOLS) desired.add(name);
+
   for (const group of enabledGroups(modeAdjustedGroups(groups))) {
     for (const name of CAPABILITY_TOOLS[group]) desired.add(name);
   }
 
   // Preserve non-domain tools from other extensions/providers. Domain tools are
-  // explicitly governed by intent so they do not pollute the prompt every turn.
+  // explicitly governed by intent except always-on safe code primitives, which
+  // avoid routing mistakes stranding repository inspection/editing.
   for (const tool of pi.getActiveTools()) {
     const name = toolName(tool);
     if (name && !DOMAIN_TOOLS.has(name)) desired.add(name);
