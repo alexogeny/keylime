@@ -82,6 +82,8 @@ describe("code_search file_glob handling", () => {
       max_results: 5,
     }, undefined, undefined, { cwd: process.cwd() });
 
+    expect(result.details.lines).toBeGreaterThan(0);
+    expect(result.content[0].text).toContain('code_search "registerTool"');
     expect(result.content[0].text).toContain("extensions/code-primitives.ts");
     expect(result.content[0].text).toContain("registerTool");
   });
