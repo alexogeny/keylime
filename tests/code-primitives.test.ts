@@ -164,6 +164,33 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).toContain("src/a.ts:1:7 needle");
   });
 
+  test("create_directory creates directories recursively and supports skip", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.create_directory.execute("id", {
+      path: "src/generated",
+      recursive: true,
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain("Created directory src/generated");
+    const skipped = await tools.create_directory.execute("id", {
+      path: "src/generated",
+      if_exists: "skip",
+    }, undefined, undefined, { cwd });
+    expect(skipped.details.skipped).toBe(true);
+  });
+
+  test("create_directory refuses existing directories by default", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "existing"));
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.create_directory.execute("id", {
+      path: "existing",
+    }, undefined, undefined, { cwd })).rejects.toThrow("Directory already exists");
+  });
+
   test("create_file creates a new file with parent dirs and final newline", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
 
