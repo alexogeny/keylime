@@ -1380,13 +1380,14 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name:        "remember_timeline",
     label:       "Remember Timeline Entry",
-    description: "Store a structured temporal profile/history memory such as residence, employment, education, or pets.",
+    description: "Store a structured temporal profile/history memory such as residence, employment, education, pets, significant people, relationships, or life events.",
     promptSnippet: "Store structured temporal profile history",
-    promptGuidelines: ["Use for addresses, employment history, schooling, pets, relationships, and other multi-entry temporal profile facts."],
+    promptGuidelines: ["Use for addresses, employment history, schooling, pets, significant people, relationships, life events, and other multi-entry temporal profile facts. Life events can link people and places via data.people and data.places."],
     parameters: Type.Object({
       subkind: Type.Union([
         Type.Literal("residence"), Type.Literal("employment"), Type.Literal("education"),
-        Type.Literal("pet"), Type.Literal("relationship"), Type.Literal("health"), Type.Literal("custom"),
+        Type.Literal("pet"), Type.Literal("person"), Type.Literal("relationship"),
+        Type.Literal("life_event"), Type.Literal("health"), Type.Literal("custom"),
       ]),
       label: Type.Optional(Type.String()),
       data: Type.Object({}, { additionalProperties: true }),

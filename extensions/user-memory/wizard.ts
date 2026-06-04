@@ -4,7 +4,7 @@ import type { Component } from "@earendil-works/pi-tui";
 export const MEMORY_CATEGORIES = ["preference", "fact", "event", "goal", "skill", "context"] as const;
 export type MemoryCategory = typeof MEMORY_CATEGORIES[number];
 
-export const TIMELINE_SUBKINDS = ["residence", "employment", "education", "pet", "relationship", "health", "custom"] as const;
+export const TIMELINE_SUBKINDS = ["residence", "employment", "education", "pet", "person", "relationship", "life_event", "health", "custom"] as const;
 export type TimelineSubkind = typeof TIMELINE_SUBKINDS[number];
 export type TimelineDatePrecision = "day" | "month" | "year" | "approximate" | "unknown";
 
@@ -134,7 +134,9 @@ export function inferTimelineSubkindFromQuery(query: string): TimelineSubkind | 
   if (/\b(lived|live|address|residence|resident|home|apartment|house)\b/.test(q)) return "residence";
   if (/\b(school|uni(?:versity)?|college|stud(?:y|ied|ent)|degree|education)\b/.test(q)) return "education";
   if (/\b(pet|dog|cat|bird|horse|rabbit)\b/.test(q)) return "pet";
+  if (/\b(friend|family|mother|father|parent|sister|brother|sibling|cousin|aunt|uncle|grand(?:ma|mother|pa|father|parent)|colleague|mentor)\b/.test(q)) return "person";
   if (/\b(dated|partner|married|relationship|spouse)\b/.test(q)) return "relationship";
+  if (/\b(event|happened|moved|born|birth|died|death|wedding|marriage|divorce|graduat(?:ed|ion)|started|finished|diagnos(?:ed|is))\b/.test(q)) return "life_event";
   if (/\b(health|diagnos(?:ed|is)|injury|illness|condition)\b/.test(q)) return "health";
   return undefined;
 }
@@ -199,11 +201,21 @@ export function timelineContent(draft: TimelineEntryDraft): string {
   return `Timeline ${draft.subkind}: ${subject} (${timelineRangeText(draft.interval)})${details ? ` — ${details}` : ""}${draft.notes ? ` Notes: ${draft.notes}` : ""}`;
 }
 
+function timelineTagValues(data: Record<string, string | boolean | undefined>): string[] {
+  const values: string[] = [];
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value !== "string") continue;
+    values.push(value);
+    if (key === "people" || key === "places") values.push(...value.split(","));
+  }
+  return values;
+}
+
 export function convertTimelineDraftToRememberParams(draft: TimelineEntryDraft): RememberParams {
   const result = validateTimelineEntryDraft(draft);
   if (!result.ok) throw new Error(result.errors.join("; "));
   const normalized = result.draft;
-  const tags = uniqueCleanTags(["timeline", normalized.subkind, normalized.entity, normalized.label, ...Object.values(normalized.data).filter((v): v is string => typeof v === "string"), ...(normalized.tags ?? [])]);
+  const tags = uniqueCleanTags(["timeline", normalized.subkind, normalized.entity, normalized.label, ...timelineTagValues(normalized.data), ...(normalized.tags ?? [])]);
   const payload: TimelineMemoryPayload = {
     kind: "profile.timeline",
     subkind: normalized.subkind,
@@ -846,8 +858,20 @@ async function runTimelineMemoryFlow(ctx: any, save: (params: RememberParams) =>
     await promptField("species", "Species");
     await promptField("breed", "Breed (optional)");
     await promptField("status", "Status (current/previous/deceased/unknown)");
+  } else if (subkind === "person") {
+    await promptField("name", "Person name");
+    await promptField("relationship", "Relationship / role (family, friend, colleague, etc.)");
+    await promptField("place", "Associated place (optional)");
+    await promptField("status", "Status / context (current, estranged, deceased, etc.; optional)");
+  } else if (subkind === "life_event") {
+    await promptField("event", "Event name / summary");
+    await promptField("people", "People involved, comma-separated (optional)");
+    await promptField("places", "Places involved, comma-separated (optional)");
+    await promptField("type", "Event type (move, birth, death, graduation, wedding, etc.; optional)");
   } else {
     await promptField("name", "Name / entity (optional)");
+    await promptField("people", "People involved, comma-separated (optional)");
+    await promptField("places", "Places involved, comma-separated (optional)");
     await promptField("detail", "Detail (optional)");
   }
 

@@ -257,8 +257,34 @@ describe("timeline memory wizard and retrieval helpers", () => {
     expect(previewTimelineEntryDraft(draft)).toContain("Timeline memory preview");
   });
 
+  test("converts significant people and life events into linked timeline memories", () => {
+    const person = convertTimelineDraftToRememberParams({
+      subkind: "person",
+      label: "Sam",
+      data: { name: "Sam", relationship: "friend", place: "Brisbane", status: "current" },
+      interval: { start: { value: "2020", precision: "year" }, current: true },
+    });
+    expect(person.subcategory).toBe("timeline/person");
+    expect(person.timeline?.data.relationship).toBe("friend");
+    expect(person.tags).toEqual(expect.arrayContaining(["person", "sam", "friend", "brisbane"]));
+
+    const event = convertTimelineDraftToRememberParams({
+      subkind: "life_event",
+      label: "Moved to Brisbane",
+      data: { event: "Moved to Brisbane", people: "Sam, Jo", places: "Brisbane, Pashen Street", type: "move" },
+      interval: { start: { value: "2018", precision: "year" }, current: false },
+      notes: "Important personal milestone",
+    });
+    expect(event.subcategory).toBe("timeline/life_event");
+    expect(event.content).toContain("people: Sam, Jo");
+    expect(event.content).toContain("places: Brisbane, Pashen Street");
+    expect(event.tags).toEqual(expect.arrayContaining(["life_event", "sam", "jo", "brisbane", "pashen street"]));
+  });
+
   test("infers timeline add prompts and suppresses them when a strong timeline hit exists", () => {
     expect(inferTimelineSubkindFromQuery("remember when I worked at Airbus")).toBe("employment");
+    expect(inferTimelineSubkindFromQuery("remember my friend Sam")).toBe("person");
+    expect(inferTimelineSubkindFromQuery("remember when I graduated at QUT")).toBe("life_event");
     expect(shouldPromptToAddTimelineMemory("remember when I worked at Airbus", []).shouldPrompt).toBe(true);
     expect(shouldPromptToAddTimelineMemory("remember when I worked at Airbus", [{ memory: { timeline: { subkind: "employment" } }, score: 0.9 } as any]).shouldPrompt).toBe(false);
   });
