@@ -113,10 +113,8 @@ async function rgRun(
   timeoutMs: number,
 ): Promise<string> {
   try {
-    // Pass cwd as an explicit positional argument so rg searches it directly.
-    // Relying solely on the { cwd } exec option causes rg to resolve '.' against
-    // the parent process's working directory on some Node.js versions.
-    const { stdout } = await execFileAsync(RG, [...args, cwd], {
+    const { stdout } = await execFileAsync(RG, [...args, "."], {
+      cwd,
       timeout: timeoutMs,
       maxBuffer: 1024 * 768, // 768 KB
     });
