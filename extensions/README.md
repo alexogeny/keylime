@@ -31,7 +31,7 @@ Defaults are conservative: research follows provider-key detection, auto-fetch i
 
 ## Safety behavior
 
-`git-checkpoint.ts` checkpoints at the end of an agent turn only for major mutations by default: broad replacements, mutating bash, legacy writes/edits, or small changes after a long interval. Set `KEYLIME_AUTO_CHECKPOINT=off` for manual-only checkpoints, or `any` to checkpoint after any mutating turn. It excludes `.pi/usage/usage.ndjson` from staging. Manual `/checkpoint` is still available.
+`git-checkpoint.ts` checkpoints at the end of an agent turn only for major mutations by default: broad replacements, mutating bash, legacy writes/edits, or small changes after a long interval. Set `KEYLIME_AUTO_CHECKPOINT=off` for manual-only checkpoints, or `any` to checkpoint after any mutating turn. It excludes `.pi` local state from staging. Manual `/checkpoint` is still available. `git-tools.ts` provides read-only `git_status`, `git_diff`, `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` so agents do not need raw git inspection commands.
 
 `danger-guard.ts` blocks built-in `read`/`write`/`edit` in coding mode and blocks mutation-looking shell commands such as redirects, `mkdir`, `touch`, `rm`, `cp`, `mv`, inline runtime writes, shell command strings, and raw git mutation commands. Use `create_file`, `create_directory`, `apply_code_replacements`, checkpoint commands, and safe git inspection tools instead.
 

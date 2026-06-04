@@ -650,6 +650,9 @@ export const __testables = {
   decodeCloudflareEmailHex,
   deobfuscateHtml,
   decodeHtmlEntities,
+  htmlToText,
+  extractTitle,
+  extractLinks,
 };
 
 export default function (pi: ExtensionAPI) {

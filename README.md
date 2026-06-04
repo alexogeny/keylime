@@ -46,7 +46,7 @@ For repository work, Keylime encourages this loop:
 3. Mutate with `apply_code_replacements`, `create_file`, or `create_directory`.
 4. Verify with `run_checks`.
 5. Use `/checkpoint` for explicit rollback points.
-6. Use `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` instead of raw git inspection commands.
+6. Use `git_status`, `git_diff`, `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` instead of raw git inspection commands.
 
 Raw `git add`, `git commit`, `git reset`, `git restore`, `git clean`, `git rebase`, `git merge`, `git push`, and `git stash` should not be used by the agent. Commits should happen through checkpointing.
 
@@ -57,7 +57,7 @@ Raw `git add`, `git commit`, `git reset`, `git restore`, `git clean`, `git rebas
 - `repo-index/index.ts` — compact repo map and tiered `code_search`.
 - `danger-guard.ts` — runtime blocking/confirmation for risky tools and paths.
 - `git-checkpoint.ts` — rollback checkpoints and `/undo`.
-- `git-tools.ts` — read-only git inspection tools.
+- `git-tools.ts` — read-only git status, diff, history, and checkpoint inspection tools.
 - `test-runner.ts` — safe test/typecheck/lint runner.
 - `turn-context-composer.ts` — one bounded reminder per turn.
 - `user-memory/` — durable memory and entity recall.

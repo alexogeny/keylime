@@ -11,6 +11,9 @@ export const PROTECTED_WRITE_PATHS = [
   "/etc/", "/usr/", "/bin/", "/sbin/", "/boot/",
 ];
 
+const GIT_MUTATION_SUBCOMMANDS = new Set(["add", "commit", "reset", "restore", "checkout", "switch", "clean", "rebase", "merge", "push", "stash", "tag", "cherry-pick", "revert"]);
+const FILE_MUTATION_COMMANDS = new Set(["touch", "mkdir", "rm", "cp", "mv", "chmod", "chown"]);
+
 const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file" },
   { pattern: /<<-?\s*['"]?\w+['"]?/m, label: "heredoc shell input" },
@@ -25,6 +28,8 @@ const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string
   { pattern: /\b(?:node|bun)\b[\s\S]*\s-e\s+['"][\s\S]*(?:writeFileSync|appendFileSync|createWriteStream|fs\.promises\.(?:writeFile|appendFile))/i, label: "javascript runtime inline file write" },
   { pattern: /\bdeno\b[\s\S]*\beval\b[\s\S]*(?:writeTextFile|writeFile)/i, label: "deno inline file write" },
   { pattern: /\bgit\s+(?:add|commit|reset|restore|checkout|switch|clean|rebase|merge|push|stash|tag|cherry-pick|revert)\b/i, label: "raw git mutation command" },
+  { pattern: /(?:^|[\s;|&])(?:[^\s|;&]+\s+)*\d?>{1,2}\s*(?!\/dev\/null\b)[^\s|;&]+/i, label: "shell output redirection to a file" },
+  { pattern: /(?:^|[\s;|&])(?:[^\s|;&]+\s+)*&>\s*(?!\/dev\/null\b)[^\s|;&]+/i, label: "shell output redirection to a file" },
 ];
 
 export function classifyBashMutation(command: string): BashMutationHit | null {
@@ -41,9 +46,14 @@ export function looksSideEffectfulBash(command: string): boolean {
 export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {
   if (/\s/.test(command)) return "shell-style custom command strings can bypass coding file-mutation policy; pass command and args separately";
   const base = command.split("/").pop() ?? command;
+  const reconstructed = [base, ...args].join(" ");
+  const mutation = classifyBashMutation(reconstructed);
+  if (mutation) return `${mutation.label} can bypass coding file-mutation policy`;
   if (["sh", "bash", "zsh", "fish"].includes(base) && (args.includes("-c") || args.includes("-lc"))) return `${base} command strings can bypass coding file-mutation policy`;
   if (["python", "python3", "node", "bun", "perl", "ruby"].includes(base) && args.some(arg => arg === "-c" || arg === "-e")) return `${base} inline execution can bypass coding file-mutation policy`;
   if (base === "deno" && args.includes("eval")) return "deno eval can bypass coding file-mutation policy";
+  if (base === "git" && GIT_MUTATION_SUBCOMMANDS.has(args[0] ?? "")) return "raw git mutation command can bypass checkpoint policy";
+  if (FILE_MUTATION_COMMANDS.has(base)) return "file mutation command can bypass coding file-mutation policy";
   return null;
 }
 

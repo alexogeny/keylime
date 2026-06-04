@@ -1,5 +1,7 @@
 # Safety model
 
+{% include nav.md %}
+
 Keylime's safety model is built around runtime enforcement rather than relying only on prompt text. The pie should be tart; the agent should not be allowed to freestyle with `rm`, raw git, or shell redirection.
 
 ## Safe mutation path
@@ -45,6 +47,8 @@ Commits should happen only through checkpointing. Do not use raw git mutation co
 
 Use read-only git inspection tools instead:
 
+- `git_status`
+- `git_diff`
 - `commit_history`
 - `see_file_commit_history`
 - `inspect_at_checkpoint`

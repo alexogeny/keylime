@@ -1,5 +1,7 @@
 # Extensions
 
+{% include nav.md %}
+
 These are the ingredients in the pie: TypeScript modules loaded by Pi that provide tools, commands, context providers, safety hooks, and status indicators.
 
 ## Routing and context
@@ -19,6 +21,8 @@ Always-on safe repository tools:
 - `create_file`
 - `create_directory`
 - `run_checks`
+- `git_status`
+- `git_diff`
 - `commit_history`
 - `see_file_commit_history`
 - `inspect_at_checkpoint`
@@ -100,6 +104,8 @@ Behavior:
 
 Read-only git inspection layer. Use these instead of raw git commands:
 
+- `git_status`
+- `git_diff`
 - `commit_history`
 - `see_file_commit_history`
 - `inspect_at_checkpoint`

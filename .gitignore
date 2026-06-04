@@ -1,1 +1,6 @@
+node_modules/
+extensions/node_modules/
+.pi/*
+!.pi/
+!.pi/project.json
 .pi/usage/

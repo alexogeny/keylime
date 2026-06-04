@@ -1,5 +1,7 @@
 # Skills
 
+{% include nav.md %}
+
 Skills are reusable SKILL.md workflows invoked with `/skill:<name>`. Think of them as recipe cards: pull one out when you need the technique, keep it out of the default prompt when you do not.
 
 ## Engineering and agent workflows

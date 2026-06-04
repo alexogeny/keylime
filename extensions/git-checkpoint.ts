@@ -12,38 +12,73 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 export { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
 const CHECKPOINT_EXCLUDED_PATHS = [".pi"];
 
+export function checkpointPathspecs(): string[] {
+  return ["--", ".", ...CHECKPOINT_EXCLUDED_PATHS.map(path => `:!${path}`)];
+}
+
+export function checkpointAddArgs(): string[] {
+  return ["add", "-u", ...checkpointPathspecs()];
+}
+
 export function checkpointAddCommand(): string {
-  const excludes = CHECKPOINT_EXCLUDED_PATHS.map(path => ` ':!${path}'`).join("");
-  return `git add -A -- .${excludes}`;
+  return ["git", ...checkpointAddArgs().map(arg => arg.startsWith(":!") ? `'${arg}'` : arg)].join(" ");
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync("git", args, { cwd }).toString().trim();
+}
+
+function gitBuffer(cwd: string, args: string[]): Buffer {
+  return execFileSync("git", args, { cwd });
+}
+
+function splitNulPaths(buffer: Buffer): string[] {
+  return buffer.toString("utf8").split("\0").filter(Boolean);
+}
+
+function stageCheckpointChanges(cwd: string): void {
+  // Stage tracked modifications/deletions, excluding volatile local Pi state.
+  execFileSync("git", checkpointAddArgs(), { cwd });
+
+  // Then stage only untracked files that Git itself says are non-ignored, again
+  // excluding local Pi state. This avoids `git add -A` failing because ignored
+  // files exist under .pi or other ignored directories.
+  const untracked = splitNulPaths(gitBuffer(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...checkpointPathspecs()]));
+  if (untracked.length > 0) execFileSync("git", ["add", "--", ...untracked], { cwd });
+}
+
+function validateCheckpointHash(hash: string): string {
+  if (!/^[a-f0-9]{7,40}$/i.test(hash)) throw new Error(`Unsafe checkpoint hash: ${hash}`);
+  return hash;
 }
 
 // ─── Git helpers ─────────────────────────────────────────────────────────────
 
 function isGitRepo(cwd: string): boolean {
   try {
-    execSync("git rev-parse --git-dir", { cwd, stdio: "ignore" });
+    execFileSync("git", ["rev-parse", "--git-dir"], { cwd, stdio: "ignore" });
     return true;
   } catch { return false; }
 }
 
 function getCurrentHash(cwd: string): string | null {
-  try { return execSync("git rev-parse HEAD", { cwd }).toString().trim(); }
+  try { return git(cwd, ["rev-parse", "HEAD"]); }
   catch { return null; }
 }
 
 function getCurrentBranch(cwd: string): string {
-  try { return execSync("git branch --show-current", { cwd }).toString().trim() || "HEAD"; }
+  try { return git(cwd, ["branch", "--show-current"]) || "HEAD"; }
   catch { return "unknown"; }
 }
 
 function hasChanges(cwd: string): boolean {
-  try { return execSync("git status --porcelain", { cwd }).toString().trim().length > 0; }
+  try { return git(cwd, ["status", "--porcelain"]).length > 0; }
   catch { return false; }
 }
 
@@ -63,9 +98,9 @@ function makeCheckpoint(cwd: string): Checkpoint | null {
 
   if (changed) {
     try {
-      execSync(checkpointAddCommand(), { cwd });
+      execFileSync("git", checkpointAddArgs(), { cwd });
       const ts  = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      execSync(`git commit -m "pi: checkpoint ${ts}" --no-verify --quiet`, { cwd });
+      execFileSync("git", ["commit", "-m", `pi: checkpoint ${ts}`, "--no-verify", "--quiet"], { cwd });
     } catch { return null; }
   }
 
@@ -191,7 +226,7 @@ export default function (pi: ExtensionAPI) {
       if (!ok) return;
 
       try {
-        execSync(`git reset --hard ${hash}`, { cwd });
+        execFileSync("git", ["reset", "--hard", validateCheckpointHash(hash)], { cwd });
         ctx.ui.notify(`Restored to checkpoint ${hash.slice(0, 7)} (${branch})`, "info");
         ctx.ui.setStatus("checkpoint", `↩ restored ${hash.slice(0, 7)}`);
         latestCheckpoint = null; // consumed

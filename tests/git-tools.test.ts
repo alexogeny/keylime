@@ -11,7 +11,7 @@ describe("safe git inspection tools", () => {
   test("registers read-only git inspection tools", () => {
     const tools = registeredGitTools();
 
-    expect(Object.keys(tools).sort()).toEqual(["commit_history", "inspect_at_checkpoint", "see_file_commit_history"]);
+    expect(Object.keys(tools).sort()).toEqual(["commit_history", "git_diff", "git_status", "inspect_at_checkpoint", "see_file_commit_history"]);
     expect(tools.commit_history.promptGuidelines.join("\n")).toContain("Never use raw git commit/add/reset");
   });
 
@@ -31,5 +31,16 @@ describe("safe git inspection tools", () => {
 
     expect(result.content[0].text.length).toBeGreaterThan(0);
     expect(result.details.max_count).toBe(3);
+  });
+
+  test("git_status and git_diff execute bounded read-only commands", async () => {
+    const tools = registeredGitTools();
+
+    const status = await tools.git_status.execute("id", {}, undefined, undefined, { cwd: process.cwd() });
+    expect(status.content[0].text).toContain("##");
+
+    const diff = await tools.git_diff.execute("id", { max_chars: 500 }, undefined, undefined, { cwd: process.cwd() });
+    expect(diff.content[0].text.length).toBeGreaterThan(0);
+    expect(diff.details.max_chars).toBe(500);
   });
 });

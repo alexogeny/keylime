@@ -1,5 +1,7 @@
 # Keylime 🥧
 
+{% include nav.md %}
+
 Keylime is a curated Pi package for agentic programming, research, memory, and domain workflows. It combines custom Pi extensions with SKILL.md workflows to make coding-agent sessions safer, lower-noise, and more reliable over long tasks.
 
 The theme is exactly what it sounds like: a key lime pi(e). A crisp crust of stable prompt policy, a sharp filling of runtime safety guards, and a clean slice of tools that help agents do useful work without making a mess.
@@ -29,6 +31,6 @@ For repository work, Keylime encourages this loop:
 2. Plan edits with `plan_code_replacements` for risky or broad changes.
 3. Mutate with `apply_code_replacements`, `create_file`, or `create_directory`.
 4. Verify with `run_checks`.
-5. Use checkpoints for rollback and safe git inspection tools for history.
+5. Use checkpoints for rollback and safe git inspection tools for status, diffs, and history.
 
 Raw `bash`, built-in `read`, built-in `write`, built-in `edit`, and mutating git commands are intentionally constrained.

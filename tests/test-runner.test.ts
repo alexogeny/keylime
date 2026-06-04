@@ -36,8 +36,14 @@ describe("test runner defaults", () => {
     expect(runChecksCommandBlockReason("python", ["-c", "open('x', 'w').write('y')"])).toContain("inline execution");
     expect(runChecksCommandBlockReason("node", ["-e", "require('fs').writeFileSync('x', 'y')"])).toContain("inline execution");
     expect(runChecksCommandBlockReason("bash", ["-c", "echo hi > file"])).toContain("bypass");
+    expect(runChecksCommandBlockReason("git", ["add", "."])).toContain("git");
+    expect(runChecksCommandBlockReason("git", ["commit", "-m", "x"])).toContain("git");
+    expect(runChecksCommandBlockReason("rm", ["file.ts"])).toContain("file mutation");
+    expect(runChecksCommandBlockReason("mkdir", ["src/generated"])).toContain("file mutation");
+    expect(runChecksCommandBlockReason("grep", ["foo", "src", ">", "results.txt"])).toContain("redirection");
     expect(runChecksCommandBlockReason("bun test tests", [])).toContain("shell-style");
     expect(runChecksCommandBlockReason("bun", ["test", "tests"])).toBeNull();
+    expect(runChecksCommandBlockReason("cargo", ["test"])).toBeNull();
   });
 
   test("run_checks rejects blocked custom commands when coding is active", async () => {

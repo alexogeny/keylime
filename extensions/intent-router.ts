@@ -22,6 +22,8 @@ const ALWAYS_ON_CODE_TOOLS = [
   "run_checks",
   "commit_history",
   "see_file_commit_history",
+  "git_status",
+  "git_diff",
   "inspect_at_checkpoint",
 ];
 
@@ -61,6 +63,8 @@ const DOMAIN_TOOLS = new Set([
   "run_checks",
   "commit_history",
   "see_file_commit_history",
+  "git_status",
+  "git_diff",
   "inspect_at_checkpoint",
 ]);
 
@@ -189,7 +193,7 @@ export function reminderText(): string {
   if (activeGroups.includes("coding")) {
     lines.push("Git checkpoints handle rollback safety; do not spend extra turns on manual git safety unless asked.");
     lines.push("For repository file mutations, use codemod tools/create_file/create_directory; do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands.");
-    lines.push("Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash.");
+    lines.push("Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash; use git_status/git_diff for repository state inspection.");
     lines.push("For verification, prefer run_checks; use bash only when run_checks cannot express the command.");
   }
 

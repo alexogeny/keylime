@@ -80,6 +80,50 @@ export default function gitToolsExtension(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "git_status",
+    label: "Git Status",
+    description: "Inspect repository git status without mutating repository state.",
+    promptSnippet: "Inspect git status",
+    promptGuidelines: [
+      "Use instead of raw git status for repository state inspection.",
+      "Never use raw git commit/add/reset/restore/clean/rebase/merge/push/stash; checkpoints are the only commit path.",
+    ],
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, ctx) {
+      const branch = truncate(await git(ctx.cwd, ["branch", "--show-current"]), 200) || "HEAD";
+      const status = truncate(await git(ctx.cwd, ["status", "--short", "--branch"]));
+      return { content: [{ type: "text", text: status || `## ${branch}\nClean working tree.` }], details: { branch } };
+    },
+  });
+
+  pi.registerTool({
+    name: "git_diff",
+    label: "Git Diff",
+    description: "Inspect a bounded git diff without mutating repository state.",
+    promptSnippet: "Inspect git diff",
+    promptGuidelines: [
+      "Use instead of raw git diff for repository diff inspection.",
+      "Scope by path and keep max_chars bounded for large diffs.",
+      "Never use raw git commit/add/reset/restore/clean/rebase/merge/push/stash; checkpoints are the only commit path.",
+    ],
+    parameters: Type.Object({
+      path: Type.Optional(Type.String({ description: "Optional file/path scope" })),
+      staged: Type.Optional(Type.Boolean({ description: "Show staged diff" })),
+      ref: Type.Optional(Type.String({ description: "Optional ref to diff against" })),
+      max_chars: Type.Optional(Type.Number({ description: "Maximum output characters" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const maxChars = clamp(params.max_chars, 500, 50_000, MAX_OUTPUT_CHARS);
+      const args = ["diff", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/"];
+      if (params.staged) args.push("--staged");
+      if (params.ref) args.push(validateGitRef(params.ref));
+      if (params.path) args.push("--", resolveGitSafePath(ctx.cwd, params.path));
+      const out = truncate(await git(ctx.cwd, args), maxChars);
+      return { content: [{ type: "text", text: out || "No diff." }], details: { path: params.path, staged: params.staged ?? false, ref: params.ref, max_chars: maxChars } };
+    },
+  });
+
+  pi.registerTool({
     name: "inspect_at_checkpoint",
     label: "Inspect At Checkpoint",
     description: "Inspect a file as it existed at a commit/ref/checkpoint. Read-only and bounded.",

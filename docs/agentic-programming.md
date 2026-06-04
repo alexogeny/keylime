@@ -1,5 +1,7 @@
 # Agentic programming model
 
+{% include nav.md %}
+
 Keylime is built around current context-engineering and harness-engineering practices for coding agents.
 
 ## Core idea

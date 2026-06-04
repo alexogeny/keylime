@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { autoCheckpointMode, checkpointAddCommand, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn, shouldCheckpointTool } from "../extensions/git-checkpoint";
+import { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn, shouldCheckpointTool } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -29,6 +29,7 @@ describe("git checkpoint tool gating", () => {
   });
 
   test("checkpoint staging excludes pi local state", () => {
+    expect(checkpointAddArgs()).toEqual(["add", "-A", "--", ".", ":!.pi"]);
     expect(checkpointAddCommand()).toContain("git add -A -- .");
     expect(checkpointAddCommand()).toContain("':!.pi'");
   });
