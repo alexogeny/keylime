@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn, shouldCheckpointTool } from "../extensions/git-checkpoint";
+import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -29,9 +33,34 @@ describe("git checkpoint tool gating", () => {
   });
 
   test("checkpoint staging excludes pi local state", () => {
-    expect(checkpointAddArgs()).toEqual(["add", "-A", "--", ".", ":!.pi"]);
-    expect(checkpointAddCommand()).toContain("git add -A -- .");
+    expect(checkpointPathspecs()).toEqual(["--", ".", ":!.pi"]);
+    expect(checkpointAddArgs()).toEqual(["add", "-u", "--", ".", ":!.pi"]);
+    expect(checkpointAddCommand()).toContain("git add -u -- .");
     expect(checkpointAddCommand()).toContain("':!.pi'");
+  });
+
+  test("staging ignores .pi even when ignored files exist", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "keylime-checkpoint-"));
+    execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd });
+
+    await writeFile(join(cwd, ".gitignore"), ".pi/\n", "utf8");
+    await writeFile(join(cwd, "tracked.txt"), "one\n", "utf8");
+    execFileSync("git", ["add", ".gitignore", "tracked.txt"], { cwd });
+    execFileSync("git", ["commit", "-m", "init"], { cwd, stdio: "ignore" });
+
+    await writeFile(join(cwd, "tracked.txt"), "two\n", "utf8");
+    await writeFile(join(cwd, "new.txt"), "new\n", "utf8");
+    await mkdir(join(cwd, ".pi", "usage"), { recursive: true });
+    await writeFile(join(cwd, ".pi", "usage", "usage.ndjson"), "{}\n", "utf8");
+
+    expect(() => stageCheckpointChangesForTest(cwd)).not.toThrow();
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd }).toString();
+    expect(staged).toContain("tracked.txt");
+    expect(staged).toContain("new.txt");
+    expect(staged).not.toContain(".pi");
+    expect(await readFile(join(cwd, ".pi", "usage", "usage.ndjson"), "utf8")).toBe("{}\n");
   });
 
   test("scores mutations for low-noise auto-checkpointing", () => {

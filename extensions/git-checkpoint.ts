@@ -42,6 +42,10 @@ function splitNulPaths(buffer: Buffer): string[] {
   return buffer.toString("utf8").split("\0").filter(Boolean);
 }
 
+export function stageCheckpointChangesForTest(cwd: string): void {
+  stageCheckpointChanges(cwd);
+}
+
 function stageCheckpointChanges(cwd: string): void {
   // Stage tracked modifications/deletions, excluding volatile local Pi state.
   execFileSync("git", checkpointAddArgs(), { cwd });
@@ -98,7 +102,7 @@ function makeCheckpoint(cwd: string): Checkpoint | null {
 
   if (changed) {
     try {
-      execFileSync("git", checkpointAddArgs(), { cwd });
+      stageCheckpointChanges(cwd);
       const ts  = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       execFileSync("git", ["commit", "-m", `pi: checkpoint ${ts}`, "--no-verify", "--quiet"], { cwd });
     } catch { return null; }

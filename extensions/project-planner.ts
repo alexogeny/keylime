@@ -4,8 +4,8 @@
  * Structured software project planning with TDD workflow, architectural
  * decision records, and web-search-backed stack research.
  *
- * Project state lives in <project-root>/.pi/project.json so it travels
- * with the code and can be committed. The extension walks up from ctx.cwd
+ * Project state lives in <project-root>/.pi/project.json as local Pi state.
+ * It is intentionally ignored by checkpoints. The extension walks up from ctx.cwd
  * to find the nearest project file.
  *
  * Tools registered:
