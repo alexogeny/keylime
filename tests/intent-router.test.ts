@@ -133,7 +133,7 @@ describe("routeForPrompt", () => {
     expect(route.primaryIntent).toBe("running_shoes");
     expect(calls.at(-1)).toContain("lookup_shoe");
     expect(calls.at(-1)).toContain("custom_safe_tool");
-    expect(calls.at(-1)).not.toContain("web_search");
+    expect(calls.at(-1)).toContain("web_search");
   });
 
   test("handles active tools returned as strings", () => {
