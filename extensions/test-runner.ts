@@ -4,6 +4,7 @@ import { readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { customCheckCommand, defaultCheckCommands, detectProjectKind, type CheckSuite } from "./shared/test-runner";
+import { isCapabilityActive } from "./shared/intent";
 
 const execFileAsync = promisify(execFile);
 
@@ -17,6 +18,18 @@ async function rootFiles(cwd: string): Promise<string[]> {
     const extensions = await readdir(`${cwd}/extensions`).catch(() => []);
     return [...root, ...extensions.map(file => `extensions/${file}`)];
   } catch { return []; }
+}
+
+const BLOCKED_CUSTOM_COMMANDS = new Set(["sh", "bash", "zsh", "fish", "python", "python3", "node", "bun", "deno", "perl", "ruby"]);
+
+export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {
+  const base = command.split("/").pop() ?? command;
+  if (["sh", "bash", "zsh", "fish"].includes(base) && args.includes("-c")) return `${base} -c can bypass coding file-mutation policy`;
+  if (["python", "python3", "node", "bun", "perl", "ruby"].includes(base) && args.some(arg => arg === "-c" || arg === "-e")) return `${base} inline execution can bypass coding file-mutation policy`;
+  if (base === "deno" && args.includes("eval")) return "deno eval can bypass coding file-mutation policy";
+  if (base === "bash" && args.includes("-lc")) return "shell command strings can bypass coding file-mutation policy";
+  if (BLOCKED_CUSTOM_COMMANDS.has(base) && args.length === 0) return null;
+  return null;
 }
 
 export default function testRunnerExtension(pi: ExtensionAPI) {
@@ -37,6 +50,11 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
       timeout_ms: Type.Optional(Type.Number({ description: "Timeout ms" })),
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
+      if (params.command && isCapabilityActive("coding")) {
+        const blocked = runChecksCommandBlockReason(params.command, params.args ?? []);
+        if (blocked) throw new Error(`run_checks blocked custom command in coding mode: ${blocked}`);
+      }
+
       const commands = params.command
         ? [customCheckCommand(params.command, params.args)]
         : defaultCheckCommands(detectProjectKind(await rootFiles(ctx.cwd)), (params.suite ?? "all") as CheckSuite);
