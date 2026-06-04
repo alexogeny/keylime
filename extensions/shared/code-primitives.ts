@@ -197,13 +197,17 @@ function replaceNormalizedWhitespace(text: string, edit: ReplacementEdit): { aft
   return { after: replaced, count: edit.replaceAll ? count : 1 };
 }
 
+function looksLikeRegexQuery(query: string): boolean {
+  return /(^|[^\\])[|()[\]{}+?]/.test(query);
+}
+
 export function inspectTextMatches(text: string, options: MatchOptions): TextMatch[] {
   if (options.query.length === 0) throw new Error("query must not be empty");
   const contextLines = Math.max(0, options.contextLines ?? 2);
   const maxMatches = Math.max(1, options.maxMatches ?? 20);
   const matches: TextMatch[] = [];
 
-  if (options.regex) {
+  if (options.regex || looksLikeRegexQuery(options.query)) {
     const flags = options.caseSensitive ? "g" : "gi";
     const re = new RegExp(options.query, flags);
     for (const match of text.matchAll(re)) {
