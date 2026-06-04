@@ -1705,31 +1705,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ── Command: /memories ────────────────────────────────────────────────────
-
-  pi.registerCommand("memories", {
-    description: "Show your memory summary — counts by category, upcoming events",
-    handler: async (_args, ctx) => {
-      await ensureLoaded();
-      const now = Date.now();
-      const byCat = new Map<string, number>();
-      const upcoming: Memory[] = [];
-      for (const m of store.memories) {
-        byCat.set(m.category, (byCat.get(m.category) ?? 0) + 1);
-        if (m.expires_at && m.expires_at > now && daysUntil(m.expires_at) <= 90) {
-          upcoming.push(m);
-        }
-      }
-      const lines = [`🧠 Memory store: ${store.memories.length} memories`];
-      for (const [cat, n] of [...byCat.entries()].sort()) lines.push(`  ${cat}: ${n}`);
-      if (upcoming.length) {
-        lines.push(`\n⏰ Upcoming events:`);
-        upcoming.sort((a, b) => (a.expires_at ?? 0) - (b.expires_at ?? 0));
-        for (const m of upcoming) lines.push(`  in ${daysUntil(m.expires_at!)}d — ${m.content}`);
-      }
-      ctx.ui.notify(lines.join("\n"), "info");
-    },
-  });
+  // /memories was retired in favor of /memory-wizard plus memory tools.
 
   // ── Auto-detection: pending hints + clarification queues ────────────────────
   // Populated by agent_end, consumed by before_agent_start on the next turn.

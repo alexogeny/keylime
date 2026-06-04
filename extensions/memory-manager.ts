@@ -45,80 +45,10 @@ async function saveStore(store: MemoryStore) {
 	await writeFile(MEMORY_FILE, JSON.stringify(store, null, 2), "utf8");
 }
 
-export default function memoryManager(pi: ExtensionAPI) {
-	pi.registerCommand("memories", {
-		description: "Interactive memory manager (browse + forget)",
-		handler: async (_args, ctx) => {
-			const store = await loadStore();
-			if (store.memories.length === 0) {
-				ctx.ui.notify("No stored memories found", "info");
-				return;
-			}
-
-			const sorted = [...store.memories].sort((a, b) => b.updated_at - a.updated_at);
-			const pendingForget = new Set<string>();
-
-			await ctx.ui.custom((tui, theme, _kb, done) => {
-				const items: SettingItem[] = sorted.map((m) => {
-					const tags = (m.tags || []).slice(0, 2).join(",");
-					const label = `[${m.category}] ${short(m.content)} ${tags ? `#${tags} ` : ""}(${age(m.updated_at)})`;
-					return {
-						id: m.id,
-						label,
-						currentValue: "keep",
-						values: ["keep", "forget"],
-					};
-				});
-
-				const container = new Container();
-				container.addChild(
-					new (class {
-						render() {
-							return [
-								theme.fg("accent", theme.bold("Memory Manager")),
-								theme.fg("dim", "↑/↓ navigate · ←/→ toggle keep/forget · Esc save+exit"),
-								"",
-							];
-						}
-						invalidate() {}
-					})(),
-				);
-
-				const settings = new SettingsList(
-					items,
-					Math.min(items.length + 2, 20),
-					getSettingsListTheme(),
-					(id, value) => {
-						if (value === "forget") pendingForget.add(id);
-						else pendingForget.delete(id);
-					},
-					() => done(undefined),
-				);
-				container.addChild(settings);
-
-				return {
-					render(width: number) {
-						return container.render(width);
-					},
-					invalidate() {
-						container.invalidate();
-					},
-					handleInput(data: string) {
-						settings.handleInput?.(data);
-						tui.requestRender();
-					},
-				};
-			});
-
-			if (pendingForget.size === 0) {
-				ctx.ui.notify("No changes", "info");
-				return;
-			}
-
-			const before = store.memories.length;
-			store.memories = store.memories.filter((m) => !pendingForget.has(m.id));
-			await saveStore(store);
-			ctx.ui.notify(`Forgot ${before - store.memories.length} memories`, "success");
-		},
-	});
+export default function memoryManager(_pi: ExtensionAPI) {
+	// Retired: /memories duplicated user-memory's command and exposed the old
+	// unstructured browse/forget UI. Structured profile editing now lives in
+	// /memory-wizard; freeform memory management remains available through the
+	// existing list/update/forget memory tools.
 }
+
