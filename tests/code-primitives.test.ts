@@ -96,6 +96,28 @@ function registeredCodePrimitiveTools(): Record<string, any> {
 }
 
 describe("code primitive extension tools", () => {
+  test("inspect_text_matches treats regex-looking alternation queries as regex", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "tools.ts"), [
+      'pi.registerTool({',
+      '  name: "inspect_text_matches",',
+      '  promptGuidelines: ["Use before broad replacements."],',
+      '});',
+      '',
+    ].join("\n"), "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.inspect_text_matches.execute("id", {
+      path: "src/tools.ts",
+      query: 'promptGuidelines|name: "inspect_text_matches"',
+    }, undefined, undefined, { cwd });
+
+    expect(result.details.count).toBe(2);
+    expect(result.content[0].text).toContain('name: "inspect_text_matches"');
+    expect(result.content[0].text).toContain("promptGuidelines");
+  });
+
   test("inspect_text_matches supports file_glob and language filters", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await mkdir(join(cwd, "src"));

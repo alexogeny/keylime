@@ -72,4 +72,18 @@ describe("code_search file_glob handling", () => {
     expect(result.content[0].text).toContain("Matches exist outside that scope");
     expect(result.content[0].text).toContain("extensions/code-primitives.ts");
   });
+
+  test("accepts whitespace-separated file_glob scopes instead of silently missing matches", async () => {
+    const tools = await registeredRepoIndexTools();
+    const result = await tools.code_search.execute("id", {
+      query: "registerTool",
+      mode: "lexical",
+      file_glob: "extensions/repo-index/** extensions/code-primitives.ts tests/repo-index.test.ts",
+      max_results: 5,
+    }, undefined, undefined, { cwd: process.cwd() });
+
+    expect(result.content[0].text).toContain("extensions/code-primitives.ts");
+    expect(result.content[0].text).toContain("registerTool");
+  });
+
 });
