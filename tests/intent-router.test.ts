@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
 
@@ -51,6 +54,45 @@ describe("research gating", () => {
 
     if (old === undefined) delete process.env.KEYLIME_DISABLE_RESEARCH;
     else process.env.KEYLIME_DISABLE_RESEARCH = old;
+  });
+
+  test("research tools are enabled when a provider key is configured in web-search config", () => {
+    const dir = mkdtempSync(join(tmpdir(), "keylime-research-config-"));
+    const configFile = join(dir, "config.json");
+    const oldConfig = process.env.KEYLIME_WEB_SEARCH_CONFIG;
+    const oldDisable = process.env.KEYLIME_DISABLE_RESEARCH;
+    const oldEnable = process.env.KEYLIME_ENABLE_RESEARCH;
+    const oldTavily = process.env.TAVILY_API_KEY;
+    const oldSerper = process.env.SERPER_API_KEY;
+    const oldBing = process.env.BING_API_KEY;
+
+    process.env.KEYLIME_WEB_SEARCH_CONFIG = configFile;
+    delete process.env.KEYLIME_DISABLE_RESEARCH;
+    delete process.env.KEYLIME_ENABLE_RESEARCH;
+    delete process.env.TAVILY_API_KEY;
+    delete process.env.SERPER_API_KEY;
+    delete process.env.BING_API_KEY;
+    writeFileSync(configFile, JSON.stringify({ TAVILY_API_KEY: "tvly-test" }));
+
+    const tools = activeToolNames(pi(["custom_safe_tool"]), ["research", "fetch", "memory-lite"]);
+
+    expect(tools).toContain("web_search");
+    expect(tools).toContain("research_topic");
+    expect(tools).toContain("fetch_url");
+
+    if (oldConfig === undefined) delete process.env.KEYLIME_WEB_SEARCH_CONFIG;
+    else process.env.KEYLIME_WEB_SEARCH_CONFIG = oldConfig;
+    if (oldDisable === undefined) delete process.env.KEYLIME_DISABLE_RESEARCH;
+    else process.env.KEYLIME_DISABLE_RESEARCH = oldDisable;
+    if (oldEnable === undefined) delete process.env.KEYLIME_ENABLE_RESEARCH;
+    else process.env.KEYLIME_ENABLE_RESEARCH = oldEnable;
+    if (oldTavily === undefined) delete process.env.TAVILY_API_KEY;
+    else process.env.TAVILY_API_KEY = oldTavily;
+    if (oldSerper === undefined) delete process.env.SERPER_API_KEY;
+    else process.env.SERPER_API_KEY = oldSerper;
+    if (oldBing === undefined) delete process.env.BING_API_KEY;
+    else process.env.BING_API_KEY = oldBing;
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 
