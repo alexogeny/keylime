@@ -1,25 +1,93 @@
-# keylime
+# Keylime 🥧
 
-This repository contains a clean copy of my Pi assets:
+Keylime is a Pi package of extensions and skills for safer, lower-noise agentic programming. Think of it as a well-balanced key lime pi(e): tart enough to stop dangerous actions, sweet enough to make daily coding-agent work pleasant, and structured enough that the filling does not collapse under context rot.
 
-- `skills/` — all custom Pi skills (SKILL.md-based workflows + helpers)
-- `extensions/` — all custom Pi extensions (`.ts`) and supporting files
+This repository contains:
 
-Node modules and local absolute paths were intentionally omitted/sanitized for portability.
+- `extensions/` — Pi extension modules that add tools, commands, context providers, safety hooks, and status indicators.
+- `skills/` — SKILL.md workflows for coding, debugging, refactoring, research, security, writing, and domain tasks.
+- `docs/` — GitHub Pages documentation for the extension and skill stack.
+- `tests/` — Bun tests for routing, safety, code primitives, repo search, checkpoints, and context behavior.
+
+## Documentation
+
+The full documentation site is built from `docs/` and deployed with GitHub Pages.
+
+- [Docs home](docs/index.md)
+- [Extensions](docs/extensions.md)
+- [Skills](docs/skills.md)
+- [Safety model](docs/safety.md)
+- [Agentic programming model](docs/agentic-programming.md)
+
+## The recipe
+
+Keylime is designed around current context-engineering and harness-engineering practice:
+
+- **A crisp crust** — stable base instructions, small prompt footprint, and predictable tool policy.
+- **A sharp filling** — runtime safety guards that actually block dangerous file, shell, and git paths.
+- **A clean slice** — safe, purpose-built tools for search, inspection, edits, tests, checkpoints, and history.
+- **No soggy bottom** — context bloat is controlled with compact reminders, repo maps, external memory, and routed tools.
+
+More concretely:
+
+- Safe code/git primitives are always available.
+- Dangerous built-ins are locked or guarded.
+- Domain tools are routed by intent to reduce prompt pollution.
+- Safety is enforced in code, not just requested in prompts.
+- Checkpoints are low-noise and rollback-oriented.
+- Search knowledge, memory, repo maps, and project state live outside the live prompt until needed.
+
+## Core coding workflow
+
+For repository work, Keylime encourages this loop:
+
+1. Inspect with `code_search`, `inspect_text_matches`, `inspect_code_structure`, or `inspect_lines`.
+2. Plan broad edits with `plan_code_replacements`.
+3. Mutate with `apply_code_replacements`, `create_file`, or `create_directory`.
+4. Verify with `run_checks`.
+5. Use `/checkpoint` for explicit rollback points.
+6. Use `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` instead of raw git inspection commands.
+
+Raw `git add`, `git commit`, `git reset`, `git restore`, `git clean`, `git rebase`, `git merge`, `git push`, and `git stash` should not be used by the agent. Commits should happen through checkpointing.
+
+## Extension slices
+
+- `intent-router.ts` — routes capabilities and keeps safe code/git primitives always on.
+- `code-primitives.ts` — safe file inspection and mutation tools.
+- `repo-index/index.ts` — compact repo map and tiered `code_search`.
+- `danger-guard.ts` — runtime blocking/confirmation for risky tools and paths.
+- `git-checkpoint.ts` — rollback checkpoints and `/undo`.
+- `git-tools.ts` — read-only git inspection tools.
+- `test-runner.ts` — safe test/typecheck/lint runner.
+- `turn-context-composer.ts` — one bounded reminder per turn.
+- `user-memory/` — durable memory and entity recall.
+- `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts` — research and web knowledge workflow.
+- `project-planner.ts` — project plan, TDD state, decisions, and questions.
+- `shoe-database/` — running shoe catalog and query tools.
+
+See [docs/extensions.md](docs/extensions.md) for the full extension map.
+
+## Skill slices
+
+- `agentic-programming` — audit/design workflow for coding-agent harnesses.
+- `repo-map` — rapid codebase orientation.
+- `debug` — reproduce/isolate/hypothesize/fix workflow.
+- `refactor` — behavior-preserving restructuring workflow.
+- `typescript-engineering`, `python-codemod`, `rust-codemod`, `rust-systems` — language-specific engineering workflows.
+- `blue-team`, `red-team` — security operations and adversary simulation.
+- `novel-*`, `tweet-craft`, `running-biomechanics`, `saas-naming` — domain skills.
+
+See [docs/skills.md](docs/skills.md) for the full skill map.
 
 ## Install on a new Pi agent
 
-### 1) Install Pi
-
-Install Pi first (if not already):
+### 1. Install Pi
 
 ```bash
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
 
-### 2) Install this package
-
-Use Pi’s package installer with a local path:
+### 2. Install this package
 
 ```bash
 pi install /ABSOLUTE/PATH/TO/keylime
@@ -27,43 +95,60 @@ pi install /ABSOLUTE/PATH/TO/keylime
 
 Pi writes the package entry into `~/.pi/agent/settings.json` automatically.
 
-If you plan to run extensions that use Playwright, install extension dependencies once:
+### 3. Install extension dependencies if needed
 
 ```bash
 cd /ABSOLUTE/PATH/TO/keylime/extensions
-bun install    # or npm install
+bun install
 ```
 
-### 3) Confirm load paths
+### 4. Restart Pi
 
-By default, Pi auto-discovers:
+Restart the Pi session so extension and skill discovery refreshes.
 
-- `~/.pi/agent/skills/`
-- `~/.pi/agent/extensions/`
-- package resources from the `skills/` and `extensions/` folders
+## Useful commands
 
-### 4) Alternative (manual placement)
+Inside Pi:
 
-If you prefer direct copy only:
+- `/intent-status` — current intent and active tools.
+- `/tool-policy` — always-on, routed, locked, and active tools.
+- `/context-providers` — registered turn-context providers.
+- `/checkpoint` — create rollback checkpoint.
+- `/undo` — reset to last checkpoint.
+- `/mode` — show or change operational mode.
+
+## Configuration
+
+Important environment flags:
+
+- `KEYLIME_AUTO_CHECKPOINT=off|major|any` — auto-checkpoint policy. Default: `major`.
+- `KEYLIME_ENABLE_RESEARCH=1` — allow research tools without provider-key auto-detection.
+- `KEYLIME_DISABLE_RESEARCH=1` — force-disable web research tools.
+- `KEYLIME_DISABLE_SHOES=1` — force-disable shoe tools.
+- `KEYLIME_AUTO_FETCH_SEARCH_RESULTS=1` — auto-fetch top web-search results.
+- `KEYLIME_ENABLE_TRAJECTORY=1` — enable trajectory evaluator/session entries.
+- `KEYLIME_ENABLE_ADAPTIVE_POLICY=1` — enable adaptive context policy hints.
+
+## Development
+
+Run the full test suite:
 
 ```bash
-mkdir -p ~/.pi/agent
-cp -r /ABSOLUTE/PATH/TO/keylime/skills ~/.pi/agent/skills
-cp -r /ABSOLUTE/PATH/TO/keylime/extensions ~/.pi/agent/extensions
+bun test tests
 ```
 
-Then restart Pi.
+The suite covers intent routing, code primitives, danger guards, git tools, checkpoints, repo search, test running, and turn-context composition.
 
-## What is included
+## GitHub Pages
 
-- **Skills**: `agentic-programming`, `blue-team`, `clarify`, `debug`, `memory-validate`, `novel-craft`, `novel-plan`, `novel-review`, `novel-write`, `python-codemod`, `python-engineering`, `red-team`, `refactor`, `repo-map`, `running-biomechanics`, `rust-codemod`, `rust-shell-emulator`, `rust-systems`, `saas-naming`, `tweet-craft`, `typescript-engineering`, `ui-design`
-- **Extensions**: `adaptive-context-policy`, `cache-guard`, `code-primitives`, `context-health`, `danger-guard`, `fetch`, `git-checkpoint`, `git-tools`, `intent-router`, `memory-manager`, `operational-modes`, `project-planner`, `search-memory`, `search-orchestrator`, `signal-footer`, `trajectory-eval`, `turn-context-composer`, `usage-tracker`, `web-search`, `repo-index/`, `shoe-database/`, `user-memory/` and related package/test files. `code-primitives` includes glob/language text inspection plus planning and applying code replacements with compact diff previews.
+Documentation is deployed from `docs/` by `.github/workflows/pages.yml` using GitHub Actions. Enable GitHub Pages in repository settings with **Source: GitHub Actions**.
 
-## Source docs used for extraction
+## Repo hygiene
 
-- `docs/skills.md`
-- `docs/extensions.md`
-- `docs/packages.md`
-- `docs/settings.md`
+Local Pi usage logs are ignored via `.gitignore`:
 
-These were consulted for install/placement details but not copied wholesale into this repo.
+```gitignore
+.pi/usage/
+```
+
+Tracked historical `.pi/usage/usage.ndjson` should be removed manually if still present in git history/index.
