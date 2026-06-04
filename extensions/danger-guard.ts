@@ -28,9 +28,15 @@ const CODING_MODE_BASH_MUTATION_PATTERNS: DangerPattern[] = [
   { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file", severity: "block" },
   { pattern: /<<-?\s*['"]?\w+['"]?/m, label: "heredoc shell input", severity: "block" },
   { pattern: /\btee\b\s+(?:-[a-zA-Z]+\s+)*(?!\/dev\/null\b)[^\s|;&]+/i, label: "tee writing to a file", severity: "block" },
+  { pattern: /(?:^|[\s;|&])(?:echo|printf)\b[\s\S]*(?:>>?|&>)\s*(?!\/dev\/null\b)[^\s|;&]+/i, label: "shell output redirection to a file", severity: "block" },
+  { pattern: /(?:^|[\s;|&])(?:touch|mkdir|rm|cp|mv|chmod|chown)\b/i, label: "shell file mutation command", severity: "block" },
+  { pattern: /\b(?:sh|bash|zsh|fish)\b\s+-c\b/i, label: "shell command string", severity: "block" },
   { pattern: /\bsed\b\s+(?:[^\n;&|]*\s)?(?:-[a-zA-Z]*i[a-zA-Z]*\b|--in-place\b)/i, label: "sed in-place edit", severity: "block" },
+  { pattern: /\bperl\b[\s\S]*(?:\s-pi\b|\s-[a-zA-Z]*i[a-zA-Z]*\b|\s-e\s+['"][\s\S]*(?:open|write))/i, label: "perl file mutation", severity: "block" },
+  { pattern: /\bruby\b[\s\S]*(?:\s-pi\b|\s-e\s+['"][\s\S]*(?:File\.(?:write|open)|\.write))/i, label: "ruby file mutation", severity: "block" },
   { pattern: /\bpython(?:3(?:\.\d+)?)?\b[\s\S]*\s-c\s+['"][\s\S]*(?:open\s*\([\s\S]*[,)]\s*['"](?:w|a|x|\+)|\.write\s*\()/i, label: "python inline file write", severity: "block" },
-  { pattern: /\bnode\b[\s\S]*\s-e\s+['"][\s\S]*(?:writeFileSync|appendFileSync|createWriteStream|fs\.promises\.(?:writeFile|appendFile))/i, label: "node inline file write", severity: "block" },
+  { pattern: /\b(?:node|bun)\b[\s\S]*\s-e\s+['"][\s\S]*(?:writeFileSync|appendFileSync|createWriteStream|fs\.promises\.(?:writeFile|appendFile))/i, label: "javascript runtime inline file write", severity: "block" },
+  { pattern: /\bdeno\b[\s\S]*\beval\b[\s\S]*(?:writeTextFile|writeFile)/i, label: "deno inline file write", severity: "block" },
 ];
 
 const BUILTIN_PATTERNS: DangerPattern[] = [
