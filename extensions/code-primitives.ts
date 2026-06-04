@@ -17,6 +17,7 @@ import {
   type ReplacementEdit,
   type ReplacementPlan,
 } from "./shared/code-primitives";
+import { classifyToolMutation } from "./shared/safety-policy";
 
 function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
   return Type.Union(values.map(value => Type.Literal(value)), options);
@@ -436,6 +437,8 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       if_exists: Type.Optional(stringEnum(["error", "skip"] as const, { description: "Behavior if directory exists" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("create_directory", params);
+      if (!classification.allowed) throw new Error(`create_directory blocked by safety policy: ${classification.reasons.join(", ")}`);
       const path = resolveSafePath(ctx.cwd, params.path);
       const rel = relativePath(ctx.cwd, path);
       if (await directoryExists(path)) {
@@ -470,6 +473,8 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       newline: Type.Optional(stringEnum(["preserve", "ensure_final"] as const, { description: "Final newline handling" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("create_file", params);
+      if (!classification.allowed) throw new Error(`create_file blocked by safety policy: ${classification.reasons.join(", ")}`);
       const path = resolveSafePath(ctx.cwd, params.path);
       const rel = relativePath(ctx.cwd, path);
       if (await fileExists(path)) {
@@ -567,6 +572,8 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       }), { description: "Edits" }),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("apply_code_replacements", params);
+      if (!classification.allowed) throw new Error(`apply_code_replacements blocked by safety policy: ${classification.reasons.join(", ")}`);
       const dryRun = params.dry_run ?? false;
       const targets = await collectTargetFiles(ctx.cwd, {
         file_glob: params.file_glob,

@@ -336,6 +336,32 @@ describe("code primitive extension tools", () => {
     expect(await readFile(join(cwd, "existing.ts"), "utf8")).toBe("old\n");
   });
 
+  test("file mutation tools enforce central protected-path classification", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, ".env"), "SECRET=old\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.create_file.execute("id", {
+      path: ".env.local",
+      content: "SECRET=new\n",
+    }, undefined, undefined, { cwd })).rejects.toThrow("blocked by safety policy");
+
+    await expect(tools.create_directory.execute("id", {
+      path: ".git/hooks/generated",
+    }, undefined, undefined, { cwd })).rejects.toThrow("blocked by safety policy");
+
+    await expect(tools.apply_code_replacements.execute("id", {
+      edits: [{ path: ".env", oldText: "old", newText: "new" }],
+    }, undefined, undefined, { cwd })).rejects.toThrow("blocked by safety policy");
+
+    const dryRun = await tools.apply_code_replacements.execute("id", {
+      dry_run: true,
+      edits: [{ path: ".env", oldText: "old", newText: "new" }],
+    }, undefined, undefined, { cwd });
+    expect(dryRun.details.dryRun).toBe(true);
+    expect(await readFile(join(cwd, ".env"), "utf8")).toBe("SECRET=old\n");
+  });
+
   test("create_file skip mode does not overwrite existing files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await writeFile(join(cwd, "existing.ts"), "old\n", "utf8");

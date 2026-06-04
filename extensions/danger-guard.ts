@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { isCapabilityActive } from "./shared/intent";
-import { classifyBashMutation, classifyBashNativeRepoInspection, PROTECTED_WRITE_PATHS, writePathsForTool } from "./shared/safety-policy";
+import { classifyBashMutation, classifyBashNativeRepoInspection, classifyToolMutation, PROTECTED_WRITE_PATHS, writePathsForTool } from "./shared/safety-policy";
 
 // ─── Pattern definitions ────────────────────────────────────────────────────
 
@@ -91,13 +91,27 @@ export function looksLikeCodingModeBashNativeInspection(cmd: string): { flagged:
 export function codingModeBlockReasonForToolCall(toolName: string, input: any): string | null {
   if (!isCapabilityActive("coding")) return null;
   if (CODING_MODE_BLOCKED_TOOLS.has(toolName)) return `coding mode blocks built-in ${toolName}; use exposed code primitive tools`;
+
+  const classification = classifyToolMutation(toolName, input);
+  if (classification.category === "protected_path") {
+    return `coding mode blocks protected path write: ${classification.writePaths.join(", ")}`;
+  }
+  if (toolName === "bash" && classification.mutates) {
+    return `coding mode blocks bash file mutation (${classification.category}): ${classification.reasons.join(", ")}`;
+  }
   if (toolName !== "bash") return null;
 
   const cmd = typeof input?.command === "string" ? input.command : "";
   const mutation = looksLikeCodingModeBashMutation(cmd);
-  if (mutation) return `coding mode blocks bash file mutation: ${mutation.label}`;
+  if (mutation) {
+    logSafetyFallback("coding_bash_mutation", { toolName, label: mutation.label, command: cmd.slice(0, 500), classifier: classification });
+    return `coding mode blocks bash file mutation: ${mutation.label}`;
+  }
   const nativeInspection = looksLikeCodingModeBashNativeInspection(cmd);
-  if (nativeInspection) return `coding mode blocks native repository inspection: ${nativeInspection.label}`;
+  if (nativeInspection) {
+    logSafetyFallback("coding_bash_native_inspection", { toolName, label: nativeInspection.label, command: cmd.slice(0, 500), classifier: classification });
+    return `coding mode blocks native repository inspection: ${nativeInspection.label}`;
+  }
   return null;
 }
 
@@ -124,6 +138,16 @@ function checkPath(filePath: string, rules: Rules): boolean {
   return allProtected.some(p => expanded.includes(p.replace(/^~/, os.homedir())));
 }
 
+function logSafetyFallback(kind: string, payload: Record<string, unknown>): void {
+  try {
+    const dir = path.join(process.cwd(), ".pi");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, "safety-fallbacks.ndjson"), `${JSON.stringify({ ts: Date.now(), kind, ...payload })}\n`, "utf8");
+  } catch {
+    // best-effort only; never weaken safety because logging failed
+  }
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -131,14 +155,28 @@ export default function (pi: ExtensionAPI) {
   const rules = loadRules();
 
   pi.on("tool_call", async (event, ctx) => {
-    const codingBlockReason = codingModeBlockReasonForToolCall(event.toolName, (event as any).input);
+    const input = (event as any).input;
+    const classification = classifyToolMutation(event.toolName, input);
+    const codingBlockReason = codingModeBlockReasonForToolCall(event.toolName, input);
     if (codingBlockReason) return { block: true, reason: `danger-guard blocked: ${codingBlockReason}` };
+
+    if (classification.category === "protected_path") {
+      const label = classification.writePaths.slice(0, 5).join(", ");
+      const ok = await ctx.ui.confirm(
+        `⛔ Protected path: ${label}`,
+        `Writing to this path may be sensitive.\n\nReasons: ${classification.reasons.join(", ")}\n\nProceed?`
+      );
+      if (!ok) return { block: true, reason: `danger-guard blocked write to protected path: ${label}` };
+    }
 
     // ── Bash: pattern matching ──────────────────────────────────────────────
     if (isToolCallEventType("bash", event)) {
       const cmd = event.input.command ?? "";
       const hit = checkCommand(cmd, rules);
       if (!hit) return;
+      if (!classification.mutates) {
+        logSafetyFallback("bash_builtin_pattern", { toolName: event.toolName, label: hit.label, command: cmd.slice(0, 500), classifier: classification });
+      }
 
       // Check if git-checkpoint extension has created a checkpoint this session
       const hasCheckpoint = ctx.sessionManager
@@ -157,8 +195,11 @@ export default function (pi: ExtensionAPI) {
     }
 
     // ── File-writing tools: protected path check ────────────────────────────
-    const protectedPaths = writePathsForTool(event.toolName, (event as any).input).filter(p => checkPath(p, rules));
-    if (protectedPaths.length > 0) {
+    const protectedPaths = writePathsForTool(event.toolName, input).filter(p => checkPath(p, rules));
+    if (protectedPaths.length > 0 && classification.category !== "protected_path") {
+      logSafetyFallback("protected_path_check", { toolName: event.toolName, paths: protectedPaths, classifier: classification });
+    }
+    if (protectedPaths.length > 0 && classification.category !== "protected_path") {
       const label = protectedPaths.slice(0, 5).join(", ");
       const ok = await ctx.ui.confirm(
         `⛔ Protected path: ${label}`,

@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 
@@ -90,6 +92,19 @@ describe("danger guard coding-mode hard enforcement", () => {
     for (const command of commands) {
       expect(looksLikeCodingModeBashNativeInspection(command)?.label).toContain("use first-class safe tools");
     }
+  });
+
+  test("logs when deterministic fallback catches a classifier miss", () => {
+    setCodingMode();
+    const logPath = join(process.cwd(), ".pi", "safety-fallbacks.ndjson");
+    rmSync(logPath, { force: true });
+
+    expect(codingModeBlockReasonForToolCall("bash", { command: "ls" })).toContain("native repository inspection");
+
+    expect(existsSync(logPath)).toBe(true);
+    const last = readFileSync(logPath, "utf8").trim().split("\n").at(-1)!;
+    expect(JSON.parse(last)).toMatchObject({ kind: "coding_bash_native_inspection", toolName: "bash" });
+    rmSync(logPath, { force: true });
   });
 
   test("allows non-repository-inspection bash commands in coding mode", () => {
