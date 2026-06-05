@@ -25,16 +25,13 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { stringEnum } from "../shared/schema";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { join, relative, dirname, extname, delimiter } from "node:path";
 
 const execFileAsync = promisify(execFile);
-
-function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
-  return Type.Union(values.map(value => Type.Literal(value)), options);
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

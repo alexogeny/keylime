@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { stringEnum } from "./shared/schema";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import {
@@ -18,10 +19,6 @@ import {
   type ReplacementPlan,
 } from "./shared/code-primitives";
 import { classifyToolMutation } from "./shared/safety-policy";
-
-function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
-  return Type.Union(values.map(value => Type.Literal(value)), options);
-}
 
 async function readTextFileSafely(path: string): Promise<string> {
   const info = await stat(path);

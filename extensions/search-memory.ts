@@ -17,11 +17,13 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readJsonDir, readJsonFile } from "./shared/json-store";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { BM25Index } from "./shared/retrieval";
+import { createOllamaEmbedder } from "./shared/ollama-embeddings";
+import { cosineSimilarity } from "./shared/similarity";
+import { ageString } from "./shared/time-format";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -76,75 +78,21 @@ interface SearchIndex {
 
 // ─── Ollama embedding helpers (optional reranking) ──────────────────────────
 
-const OLLAMA_BASE    = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-const EMBED_MODEL    = process.env.SEARCH_EMBED_MODEL ?? "nomic-embed-text";
-
-let ollamaAvailable: boolean | null = null;
-
-async function checkOllama(): Promise<boolean> {
-  if (ollamaAvailable !== null) return ollamaAvailable;
-  try {
-    const res = await fetch(`${OLLAMA_BASE}/api/tags`, { signal: AbortSignal.timeout(1500) });
-    if (!res.ok) { ollamaAvailable = false; return false; }
-    const d = await res.json() as any;
-    ollamaAvailable = (d.models ?? []).some((m: any) => m.name?.startsWith(EMBED_MODEL.split(":")[0]));
-  } catch {
-    ollamaAvailable = false;
-  }
-  return ollamaAvailable;
-}
-
-async function embed(text: string): Promise<number[] | null> {
-  if (!(await checkOllama())) return null;
-  try {
-    const res = await fetch(`${OLLAMA_BASE}/api/embed`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ model: EMBED_MODEL, input: text }),
-      signal:  AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-    const d = await res.json() as any;
-    return d.embeddings?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function cosine(a: number[], b: number[]): number {
-  let dot = 0, magA = 0, magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot  += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-  return magA && magB ? dot / (Math.sqrt(magA) * Math.sqrt(magB)) : 0;
-}
+const EMBED_MODEL = process.env.SEARCH_EMBED_MODEL ?? "nomic-embed-text";
+const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1500, embedTimeoutMs: 10000 });
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
 async function loadIndex(): Promise<SearchIndex> {
-  if (!existsSync(INDEX_FILE)) return { version: 1, entries: [] };
-  try   { return JSON.parse(await readFile(INDEX_FILE, "utf8")); }
-  catch { return { version: 1, entries: [] }; }
+  return readJsonFile(INDEX_FILE, { version: 1, entries: [] });
 }
 
 async function loadAllEntries(): Promise<SearchEntry[]> {
-  if (!existsSync(SEARCHES_DIR)) return [];
-  const files = await readdir(SEARCHES_DIR).catch(() => [] as string[]);
-  const out:   SearchEntry[] = [];
-  for (const f of files.filter(f => f.endsWith(".json"))) {
-    try { out.push(JSON.parse(await readFile(join(SEARCHES_DIR, f), "utf8"))); }
-    catch { /* skip corrupt */ }
-  }
-  return out;
+  return readJsonDir<SearchEntry>(SEARCHES_DIR);
 }
 
 async function loadEntry(id: string): Promise<SearchEntry | null> {
-  const p = join(SEARCHES_DIR, `${id}.json`);
-  if (!existsSync(p)) return null;
-  try   { return JSON.parse(await readFile(p, "utf8")); }
-  catch { return null; }
+  return readJsonFile<SearchEntry | null>(join(SEARCHES_DIR, `${id}.json`), null);
 }
 
 // ─── Document text for indexing ───────────────────────────────────────────────
@@ -174,13 +122,6 @@ function recallIndexFor(pool: SearchEntry[]): { index: BM25Index; cacheHit: bool
   for (const entry of pool) index.add(entry.id, buildDocText(entry));
   recallIndexCache = { key, index };
   return { index, cacheHit: false };
-}
-
-function ageString(ts: number): string {
-  const d = Math.floor((Date.now() - ts) / 86_400_000);
-  if (d === 0) return "today";
-  if (d === 1) return "yesterday";
-  return `${d}d ago`;
 }
 
 // ─── Extension ────────────────────────────────────────────────────────────────
@@ -248,18 +189,18 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
       }
 
       // Optional Ollama reranking
-      const useOllama = await checkOllama();
+      const useOllama = await ollama.check();
       let ranked = hits;
       if (useOllama) {
-        const qEmbed = await embed(params.query);
+        const qEmbed = await ollama.embed(params.query);
         if (qEmbed) {
           const poolMap = new Map(pool.map(e => [e.id, e]));
           const reranked: Array<{ id: string; score: number }> = [];
           for (const h of hits) {
             const e = poolMap.get(h.id)!;
-            const dEmbed = await embed(buildDocText(e));
+            const dEmbed = await ollama.embed(buildDocText(e));
             if (dEmbed) {
-              const semScore = cosine(qEmbed, dEmbed);
+              const semScore = cosineSimilarity(qEmbed, dEmbed);
               reranked.push({ id: h.id, score: 0.4 * h.score + 0.6 * semScore * 10 });
             } else {
               reranked.push(h);

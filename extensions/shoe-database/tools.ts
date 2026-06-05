@@ -4,6 +4,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { stringEnum } from "../shared/schema";
 import { allVariants, textSearch, applyFilter, formatHit, formatDiff, ALL_SHOES, parseNaturalQuery, type Gender } from "./search.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -13,10 +14,6 @@ import type { Shoe, ShoeVariant } from "./types.js";
 const __dir = dirname(fileURLToPath(import.meta.url));
 const CUSTOM_JSON = join(__dir, "catalog", "custom-data.json");
 const CUSTOM_TS   = join(__dir, "catalog", "custom.ts");
-
-function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
-  return Type.Union(values.map(value => Type.Literal(value)), options);
-}
 
 // ── custom catalog helpers ───────────────────────────────────────────────────
 

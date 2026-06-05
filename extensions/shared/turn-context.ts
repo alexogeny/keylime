@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCurrentRoute, type IntentRoute } from "./intent";
 import { promptFromMessages } from "./message-content";
+import { truncateWithMarker } from "./output-preview";
 
 export type ContextProviderArgs = {
   ctx: ExtensionContext;
@@ -78,8 +79,7 @@ function totalBudget(pressure: "low" | "medium" | "high"): number {
 }
 
 function trimTo(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, Math.max(0, maxChars - 24)).trimEnd()}\n… [trimmed]`;
+  return truncateWithMarker(text, maxChars, "… [trimmed]");
 }
 
 function appendReminder(messages: any[], text: string): any[] {

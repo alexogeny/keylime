@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readJsonFile, writeJsonFile } from "./shared/json-store";
+import { headTail } from "./shared/output-preview";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -29,13 +31,6 @@ function textFromContent(content: any): string {
     if (typeof part?.text === "string") return part.text;
     return JSON.stringify(part);
   }).join("\n");
-}
-
-function headTail(text: string, chars: number): string {
-  if (text.length <= chars) return text;
-  const head = Math.ceil(chars * 0.65);
-  const tail = Math.floor(chars * 0.35);
-  return `${text.slice(0, head)}\n…\n${text.slice(-tail)}`;
 }
 
 export function compactToolResultContent(content: any, options: CompactToolResultOptions = {}): CompactToolResult {
@@ -73,16 +68,11 @@ type ToolResultManifestEntry = {
 };
 
 async function readManifest(cwd: string): Promise<ToolResultManifestEntry[]> {
-  const path = join(cwd, ".pi", "tool-results", "index.json");
-  if (!existsSync(path)) return [];
-  try { return JSON.parse(await readFile(path, "utf8")); }
-  catch { return []; }
+  return readJsonFile(join(cwd, ".pi", "tool-results", "index.json"), []);
 }
 
 async function writeManifest(cwd: string, entries: ToolResultManifestEntry[]): Promise<void> {
-  const dir = join(cwd, ".pi", "tool-results");
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "index.json"), JSON.stringify(entries, null, 2), "utf8");
+  await writeJsonFile(join(cwd, ".pi", "tool-results", "index.json"), entries);
 }
 
 async function pruneMissingManifestEntries(cwd: string, entries: ToolResultManifestEntry[]): Promise<{ entries: ToolResultManifestEntry[]; pruned: number }> {

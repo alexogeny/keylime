@@ -16,8 +16,7 @@
  * Linked to memories via entity.memory_ids ↔ memory.entity_refs (set in index.ts)
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readJsonFile, writeJsonFile } from "../shared/json-store";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -25,7 +24,6 @@ import { randomUUID } from "node:crypto";
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
 export const ENTITY_FILE = join(homedir(), ".pi", "data", "user-memory", "entities.json");
-const DATA_DIR           = join(homedir(), ".pi", "data", "user-memory");
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -295,14 +293,11 @@ export function extractEntities(text: string): ExtractedEntity[] {
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
 export async function loadEntityStore(): Promise<EntityStore> {
-  if (!existsSync(ENTITY_FILE)) return { version: 1, entities: [] };
-  try   { return JSON.parse(await readFile(ENTITY_FILE, "utf8")); }
-  catch { return { version: 1, entities: [] }; }
+  return readJsonFile(ENTITY_FILE, { version: 1, entities: [] });
 }
 
 export async function saveEntityStore(store: EntityStore): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(ENTITY_FILE, JSON.stringify(store, null, 2), "utf8");
+  await writeJsonFile(ENTITY_FILE, store);
 }
 
 // ─── Registry operations ──────────────────────────────────────────────────────

@@ -31,12 +31,16 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readJsonFile, writeJsonFile } from "../shared/json-store";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { registerContextProvider } from "../shared/turn-context";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { BM25Index, TFIDFStore, tokenize } from "../shared/retrieval";
+import { createOllamaEmbedder } from "../shared/ollama-embeddings";
+import { ageString, daysUntil, safeTimestampForFilename } from "../shared/time-format";
+import { cosineSimilarity, jaccardText } from "../shared/similarity";
 import {
   type Entity, type EntityStore, type ExtractedEntity,
   loadEntityStore, saveEntityStore,
@@ -127,51 +131,21 @@ interface MemoryStore {
 
 // ─── Ollama (optional neural embeddings) ──────────────────────────────────────
 
-const OLLAMA_BASE  = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-const EMBED_MODEL  = process.env.MEMORY_EMBED_MODEL ?? "nomic-embed-text";
-let ollamaOk: boolean | null = null;
+const EMBED_MODEL = process.env.MEMORY_EMBED_MODEL ?? "nomic-embed-text";
+const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1200, embedTimeoutMs: 8000 });
 
 async function checkOllama(): Promise<boolean> {
-  if (ollamaOk !== null) return ollamaOk;
-  try {
-    const r = await fetch(`${OLLAMA_BASE}/api/tags`, { signal: AbortSignal.timeout(1200) });
-    if (!r.ok) { ollamaOk = false; return false; }
-    const d = await r.json() as any;
-    ollamaOk = (d.models ?? []).some((m: any) => m.name?.startsWith(EMBED_MODEL.split(":")[0]));
-  } catch { ollamaOk = false; }
-  return ollamaOk;
+  return ollama.check();
 }
 
 async function embedText(text: string): Promise<number[] | null> {
-  if (!(await checkOllama())) return null;
-  try {
-    const r = await fetch(`${OLLAMA_BASE}/api/embed`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ model: EMBED_MODEL, input: text }),
-      signal:  AbortSignal.timeout(8000),
-    });
-    if (!r.ok) return null;
-    const d = await r.json() as any;
-    return d.embeddings?.[0] ?? null;
-  } catch { return null; }
-}
-
-function neuralCosine(a: number[], b: number[]): number {
-  let dot = 0, ma = 0, mb = 0;
-  for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; ma += a[i]*a[i]; mb += b[i]*b[i]; }
-  return ma && mb ? dot / (Math.sqrt(ma) * Math.sqrt(mb)) : 0;
+  return ollama.embed(text);
 }
 
 // ─── Jaccard similarity (token-set overlap, fast dedup fallback) ──────────────
 
 function jaccard(a: string, b: string): number {
-  const sa = new Set(tokenize(a));
-  const sb = new Set(tokenize(b));
-  if (sa.size === 0 && sb.size === 0) return 1;
-  let intersection = 0;
-  for (const t of sa) if (sb.has(t)) intersection++;
-  return intersection / (sa.size + sb.size - intersection);
+  return jaccardText(a, b);
 }
 
 // ─── Confidence decay ──────────────────────────────────────────────────────────
@@ -186,9 +160,8 @@ function decayedConfidence(mem: Memory, now: number): number {
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
 async function loadStore(): Promise<MemoryStore> {
-  if (!existsSync(MEMORY_FILE)) return { version: 4, profile: {}, memories: [] };
   try {
-    const raw = JSON.parse(await readFile(MEMORY_FILE, "utf8")) as MemoryStore;
+    const raw = await readJsonFile<MemoryStore>(MEMORY_FILE, { version: 4, profile: {}, memories: [] });
     raw.memories ||= [];
     raw.profile ||= {};
     // Migrate v2 → v3: backfill evolution + entity fields
@@ -205,8 +178,7 @@ async function loadStore(): Promise<MemoryStore> {
 }
 
 async function saveStore(store: MemoryStore): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(MEMORY_FILE, JSON.stringify(store, null, 2), "utf8");
+  await writeJsonFile(MEMORY_FILE, store);
 }
 
 // ─── Memory text for indexing ─────────────────────────────────────────────────
@@ -409,17 +381,10 @@ function buildJobChapter(entityName: string, frictionMemories: Memory[], now: nu
 }
 
 function age(ts: number): string {
-  const d = Math.floor((Date.now() - ts) / 86_400_000);
-  if (d === 0) return "today";
-  if (d === 1) return "yesterday";
-  if (d < 7)   return `${d}d ago`;
-  if (d < 30)  return `${Math.round(d/7)}w ago`;
-  if (d < 365) return `${Math.round(d/30)}mo ago`;
-  return `${Math.round(d/365)}y ago`;
-}
-
-function daysUntil(ts: number): number {
-  return Math.ceil((ts - Date.now()) / 86_400_000);
+  const text = ageString(ts);
+  if (!text.endsWith("d ago")) return text;
+  const days = Number(text.slice(0, -5));
+  return days < 365 ? text : `${Math.round(days / 365)}y ago`;
 }
 
 // ─── Context injection helpers ─────────────────────────────────────────────────────────────
@@ -998,7 +963,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
         const mem = memMap.get(id);
         if (!mem) continue;
         if (mem.embedding) {
-          cosineMap.set(id, neuralCosine(qEmbed, mem.embedding));
+          cosineMap.set(id, cosineSimilarity(qEmbed, mem.embedding));
         } else {
           // Fall back to TF-IDF for memories without stored embedding
           cosineMap.set(id, tfidf.search(query, 1, [id])[0]?.score ?? 0);
@@ -1069,7 +1034,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
         for (const id of candidates) {
           const mem = memMap.get(id);
           if (!mem?.embedding) continue;
-          if (mem.category === category && neuralCosine(qEmbed, mem.embedding) > 0.92) return mem;
+          if (mem.category === category && cosineSimilarity(qEmbed, mem.embedding) > 0.92) return mem;
         }
       }
     }
@@ -1642,7 +1607,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       await ensureLoaded();
       const backupDir = join(DATA_DIR, "backups");
       await mkdir(backupDir, { recursive: true });
-      const ts  = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const ts  = safeTimestampForFilename();
       const mDst = join(backupDir, `memories-${ts}.json`);
       const eDst = join(backupDir, `entities-${ts}.json`);
       await writeFile(mDst, JSON.stringify(store, null, 2), "utf8");
@@ -1699,7 +1664,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       if (!ok) return;
 
       // Auto-backup current state before restoring
-      const safetyTs  = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const safetyTs  = safeTimestampForFilename();
       await writeFile(join(backupDir, `memories-${safetyTs}.json`), JSON.stringify(store, null, 2), "utf8");
       await writeFile(join(backupDir, `entities-${safetyTs}.json`), JSON.stringify(entityStore, null, 2), "utf8");
 
@@ -2018,7 +1983,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       try {
         const backupDir = join(DATA_DIR, "backups");
         await mkdir(backupDir, { recursive: true });
-        const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        const ts = safeTimestampForFilename();
         await writeFile(join(backupDir, `memories-${ts}.json`), JSON.stringify(store, null, 2), "utf8");
         await writeFile(join(backupDir, `entities-${ts}.json`), JSON.stringify(entityStore, null, 2), "utf8");
         // Prune: keep only the 10 most recent backups

@@ -1,13 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { stringEnum } from "./shared/schema";
 import { readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { planCodemod, retrievePolicyEvidence, suggestChecks } from "./shared/policy-actions";
 import { classifyToolMutation } from "./shared/safety-policy";
-
-function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
-  return Type.Union(values.map(value => Type.Literal(value)), options);
-}
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
