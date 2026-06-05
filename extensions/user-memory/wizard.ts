@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
 import {
   MEMORY_CATEGORIES,
   PINNED_PROFILE_TAGS,
@@ -16,6 +15,7 @@ import {
   type TimelineMemoryPayload,
   type TimelineSubkind,
 } from "./types.js";
+export { fitTuiLine } from "../shared/tui-form";
 import { parseCommaList, uniqueCleanTags } from "./normalize.js";
 import {
   convertDraftToRememberParams,
@@ -48,6 +48,7 @@ import {
   type ProfilePatch,
   type ProfilePatchValue,
 } from "./profile-facts.js";
+import { editProfileFactSection, sectionFromLabel, sectionMenuLabels } from "./profile-form.js";
 export { MEMORY_CATEGORIES, PINNED_PROFILE_TAGS, SENSITIVITY_TIERS, TIMELINE_SUBKINDS } from "./types.js";
 export { convertedUnitHint, defaultUnit, previewProfileFactDrafts, previewProfilePatch, unitKey } from "./profile-facts.js";
 export { parseCommaList } from "./normalize.js";
@@ -78,29 +79,6 @@ export type {
   TimelineSubkind,
 } from "./types.js";
 export type { ProfileFactField, ProfileFactFieldKind, ProfileFactSection, ProfileFactValues, ProfilePatch, ProfilePatchValue } from "./profile-facts.js";
-
-const ANSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/y;
-
-export function fitTuiLine(line: string, width: number): string {
-  const limit = Math.max(1, width - 1);
-  let visible = 0;
-  let out = "";
-  for (let i = 0; i < line.length && visible < limit;) {
-    ANSI_RE.lastIndex = i;
-    const ansi = ANSI_RE.exec(line);
-    if (ansi) {
-      out += ansi[0];
-      i = ANSI_RE.lastIndex;
-      continue;
-    }
-    const codePoint = line.codePointAt(i);
-    if (codePoint === undefined) break;
-    out += String.fromCodePoint(codePoint);
-    i += codePoint > 0xffff ? 2 : 1;
-    visible += 1;
-  }
-  return out;
-}
 
 export const PROFILE_FACT_SECTIONS = [
   "identity", "body", "appearance", "health", "athlete", "mental", "life", "contact", "work", "preferences",
@@ -221,200 +199,13 @@ export function buildProfilePatch(values: ProfileFactValues): ProfilePatch {
   return buildProfilePatchForFields(PROFILE_FACT_FIELDS, values);
 }
 
-function shiftIsoDate(value: string, part: "year" | "month" | "day", delta: number): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  const date = match
-    ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
-    : new Date(Date.UTC(1990, 0, 1));
-  if (part === "year") date.setUTCFullYear(date.getUTCFullYear() + delta);
-  if (part === "month") date.setUTCMonth(date.getUTCMonth() + delta);
-  if (part === "day") date.setUTCDate(date.getUTCDate() + delta);
-  return date.toISOString().slice(0, 10);
-}
-
-type ProfileFactFormResult =
-  | { action: "done"; values: ProfileFactValues }
-  | { action: "back"; dirty: boolean };
-
-class ProfileFactForm implements Component {
-  private selected = 0;
-  private datePart: "year" | "month" | "day" = "year";
-  private dirty = false;
-
-  constructor(
-    private readonly theme: { fg: (name: string, text: string) => string; bold: (text: string) => string },
-    private readonly section: ProfileFactSection,
-    private readonly fields: ProfileFactField[],
-    private readonly values: ProfileFactValues,
-    private readonly done: (result: ProfileFactFormResult) => void,
-  ) {}
-
-  private dateDisplay(field: ProfileFactField, value: string): string {
-    const base = /^\d{4}-\d{2}-\d{2}/.test(value) ? value : "1990-01-01";
-    const time = field.kind === "datetime" ? (/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2})$/.exec(value)?.[1] ?? " HH:mm") : "";
-    const [year, month, day] = base.slice(0, 10).split("-");
-    const part = (name: "year" | "month" | "day", text: string) => name === this.datePart ? this.theme.fg("accent", this.theme.bold(text)) : text;
-    return `${part("year", year)}-${part("month", month)}-${part("day", day)}${time}`;
-  }
-
-  private optionDisplay(field: ProfileFactField): string[] {
-    const options = field.options ?? [];
-    if (!options.length) return [];
-    const current = this.values[field.id] ?? "";
-    return [`  ${this.theme.fg("dim", "options:")} ${options.map(option => option === current ? this.theme.fg("accent", `[${option || "blank"}]`) : (option || "blank")).join("  ")}`];
-  }
-
-  private unitDisplay(field: ProfileFactField): string[] {
-    if (!field.unitOptions) return [];
-    const current = this.values[unitKey(field)] || defaultUnit(field);
-    return [`  ${this.theme.fg("dim", "units:")} ${field.unitOptions.map(unit => unit === current ? this.theme.fg("accent", `[${unit}]`) : unit).join("  ")}`];
-  }
-
-  render(width: number): string[] {
-    const completeness = sectionCompleteness(this.values, this.section);
-    const lines = [
-      this.theme.fg("accent", this.theme.bold(`Structured profile facts › ${this.section} (${completeness}% complete)`)),
-      this.theme.fg("dim", "ENTER preview/save this section · ESC goes back without saving this edit screen"),
-      this.theme.fg("dim", "TAB or ↑↓ changes field · type edits · BACKSPACE deletes"),
-      this.theme.fg("dim", "Select fields show all choices below: ←/→ cycles · choose other/custom then type for custom text"),
-      this.theme.fg("dim", "Unit fields show unit chips below: ←/→ cycles units · Date fields: ←/→ choose Y/M/D, +/- changes value"),
-      "",
-    ];
-    this.fields.forEach((field, index) => {
-      const active = index === this.selected;
-      const value = this.values[field.id] || "";
-      const unit = field.unitOptions ? ` ${this.theme.fg("accent", `[${this.values[unitKey(field)] || defaultUnit(field)}]`)}` : "";
-      const hint = field.unitOptions && value ? this.theme.fg("dim", ` ≈ ${convertedUnitHint(value, this.values[unitKey(field)] || defaultUnit(field)) ?? ""}`) : "";
-      const shown = (field.kind === "date" || field.kind === "datetime") ? this.dateDisplay(field, value) : (value || this.theme.fg("dim", field.placeholder ?? "optional"));
-      const picker = (field.kind === "date" || field.kind === "datetime") && active ? ` (${this.datePart}; +/- changes selected part)` : "";
-      const kindHint = field.kind === "select" ? this.theme.fg("dim", " ←/→ choose") : field.unitOptions ? this.theme.fg("dim", " ←/→ unit") : "";
-      const prefix = active ? this.theme.fg("accent", "›") : " ";
-      lines.push(fitTuiLine(`${prefix} ${field.label}${picker}${unit}: ${shown}${hint}${kindHint}`, width));
-      if (active) {
-        lines.push(...this.optionDisplay(field), ...this.unitDisplay(field));
-        if (field.kind === "text") lines.push(`  ${this.theme.fg("dim", "text input: type the exact value you want saved")}`);
-        if (field.kind === "number") lines.push(`  ${this.theme.fg("dim", "number input: type digits/decimal; unit chip is saved with conversion hint when available")}`);
-        if (field.kind === "date" || field.kind === "datetime") lines.push(`  ${this.theme.fg("dim", "date picker: highlighted part changes with +/-, move highlight with ←/→")}`);
-      }
-    });
-    lines.push("");
-    lines.push(this.theme.fg("warning", "Important: ESC cancels/back-outs. Press ENTER when you want to preview and save."));
-    return lines.map(line => fitTuiLine(line, width));
-  }
-
-  invalidate() {}
-
-  handleInput(data: string) {
-    const field = this.fields[this.selected];
-    if (data === "\x1b") return this.done({ action: "back", dirty: this.dirty });
-    if (data === "\r" || data === "\n") return this.done({ action: "done", values: cleanProfileFactValues(this.values) });
-    if (data === "\t" || data === "\x1b[B") {
-      this.selected = (this.selected + 1) % this.fields.length;
-      return;
-    }
-    if (data === "\x1b[Z" || data === "\x1b[A") {
-      this.selected = (this.selected - 1 + this.fields.length) % this.fields.length;
-      return;
-    }
-    if (data === "\x7f" || data === "\b") {
-      this.values[field.id] = (this.values[field.id] ?? "").replace(/^custom: /, "").slice(0, -1);
-      if (field.kind === "select" && this.values[field.id]) this.values[field.id] = `custom: ${this.values[field.id]}`;
-      this.dirty = true;
-      return;
-    }
-    if (field.unitOptions && (data === "\x1b[C" || data === "\x1b[D")) {
-      const options = field.unitOptions;
-      const current = Math.max(0, options.indexOf(this.values[unitKey(field)] ?? defaultUnit(field) ?? options[0]));
-      const delta = data === "\x1b[C" ? 1 : -1;
-      this.values[unitKey(field)] = options[(current + delta + options.length) % options.length];
-      this.dirty = true;
-      return;
-    }
-    if (field.kind === "select" && (data === "\x1b[C" || data === "\x1b[D")) {
-      const options = field.options ?? [""];
-      const current = Math.max(0, options.indexOf(this.values[field.id] ?? ""));
-      const delta = data === "\x1b[C" ? 1 : -1;
-      this.values[field.id] = options[(current + delta + options.length) % options.length];
-      this.dirty = true;
-      return;
-    }
-    if ((field.kind === "date" || field.kind === "datetime") && (data === "\x1b[C" || data === "\x1b[D")) {
-      if (data === "\x1b[C") this.datePart = this.datePart === "year" ? "month" : this.datePart === "month" ? "day" : "year";
-      else this.datePart = this.datePart === "year" ? "day" : this.datePart === "month" ? "year" : "month";
-      return;
-    }
-    if ((field.kind === "date" || field.kind === "datetime") && (data === "+" || data === "=" || data === "-")) {
-      const current = this.values[field.id] ?? "";
-      const time = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2})$/.exec(current)?.[1] ?? "";
-      this.values[field.id] = `${shiftIsoDate(current.slice(0, 10), this.datePart, data === "-" ? -1 : 1)}${time}`;
-      this.dirty = true;
-      return;
-    }
-    if (/^[\x20-\x7E]$/.test(data)) {
-      if (field.kind === "select") {
-        const existing = this.values[field.id] ?? "";
-        if (existing === "other / custom" || existing.startsWith("custom: ")) {
-          this.values[field.id] = `custom: ${existing.replace(/^custom: |^other \/ custom$/, "")}${data}`;
-          this.dirty = true;
-        }
-        return;
-      }
-      this.values[field.id] = `${this.values[field.id] ?? ""}${data}`;
-      this.dirty = true;
-    }
-  }
-}
-
-function sectionMenuLabels(values: ProfileFactValues): string[] {
-  return [
-    ...PROFILE_FACT_SECTIONS.map(section => `${section} (${sectionCompleteness(values, section)}%)`),
-    "preview + save all entered facts",
-    "cancel without saving",
-  ];
-}
-
-function sectionFromLabel(label: string | undefined): ProfileFactSection | undefined {
-  const section = label?.split(" ")[0];
-  return PROFILE_FACT_SECTIONS.find(s => s === section);
-}
-
-async function editProfileFactSection(ctx: any, section: ProfileFactSection, values: ProfileFactValues): Promise<ProfileFactValues | null> {
-  const before = { ...values };
-  const fields = PROFILE_FACT_FIELDS.filter(field => field.section === section);
-  const result = await ctx.ui.custom<ProfileFactFormResult>((tui: { requestRender: () => void }, theme: any, _kb: unknown, done: (result: ProfileFactFormResult) => void) => {
-    const form = new ProfileFactForm(theme, section, fields, values, done);
-    return {
-      render: (width: number) => form.render(width),
-      invalidate: () => form.invalidate(),
-      handleInput: (data: string) => {
-        form.handleInput(data);
-        tui.requestRender();
-      },
-    };
-  });
-
-  if (result.action === "done") return result.values;
-  if (!result.dirty) return null;
-
-  const discard = await ctx.ui.confirm(
-    "Go back without saving this section?",
-    "You changed fields on this screen. Choose Yes to discard those edits and return to the category menu, or No to keep editing.",
-  );
-  if (discard) {
-    for (const key of Object.keys(values)) delete values[key];
-    Object.assign(values, before);
-    return null;
-  }
-  return editProfileFactSection(ctx, section, values);
-}
-
 async function runStructuredProfileFactFlow(ctx: any, save: (patch: ProfilePatch) => Promise<{ text: string }>, loadProfile?: () => Promise<ProfilePatch>) {
   let values: ProfileFactValues = profilePatchToFactValues(loadProfile ? await loadProfile() : undefined);
 
   while (true) {
     const choice = await ctx.ui.select(
       "Structured facts: choose a category. Percentages include currently stored profile fields.",
-      sectionMenuLabels(values),
+      sectionMenuLabels(PROFILE_FACT_SECTIONS, values, sectionCompleteness),
     );
 
     if (!choice || choice === "cancel without saving") {
@@ -428,9 +219,14 @@ async function runStructuredProfileFactFlow(ctx: any, save: (patch: ProfilePatch
 
     if (choice === "preview + save all entered facts") break;
 
-    const section = sectionFromLabel(choice);
+    const section = sectionFromLabel(PROFILE_FACT_SECTIONS, choice);
     if (!section) continue;
-    const edited = await editProfileFactSection(ctx, section, values);
+    const edited = await editProfileFactSection(ctx, {
+      section,
+      fields: PROFILE_FACT_FIELDS.filter(field => field.section === section),
+      values,
+      completeness: sectionCompleteness,
+    });
     if (edited) values = { ...values, ...edited };
   }
 
