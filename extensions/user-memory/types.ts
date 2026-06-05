@@ -18,6 +18,7 @@ export type TimelineInterval = {
 };
 
 export const SENSITIVITY_TIERS = ["auto", "baseline", "general", "context_gated", "temporal_gated"] as const;
+export const PINNED_PROFILE_TAGS = new Set(["name", "height", "weight", "measurements", "body", "dob", "birthday", "age"]);
 export type MemoryWizardSensitivity = typeof SENSITIVITY_TIERS[number];
 export type StoredSensitivityTier = Exclude<MemoryWizardSensitivity, "auto">;
 
