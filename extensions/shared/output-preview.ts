@@ -9,3 +9,9 @@ export function truncateWithMarker(text: string, maxChars: number, marker = "…
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - marker.length)).trimEnd()}\n${marker}`;
 }
+
+export function headTailWithMarker(text: string, options: { thresholdChars: number; headChars: number; tailChars: number; marker: (removedChars: number) => string }): string {
+  if (text.length <= options.thresholdChars) return text;
+  const removed = Math.max(0, text.length - options.headChars - options.tailChars);
+  return `${text.slice(0, options.headChars)}${options.marker(removed)}${text.slice(text.length - options.tailChars)}`;
+}

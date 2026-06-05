@@ -30,6 +30,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { join, relative, dirname, extname, delimiter } from "node:path";
+import { repoRelativePath } from "../shared/path-policy";
 
 const execFileAsync = promisify(execFile);
 
@@ -262,7 +263,7 @@ async function extractSymbols(
     const colonIdx = line.indexOf(":");
     if (colonIdx === -1) continue;
     const rawPath = line.slice(0, colonIdx);
-    const relPath = relative(cwd, rawPath).replace(/\\/g, "/");
+    const relPath = repoRelativePath(cwd, rawPath);
 
     const sym = parseSymbolLine(line, lang);
     if (!sym) continue;

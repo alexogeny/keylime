@@ -1,3 +1,5 @@
+import { toPosixPath } from "./path-policy";
+
 export type BashMutationHit = {
   label: string;
 };
@@ -28,7 +30,7 @@ export interface MutationClassification {
 }
 
 function normalizeWritePathForPolicy(path: string): string {
-  let normalized = path.replace(/\\/g, "/");
+  let normalized = toPosixPath(path);
   normalized = normalized.replace(/^\.\/+/, "");
   const parts: string[] = [];
   for (const part of normalized.split("/")) {

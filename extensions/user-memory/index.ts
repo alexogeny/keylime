@@ -30,8 +30,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { readJsonFile, writeJsonFile } from "../shared/json-store";
+import { pruneFilesByNewest } from "../shared/retention";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { registerContextProvider } from "../shared/turn-context";
@@ -1610,8 +1611,8 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       const ts  = safeTimestampForFilename();
       const mDst = join(backupDir, `memories-${ts}.json`);
       const eDst = join(backupDir, `entities-${ts}.json`);
-      await writeFile(mDst, JSON.stringify(store, null, 2), "utf8");
-      await writeFile(eDst, JSON.stringify(entityStore, null, 2), "utf8");
+      await writeJsonFile(mDst, store);
+      await writeJsonFile(eDst, entityStore);
       ctx.ui.notify(
         `💾 Backed up ${store.memories.length} memories → backups/memories-${ts}.json`,
         "info",
@@ -1642,7 +1643,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       // Show picker
       const labels = await Promise.all(files.map(async f => {
         try {
-          const raw  = JSON.parse(await readFile(join(backupDir, f), "utf8")) as MemoryStore;
+          const raw = await readJsonFile<MemoryStore>(join(backupDir, f), { version: 1, memories: [] });
           const count = raw.memories?.length ?? 0;
           const ts    = f.replace("memories-", "").replace(".json", "").replace(/-/g, (m, i) => i === 13 ? ":" : i === 16 ? ":" : i === 10 ? "T" : "-");
           return `${ts}  (${count} memories)`;
@@ -1665,19 +1666,19 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
 
       // Auto-backup current state before restoring
       const safetyTs  = safeTimestampForFilename();
-      await writeFile(join(backupDir, `memories-${safetyTs}.json`), JSON.stringify(store, null, 2), "utf8");
-      await writeFile(join(backupDir, `entities-${safetyTs}.json`), JSON.stringify(entityStore, null, 2), "utf8");
+      await writeJsonFile(join(backupDir, `memories-${safetyTs}.json`), store);
+      await writeJsonFile(join(backupDir, `entities-${safetyTs}.json`), entityStore);
 
       // Load the chosen backup
-      const restored = JSON.parse(await readFile(join(backupDir, chosen), "utf8")) as MemoryStore;
-      await writeFile(MEMORY_FILE, JSON.stringify(restored, null, 2), "utf8");
+      const restored = await readJsonFile<MemoryStore>(join(backupDir, chosen), { version: 1, memories: [] });
+      await writeJsonFile(MEMORY_FILE, restored);
 
       // Try to load matching entities backup
       const eBackup = chosen.replace("memories-", "entities-");
       const eBackupPath = join(backupDir, eBackup);
       if (existsSync(eBackupPath)) {
-        const restoredEntities = JSON.parse(await readFile(eBackupPath, "utf8")) as EntityStore;
-        await writeFile(join(DATA_DIR, "entities.json"), JSON.stringify(restoredEntities, null, 2), "utf8");
+        const restoredEntities = await readJsonFile<EntityStore>(eBackupPath, { version: 1, entities: [] });
+        await writeJsonFile(join(DATA_DIR, "entities.json"), restoredEntities);
       }
 
       // Rebuild in-memory index
@@ -1984,16 +1985,14 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
         const backupDir = join(DATA_DIR, "backups");
         await mkdir(backupDir, { recursive: true });
         const ts = safeTimestampForFilename();
-        await writeFile(join(backupDir, `memories-${ts}.json`), JSON.stringify(store, null, 2), "utf8");
-        await writeFile(join(backupDir, `entities-${ts}.json`), JSON.stringify(entityStore, null, 2), "utf8");
+        await writeJsonFile(join(backupDir, `memories-${ts}.json`), store);
+        await writeJsonFile(join(backupDir, `entities-${ts}.json`), entityStore);
         // Prune: keep only the 10 most recent backups
-        const { readdir } = await import("node:fs/promises");
-        const all = (await readdir(backupDir)).filter(f => f.startsWith("memories-")).sort();
-        for (const old of all.slice(0, Math.max(0, all.length - 10))) {
-          const { unlink } = await import("node:fs/promises");
-          await unlink(join(backupDir, old)).catch(() => {});
-          await unlink(join(backupDir, old.replace("memories-", "entities-"))).catch(() => {});
-        }
+        await pruneFilesByNewest(backupDir, {
+          keep: 10,
+          filter: file => file.startsWith("memories-"),
+          relatedFiles: file => [file.replace("memories-", "entities-")],
+        });
       } catch { /* non-fatal */ }
     }
     // Session status disabled (noise reduction)

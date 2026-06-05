@@ -6,7 +6,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { stringEnum } from "../shared/schema";
 import { allVariants, textSearch, applyFilter, formatHit, formatDiff, ALL_SHOES, parseNaturalQuery, type Gender } from "./search.js";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
+import { readJsonFile, writeJsonFile } from "../shared/json-store";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { Shoe, ShoeVariant } from "./types.js";
@@ -38,16 +39,11 @@ function tsVal(v: unknown, depth = 0): string {
 }
 
 async function readCustom(): Promise<Shoe[]> {
-  try {
-    const raw = await readFile(CUSTOM_JSON, "utf8");
-    return JSON.parse(raw) as Shoe[];
-  } catch {
-    return [];
-  }
+  return readJsonFile<Shoe[]>(CUSTOM_JSON, []);
 }
 
 async function writeCustom(shoes: Shoe[]): Promise<void> {
-  await writeFile(CUSTOM_JSON, JSON.stringify(shoes, null, 2) + "\n", "utf8");
+  await writeJsonFile(CUSTOM_JSON, shoes, { finalNewline: true });
   const entries = shoes.map((s) => `  ${tsVal(s, 1)}`).join(",\n");
   const ts = [
     "// ── AUTO-GENERATED — do not edit by hand ─────────────────────────────────────",

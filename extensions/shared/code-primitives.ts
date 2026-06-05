@@ -1,4 +1,5 @@
-import { extname, isAbsolute, relative, resolve } from "node:path";
+import { extname, relative, resolve } from "node:path";
+import { resolveSafePath } from "./path-policy";
 
 export type Language = "typescript" | "python" | "rust" | "javascript";
 export type MatchMode = "exact" | "trimmed_lines" | "normalized_whitespace";
@@ -303,13 +304,7 @@ export function formatPlanPreview(plan: ReplacementPlan, options: { color?: bool
   ].join("\n")).join("\n");
 }
 
-export function resolveSafePath(cwd: string, inputPath: string): string {
-  const root = resolve(cwd);
-  const candidate = isAbsolute(inputPath) ? resolve(inputPath) : resolve(root, inputPath);
-  const rel = relative(root, candidate);
-  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) return candidate;
-  throw new Error(`Path is outside cwd: ${inputPath}`);
-}
+export { resolveSafePath } from "./path-policy";
 
 export function isProbablyBinary(buffer: Buffer | Uint8Array): boolean {
   const sample = buffer.subarray(0, Math.min(buffer.length, 8192));

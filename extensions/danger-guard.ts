@@ -8,7 +8,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -24,6 +23,10 @@ interface DangerPattern {
 }
 
 const CODING_MODE_BLOCKED_TOOLS = new Set(["read", "write", "edit"]);
+
+function isToolCallEventType(name: string, event: any): boolean {
+  return event?.toolName === name || event?.tool?.name === name || event?.name === name;
+}
 
 const BUILTIN_PATTERNS: DangerPattern[] = [
   // Recursive deletes

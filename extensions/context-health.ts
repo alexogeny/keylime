@@ -16,6 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { formatBar, formatCompactNumber, formatUsd } from "./shared/format";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -25,22 +26,15 @@ const STATUS_KEY = "ctx-health";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeBar(pct: number): string {
-  const filled = Math.round((pct / 100) * BAR_WIDTH);
-  const empty  = BAR_WIDTH - filled;
-  return "█".repeat(filled) + "░".repeat(empty);
+  return formatBar(pct, BAR_WIDTH);
 }
 
 function fmtCost(usd: number): string {
-  if (usd < 0.001)  return `<$0.001`;
-  if (usd < 0.01)   return `$${usd.toFixed(3)}`;
-  if (usd < 1)      return `$${usd.toFixed(2)}`;
-  return `$${usd.toFixed(1)}`;
+  return formatUsd(usd);
 }
 
 function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `${Math.round(n / 1_000)}k`;
-  return `${n}`;
+  return formatCompactNumber(n);
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────

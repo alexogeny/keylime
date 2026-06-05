@@ -19,6 +19,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { formatCompactNumber } from "./shared/format";
+import { rawTextFromContent } from "./shared/message-content";
+import { headTailWithMarker } from "./shared/output-preview";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -31,37 +34,22 @@ const STATUS_KEY      = "cache-guard";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtK(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `${Math.round(n / 1_000)}k`;
-  return `${n}`;
-}
-
-function getTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return (content as any[])
-      .filter((b: any) => b?.type === "text")
-      .map((b: any) => b.text as string)
-      .join("\n");
-  }
-  return "";
+  return formatCompactNumber(n);
 }
 
 function estimateChars(content: unknown): number {
-  return getTextContent(content).length;
+  return rawTextFromContent(content).length;
 }
 
 function truncateContent(content: unknown, label: string): unknown {
-  const compress = (text: string): string => {
-    if (text.length <= TRUNCATE_CHARS) return text;
-    const removed = text.length - KEEP_HEAD - KEEP_TAIL;
-    return (
-      text.slice(0, KEEP_HEAD) +
+  const compress = (text: string): string => headTailWithMarker(text, {
+    thresholdChars: TRUNCATE_CHARS,
+    headChars: KEEP_HEAD,
+    tailChars: KEEP_TAIL,
+    marker: removed =>
       `\n\n… [cache-guard: ${removed.toLocaleString()} chars removed from ${label} output — ` +
-      `use a more targeted query or read with offset/limit to see more] …\n\n` +
-      text.slice(text.length - KEEP_TAIL)
-    );
-  };
+      `use a more targeted query or read with offset/limit to see more] …\n\n`,
+  });
 
   if (typeof content === "string") return compress(content);
   if (Array.isArray(content)) {

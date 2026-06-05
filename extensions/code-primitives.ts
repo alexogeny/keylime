@@ -2,7 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { stringEnum } from "./shared/schema";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { repoRelativePath } from "./shared/path-policy";
 import {
   formatPlanPreview,
   inspectCodeStructure,
@@ -64,7 +65,7 @@ async function walkFiles(root: string, dir = root): Promise<string[]> {
   const files: string[] = [];
   for (const entry of entries) {
     const path = `${dir}/${entry.name}`;
-    const rel = relative(root, path).replace(/\\/g, "/");
+    const rel = repoRelativePath(root, path);
     if (shouldExcludePath(rel)) continue;
     if (entry.isDirectory()) files.push(...await walkFiles(root, path));
     else if (entry.isFile()) files.push(path);
@@ -76,7 +77,7 @@ async function collectTargetFiles(cwd: string, options: { file_glob?: string; la
   if (!options.file_glob && !options.language) return [];
   const all = await walkFiles(cwd);
   return all.filter(path => {
-    const rel = relative(cwd, path).replace(/\\/g, "/");
+    const rel = repoRelativePath(cwd, path);
     if (shouldExcludePath(rel, options.exclude_globs)) return false;
     if (options.file_glob && !matchesGlob(rel, options.file_glob)) return false;
     if (!matchesLanguage(rel, options.language)) return false;
@@ -110,7 +111,7 @@ async function listEntries(cwd: string, options: {
     for (const entry of dirents) {
       if (truncated) return;
       const fsPath = `${dir}/${entry.name}`;
-      const rel = relative(cwd, fsPath).replace(/\\/g, "/");
+      const rel = repoRelativePath(cwd, fsPath);
       if (shouldExcludePath(rel, options.exclude_globs)) continue;
       if (entry.isDirectory()) {
         if (includeDirs && (!options.file_glob || matchesGlob(rel, options.file_glob))) entries.push({ path: rel, type: "dir" });
@@ -172,7 +173,7 @@ type PlannedReplacement = {
 };
 
 function relativePath(cwd: string, path: string): string {
-  return relative(cwd, path).replace(/\\/g, "/");
+  return repoRelativePath(cwd, path);
 }
 
 const SOURCE_MUTATION_GUIDELINES = [
@@ -323,7 +324,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const blocks = [];
       const details = [];
       for (const path of targets) {
-        const rel = relative(ctx.cwd, path).replace(/\\/g, "/");
+        const rel = repoRelativePath(ctx.cwd, path);
         const text = await readTextFileSafely(path);
         const matches = inspectTextMatches(text, {
           query: params.query,
