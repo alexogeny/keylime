@@ -275,14 +275,21 @@ export function reminderText(): string {
 }
 
 export default function intentRouterExtension(pi: ExtensionAPI) {
+  let lastInjectedReminder = "";
   registerContextProvider({
     id: "intent-router",
     priority: 100,
     maxChars: 520,
-    build: () => reminderText(),
+    build: () => {
+      const text = reminderText();
+      if (text === lastInjectedReminder) return null;
+      lastInjectedReminder = text;
+      return text;
+    },
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    lastInjectedReminder = "";
     ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "intent:—"));
   });
 

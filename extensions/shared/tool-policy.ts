@@ -33,13 +33,13 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "codemod_add_import", alwaysOn: true, domain: true, risk: "safe" },
   { name: "codemod_insert_test_case", alwaysOn: true, domain: true, risk: "safe" },
   { name: "inspect_tool_result", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "list_tool_results", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "cleanup_tool_results", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "commit_history", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "see_file_commit_history", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "list_tool_results", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "cleanup_tool_results", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "commit_history", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "see_file_commit_history", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
   { name: "git_status", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "git_diff", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_at_checkpoint", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "git_diff", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "inspect_at_checkpoint", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
 
   { name: "bash", group: "core", alwaysOn: false, domain: true, risk: "guarded" },
   { name: "read", group: "readonly", alwaysOn: false, domain: true, risk: "guarded" },
@@ -99,11 +99,14 @@ export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
   for (const policy of TOOL_POLICIES) {
     if (policy.group) groups[policy.group].push(policy.name);
   }
+  const addDefaults = (group: CapabilityGroup, names: string[]) => {
+    groups[group] = [...new Set([...groups[group], ...names])].sort();
+  };
+  addDefaults("core", ["bash"]);
+  addDefaults("readonly", ["bash", "fetch_url", "read"]);
+  addDefaults("coding", ["bash"]);
+  addDefaults("memory-lite", ["recall_entity", "recall_memories", "remember"]);
+  addDefaults("personal", ["recall_entity", "recall_memories", "remember"]);
   for (const group of Object.keys(groups) as CapabilityGroup[]) groups[group].sort();
-  groups.core = ["bash"];
-  groups.readonly = ["bash", "fetch_url", "read"];
-  groups.coding = ["bash"];
-  groups["memory-lite"] = ["recall_entity", "recall_memories", "remember"];
-  groups.personal = ["recall_entity", "recall_memories", "remember"];
   return groups;
 }

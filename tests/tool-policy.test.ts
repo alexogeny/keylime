@@ -23,6 +23,13 @@ describe("shared tool policy", () => {
     expect(alwaysOnToolNames()).not.toContain("bash");
   });
 
+  test("repo history and tool-result maintenance tools are routed, not always-on", () => {
+    expect(alwaysOnToolNames()).not.toContain("commit_history");
+    expect(alwaysOnToolNames()).not.toContain("list_tool_results");
+    expect(capabilityToolMap().repo).toContain("commit_history");
+    expect(capabilityToolMap().coding).toContain("list_tool_results");
+  });
+
   test("stateful memory timeline tool is domain-routed, not preserved as an unknown tool", () => {
     expect(toolPolicyFor("remember_timeline")).toMatchObject({ group: "memory", domain: true, risk: "stateful" });
     expect(domainToolNames()).toContain("remember_timeline");

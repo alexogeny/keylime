@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { activeToolNames } from "../extensions/intent-router";
+import intentRouterExtension, { activeToolNames } from "../extensions/intent-router";
+import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
+import { clearContextProviders, composeTurnContext } from "../extensions/shared/turn-context";
 import { allKnownTestTools, mockPi } from "./helpers/mock-pi";
 
 const allToolNames = allKnownTestTools();
@@ -106,6 +108,28 @@ describe("research gating", () => {
 });
 
 describe("router reminders", () => {
+  test("intent reminder is injected only when reminder content changes", async () => {
+    clearContextProviders();
+    const handlers: Record<string, any> = {};
+    intentRouterExtension({
+      getAllTools: () => allToolNames.map(name => ({ name })),
+      getActiveTools: () => [],
+      setActiveTools: () => {},
+      registerCommand: () => {},
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+    } as any);
+
+    setCurrentRoute(classifyIntent("please implement this"));
+    const first = await composeTurnContext({ getContextUsage: () => ({ percent: 10 }) } as any, [{ role: "user", content: "please implement this" }]);
+    const second = await composeTurnContext({ getContextUsage: () => ({ percent: 10 }) } as any, [{ role: "user", content: "please implement this" }]);
+    setCurrentRoute(classifyIntent("research this online"));
+    const third = await composeTurnContext({ getContextUsage: () => ({ percent: 10 }) } as any, [{ role: "user", content: "research this online" }]);
+
+    expect(first.providerIds).toContain("intent-router");
+    expect(second.providerIds).not.toContain("intent-router");
+    expect(third.providerIds).toContain("intent-router");
+  });
+
   test("freshness with disabled research puts the warning first", async () => {
     const { classifyIntent, setCurrentRoute } = await import("../extensions/shared/intent");
     const { reminderText } = await import("../extensions/intent-router");
