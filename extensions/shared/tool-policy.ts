@@ -80,11 +80,11 @@ export function knownToolNames(): Set<string> {
 }
 
 export function alwaysOnToolNames(): string[] {
-  return TOOL_POLICIES.filter(policy => policy.alwaysOn).map(policy => policy.name);
+  return TOOL_POLICIES.filter(policy => policy.alwaysOn).map(policy => policy.name).sort();
 }
 
 export function domainToolNames(): string[] {
-  return TOOL_POLICIES.filter(policy => policy.domain).map(policy => policy.name);
+  return TOOL_POLICIES.filter(policy => policy.domain).map(policy => policy.name).sort();
 }
 
 export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
@@ -94,10 +94,11 @@ export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
   for (const policy of TOOL_POLICIES) {
     if (policy.group) groups[policy.group].push(policy.name);
   }
+  for (const group of Object.keys(groups) as CapabilityGroup[]) groups[group].sort();
   groups.core = ["bash"];
-  groups.readonly = ["read", "bash", "fetch_url"];
+  groups.readonly = ["bash", "fetch_url", "read"];
   groups.coding = ["bash"];
-  groups["memory-lite"] = ["remember", "recall_memories", "recall_entity"];
-  groups.personal = ["remember", "recall_memories", "recall_entity"];
+  groups["memory-lite"] = ["recall_entity", "recall_memories", "remember"];
+  groups.personal = ["recall_entity", "recall_memories", "remember"];
   return groups;
 }
