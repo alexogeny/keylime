@@ -6,9 +6,26 @@ import { promisify } from "node:util";
 import { customCheckCommand, defaultCheckCommands, detectProjectKind, type CheckSuite } from "./shared/test-runner";
 import { isCapabilityActive } from "./shared/intent";
 import { runChecksCommandBlockReason } from "./shared/safety-policy";
+import { headTail } from "./shared/output-preview";
 export { runChecksCommandBlockReason } from "./shared/safety-policy";
 
 const execFileAsync = promisify(execFile);
+const CHECK_STREAM_PREVIEW_CHARS = 3000;
+
+export function summarizeCheckStream(text: string, maxChars = CHECK_STREAM_PREVIEW_CHARS): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  const interesting = trimmed
+    .split(/\r?\n/)
+    .filter(line => /fail|error|exception|trace|warning|denied|blocked|expected|received|panic|assert/i.test(line))
+    .slice(0, 12);
+  const preview = headTail(trimmed, maxChars, `… [run_checks output truncated: ${trimmed.length - maxChars} chars removed] …`);
+  return [
+    `Output summarized (${trimmed.length} chars).`,
+    interesting.length ? `Key lines:\n${interesting.join("\n")}` : "",
+    `Preview:\n${preview}`,
+  ].filter(Boolean).join("\n");
+}
 
 function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
   return Type.Union(values.map(value => Type.Literal(value)), options);
@@ -60,10 +77,10 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
             timeout: params.timeout_ms ?? 120_000,
             maxBuffer: 1024 * 1024,
           });
-          results.push({ ...cmd, ok: true, stdout: result.stdout, stderr: result.stderr });
+          results.push({ ...cmd, ok: true, stdout: summarizeCheckStream(result.stdout), stderr: summarizeCheckStream(result.stderr) });
         } catch (err: any) {
           const stderr = typeof err.stderr === "string" && err.stderr.trim() ? err.stderr : err.message ?? "";
-          results.push({ ...cmd, ok: false, stdout: err.stdout ?? "", stderr, code: err.code });
+          results.push({ ...cmd, ok: false, stdout: summarizeCheckStream(err.stdout ?? ""), stderr: summarizeCheckStream(stderr), code: err.code });
           break;
         }
       }

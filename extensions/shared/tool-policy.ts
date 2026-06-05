@@ -53,6 +53,7 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "manage_question", group: "project", domain: true, risk: "stateful" },
 
   { name: "remember", group: "memory", domain: true, risk: "stateful" },
+  { name: "remember_timeline", group: "memory", domain: true, risk: "stateful" },
   { name: "recall_memories", group: "memory", domain: true, risk: "stateful" },
   { name: "update_memory", group: "memory", domain: true, risk: "stateful" },
   { name: "forget_memory", group: "memory", domain: true, risk: "stateful" },

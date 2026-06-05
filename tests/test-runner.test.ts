@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { customCheckCommand, defaultCheckCommands, detectProjectKind } from "../extensions/shared/test-runner";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
-import { runChecksCommandBlockReason } from "../extensions/test-runner";
+import { runChecksCommandBlockReason, summarizeCheckStream } from "../extensions/test-runner";
 
 describe("test runner defaults", () => {
   test("detects project kind", () => {
@@ -58,6 +58,21 @@ describe("test runner defaults", () => {
     }, undefined, undefined, { cwd: process.cwd() })).rejects.toThrow("run_checks blocked custom command");
 
     setCurrentRoute(classifyIntent("hello"));
+  });
+
+  test("summarizes large check streams while preserving key failure lines", () => {
+    const large = [
+      "start of output",
+      "Error: expected true received false",
+      ...Array.from({ length: 400 }, (_, i) => `boring line ${i}`),
+      "tail of output",
+    ].join("\n");
+
+    const summarized = summarizeCheckStream(large, 500);
+
+    expect(summarized).toContain("Output summarized");
+    expect(summarized).toContain("Error: expected true received false");
+    expect(summarized.length).toBeLessThan(900);
   });
 
   test("custom command accepts either argv or a shell-style command string", () => {

@@ -9,6 +9,7 @@ export type ContextProviderArgs = {
   prompt: string;
   route: IntentRoute;
   pressure: "low" | "medium" | "high";
+  remainingBudget: number;
 };
 
 export type ContextProviderStability = "static" | "session" | "turn";
@@ -115,7 +116,7 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
   const pressure = contextPressure(ctx);
   const route = getCurrentRoute();
   const prompt = promptFromMessages(messages);
-  const args: ContextProviderArgs = { ctx, messages, prompt, route, pressure };
+  const baseArgs = { ctx, messages, prompt, route, pressure };
   const sections: string[] = [];
   const providerIds: string[] = [];
   const diagnostics: ContextProviderDiagnostic[] = [];
@@ -129,6 +130,7 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "budget" });
       break;
     }
+    const args: ContextProviderArgs = { ...baseArgs, remainingBudget: remaining };
     if (provider.applies && !(await provider.applies(args))) {
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "not_applicable" });
       continue;

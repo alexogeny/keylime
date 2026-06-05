@@ -24,6 +24,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getCurrentRoute, type IntentRoute } from "../shared/intent";
 import { Type } from "typebox";
 import { stringEnum } from "../shared/schema";
 import { execFile } from "node:child_process";
@@ -332,6 +333,10 @@ interface IndexState {
 
 const state: IndexState = { cwd: "", skeleton: "", dirty: true };
 
+export function shouldInjectRepoSkeleton(route: IntentRoute = getCurrentRoute()): boolean {
+  return route.primaryIntent === "coding" || route.primaryIntent === "debugging" || route.primaryIntent === "refactor" || route.primaryIntent === "review";
+}
+
 export function isRepoIndexDirty(): boolean {
   return state.dirty;
 }
@@ -393,6 +398,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
   let lastInjectedSkeleton = "";
 
   pi.on("before_agent_start", async (event, ctx) => {
+    if (!shouldInjectRepoSkeleton()) return;
     if (ctx.cwd !== state.cwd || state.dirty) await rebuildIndex(ctx.cwd);
     if (!state.skeleton)       return;
     if (state.skeleton === lastInjectedSkeleton) {

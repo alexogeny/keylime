@@ -54,6 +54,17 @@ describe("turn context composer", () => {
     expect(result.messages[0].content).not.toContain("skip me");
   });
 
+  test("passes current remaining budget to providers", async () => {
+    const seen: number[] = [];
+    registerContextProvider({ id: "first", priority: 10, maxChars: 100, build: ({ remainingBudget }) => { seen.push(remainingBudget); return "first"; } });
+    registerContextProvider({ id: "second", priority: 1, maxChars: 100, build: ({ remainingBudget }) => { seen.push(remainingBudget); return "second"; } });
+
+    await composeTurnContext(ctx(10), messages("hello"));
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBeGreaterThan(seen[1]);
+  });
+
   test("dedupes exact duplicate provider output and reports provider diagnostics", async () => {
     registerContextProvider({ id: "high", priority: 10, maxChars: 100, stability: "turn", build: () => "same reminder" } as any);
     registerContextProvider({ id: "low", priority: 1, maxChars: 100, stability: "session", build: () => "same reminder" } as any);

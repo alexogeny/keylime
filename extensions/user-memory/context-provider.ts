@@ -91,7 +91,7 @@ export function registerUserMemoryContext(options: RegisterUserMemoryContextOpti
     id: "user-memory",
     priority: 60,
     maxChars: 520,
-    build: async ({ prompt }) => {
+    build: async ({ prompt, route }) => {
       await options.ensureLoaded();
       const store = options.getStore();
       if (store.memories.length === 0) return null;
@@ -127,11 +127,14 @@ export function registerUserMemoryContext(options: RegisterUserMemoryContextOpti
             .map(m => m.id)
         );
 
+        const mentionedEntities = queryEntities(options.getEntityStore(), prompt);
+        const codeRoute = route.primaryIntent === "coding" || route.primaryIntent === "debugging" || route.primaryIntent === "refactor" || route.primaryIntent === "review";
+        if (codeRoute && mentionedEntities.length === 0) return lines.length > 0 ? lines.join("\n") : null;
+
         const upcoming = store.memories
           .filter(m => m.expires_at && m.expires_at > now && daysUntil(m.expires_at) <= 90)
           .sort((a, b) => (a.expires_at ?? 0) - (b.expires_at ?? 0));
 
-        const mentionedEntities = queryEntities(options.getEntityStore(), prompt);
         const entityMems: Memory[] = [];
         for (const entity of mentionedEntities.slice(0, 3)) {
           for (const mid of entity.memory_ids) {

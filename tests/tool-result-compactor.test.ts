@@ -81,7 +81,7 @@ describe("tool result compaction", () => {
     }
   });
 
-  test("tool_result middleware skips errors, small outputs, and inspect_tool_result recursion", async () => {
+  test("tool_result middleware compacts large errors but skips small outputs and inspect_tool_result recursion", async () => {
     const handlers: Record<string, any> = {};
     toolResultCompactorExtension({
       on: (name: string, handler: any) => { handlers[name] = handler; },
@@ -89,7 +89,9 @@ describe("tool result compaction", () => {
     } as any);
 
     await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "small" }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
-    await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "x".repeat(8000) }], isError: true }, { cwd: process.cwd() })).resolves.toBeUndefined();
+    const errorPatch = await handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "x".repeat(8000) }], isError: true }, { cwd: process.cwd() });
+    expect(errorPatch.details.compacted).toBe(true);
+    expect(errorPatch.isError).toBe(true);
     await expect(handlers.tool_result({ toolName: "inspect_tool_result", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
   });
 

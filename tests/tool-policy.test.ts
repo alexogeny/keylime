@@ -22,4 +22,9 @@ describe("shared tool policy", () => {
     expect(toolPolicyFor("write")).toMatchObject({ alwaysOn: false, risk: "dangerous" });
     expect(alwaysOnToolNames()).not.toContain("bash");
   });
+
+  test("stateful memory timeline tool is domain-routed, not preserved as an unknown tool", () => {
+    expect(toolPolicyFor("remember_timeline")).toMatchObject({ group: "memory", domain: true, risk: "stateful" });
+    expect(domainToolNames()).toContain("remember_timeline");
+  });
 });

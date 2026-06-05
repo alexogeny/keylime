@@ -145,7 +145,7 @@ function compactedContentText(toolName: string, stored: { id: string; path: stri
 
 export default function toolResultCompactor(pi: ExtensionAPI) {
   pi.on("tool_result", async (event, ctx) => {
-    if ((event as any).isError || (event as any).toolName === "inspect_tool_result") return;
+    if ((event as any).toolName === "inspect_tool_result") return;
     const compacted = compactToolResultContent((event as any).content);
     if (!compacted.shouldCompact) return;
 
@@ -168,6 +168,7 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
         resultPath: stored.path,
         originalChars: compacted.originalChars,
       },
+      isError: (event as any).isError,
     };
   });
 

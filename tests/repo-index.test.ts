@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import repoIndexExtension, { isIndexedSourcePath, isRepoIndexDirty, markRepoIndexCleanForTest } from "../extensions/repo-index/index";
+import { classifyIntent } from "../extensions/shared/intent";
+import repoIndexExtension, { isIndexedSourcePath, isRepoIndexDirty, markRepoIndexCleanForTest, shouldInjectRepoSkeleton } from "../extensions/repo-index/index";
 
 async function registeredRepoIndexTools(): Promise<Record<string, any>> {
   const tools: Record<string, any> = {};
@@ -25,6 +26,14 @@ async function registeredRepoIndexHandlers(): Promise<Record<string, any>> {
 }
 
 describe("code_search file_glob handling", () => {
+  test("repo skeleton injection is limited to code-oriented routes", () => {
+    const chat = classifyIntent("hello how are you");
+    expect(shouldInjectRepoSkeleton(chat)).toBe(false);
+    expect(shouldInjectRepoSkeleton({ ...chat, primaryIntent: "coding" })).toBe(true);
+    expect(shouldInjectRepoSkeleton({ ...chat, primaryIntent: "debugging" })).toBe(true);
+    expect(shouldInjectRepoSkeleton({ ...chat, primaryIntent: "review" })).toBe(true);
+  });
+
   test("structural search finds repo-index symbols with a relative file_glob", async () => {
     const tools = await registeredRepoIndexTools();
     const result = await tools.code_search.execute("id", {
