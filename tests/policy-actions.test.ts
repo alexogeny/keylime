@@ -33,4 +33,17 @@ describe("policy actions", () => {
     expect(plan.preferredTools).toEqual([]);
     expect(plan.risks[0]).toContain("No matching codemod primitive");
   });
+
+  test("suggestChecks handles multiple paths and empty query without crashing", () => {
+    const suggestions = suggestChecks("", ["extensions/shared/safety-policy.ts", "extensions/shared/retrieval/bm25.ts"], 5);
+    expect(suggestions.map(s => s.id)).toContain("checks.danger-guard");
+    expect(suggestions.map(s => s.id)).toContain("checks.retrieval");
+  });
+
+  test("codemod plan returns only known preferred tools from corpus docs", () => {
+    const plan = planCodemod("update json package script", ["extensions/package.json"]);
+    expect(plan.selectedPrimitive).toBe("codemod.update-json-key");
+    expect(plan.preferredTools).toEqual(expect.arrayContaining(["inspect_json", "apply_code_replacements"]));
+    expect(plan.preferredTools.every(tool => typeof tool === "string" && tool.length > 0)).toBe(true);
+  });
 });

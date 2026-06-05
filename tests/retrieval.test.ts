@@ -138,4 +138,35 @@ describe("RetrievalIndex hybrid search", () => {
     expect(index.search("the and or")).toEqual([]);
     expect(index.search("runtime", { topK: 0 })).toEqual([]);
   });
+
+  test("replaces duplicate document ids consistently across all rankers", () => {
+    const index = new RetrievalIndex();
+    index.add({ id: "same", kind: "routing", title: "Old", body: "alpha beta" });
+    index.add({ id: "same", kind: "routing", title: "New", body: "gamma delta" });
+
+    expect(index.size).toBe(1);
+    expect(index.search("alpha", { topK: 5 })).toEqual([]);
+    expect(index.search("gamma", { topK: 5 })[0]?.document?.title).toBe("New");
+  });
+
+  test("searches metadata-only and path-like/code-token documents", () => {
+    const index = buildRetrievalIndex([
+      { id: "meta", kind: "check", body: "", fields: { paths: ["extensions/shared/safety-policy.ts"], commands: ["bun test tests/safety-policy.test.ts"] } },
+      { id: "code", kind: "codemod", body: "handle addImportSymbol and repo-index/index.ts path tokens" },
+    ]);
+
+    expect(index.search("safety-policy.ts", { topK: 1 })[0]?.id).toBe("meta");
+    expect(index.search("add import symbol", { topK: 1 })[0]?.id).toBe("code");
+    expect(index.search("repo index", { topK: 1 })[0]?.id).toBe("code");
+  });
+
+  test("handles non-ascii text without crashing and still ranks ascii overlap", () => {
+    const index = buildRetrievalIndex([
+      { id: "emoji", kind: "context", body: "café résumé naïve 🚀 context" },
+      { id: "ascii", kind: "context", body: "plain context routing" },
+    ]);
+
+    expect(index.search("context", { topK: 2 }).map(r => r.id)).toContain("ascii");
+    expect(index.search("🚀", { topK: 2 })).toEqual([]);
+  });
 });

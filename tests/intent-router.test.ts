@@ -254,6 +254,20 @@ test("switch-intent programming forces coding tools until cleared", async () => 
   expect(routeForPrompt(mockPi, "tell me about the latest brooks ghost").primaryIntent).toBe("running_shoes");
 });
 
+test("policy-assisted routing does not hijack ordinary chat, research, or domain prompts", async () => {
+  const { routeForPrompt } = await import("../extensions/intent-router");
+  const mockPi = {
+    getAllTools: () => allToolNames.map(name => ({ name })),
+    getActiveTools: () => [],
+    setActiveTools: () => {},
+  } as any;
+
+  expect(routeForPrompt(mockPi, "thanks that makes sense").primaryIntent).toBe("chat");
+  expect(routeForPrompt(mockPi, "research current sources for this topic").primaryIntent).toBe("research");
+  expect(routeForPrompt(mockPi, "what is the latest brooks ghost running shoe").primaryIntent).toBe("running_shoes");
+  expect(routeForPrompt(mockPi, "remember that I prefer black coffee").primaryIntent).toBe("memory");
+});
+
 test("policy-assisted routing upgrades low-confidence refactor phrasing", async () => {
   const { routeForPrompt } = await import("../extensions/intent-router");
   const calls: string[][] = [];
@@ -267,6 +281,21 @@ test("policy-assisted routing upgrades low-confidence refactor phrasing", async 
 
   expect(route.primaryIntent).toBe("refactor");
   expect(calls.at(-1)).toContain("codemod_plan");
+  expect(calls.at(-1)).toContain("run_checks");
+});
+
+test("policy-assisted routing upgrades low-confidence debugging phrasing", async () => {
+  const { routeForPrompt } = await import("../extensions/intent-router");
+  const calls: string[][] = [];
+  const mockPi = {
+    getAllTools: () => allToolNames.map(name => ({ name })),
+    getActiveTools: () => [],
+    setActiveTools: (names: string[]) => calls.push(names),
+  } as any;
+
+  const route = routeForPrompt(mockPi, "why did this start exploding after the change");
+
+  expect(route.primaryIntent).toBe("debugging");
   expect(calls.at(-1)).toContain("run_checks");
 });
 

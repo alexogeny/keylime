@@ -354,6 +354,19 @@ describe("code primitive extension tools", () => {
       edits: [{ path: ".env", oldText: "old", newText: "new" }],
     }, undefined, undefined, { cwd })).rejects.toThrow("blocked by safety policy");
 
+    await expect(tools.apply_code_replacements.execute("id", {
+      edits: [
+        { path: "src/safe.ts", oldText: "old", newText: "new" },
+        { path: ".env", oldText: "old", newText: "new" },
+      ],
+    }, undefined, undefined, { cwd })).rejects.toThrow("blocked by safety policy");
+
+    await expect(tools.create_file.execute("id", {
+      path: ".git/hooks/generated",
+      content: "hook\n",
+      create_dirs: true,
+    }, undefined, undefined, { cwd })).rejects.toThrow("blocked by safety policy");
+
     const dryRun = await tools.apply_code_replacements.execute("id", {
       dry_run: true,
       edits: [{ path: ".env", oldText: "old", newText: "new" }],

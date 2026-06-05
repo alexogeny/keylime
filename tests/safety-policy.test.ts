@@ -39,4 +39,64 @@ describe("central mutation classification", () => {
     expect(runChecksCommandBlockReason("python", ["-c", "print(1)"])).toContain("inline execution");
     expect(runChecksCommandBlockReason("bun", ["test", "tests"])).toBeNull();
   });
+
+  test.each([
+    ["sh", ["-c", "echo hi"]],
+    ["zsh", ["-c", "echo hi"]],
+    ["fish", ["-c", "echo hi"]],
+    ["bash", ["-lc", "echo hi"]],
+  ])("run_checks blocks shell command strings through %s", (command, args) => {
+    expect(runChecksCommandBlockReason(command, args)).toContain("command string");
+  });
+
+  test.each([
+    ["node", ["-e", "console.log(1)"]],
+    ["bun", ["-e", "console.log(1)"]],
+    ["python", ["-c", "print(1)"]],
+    ["python3", ["-c", "print(1)"]],
+    ["perl", ["-e", "print 1"]],
+    ["ruby", ["-e", "puts 1"]],
+    ["deno", ["eval", "console.log(1)"]],
+  ])("run_checks blocks inline runtime execution through %s", (command, args) => {
+    expect(runChecksCommandBlockReason(command, args)).toMatch(/inline execution|deno eval/);
+  });
+
+  test.each([
+    ["cat > file.ts"],
+    ["printf hi >> file.ts"],
+    ["grep foo src 2> errors.log"],
+    ["echo hi &> all.log"],
+    ["cat <<EOF\nhello\nEOF"],
+    ["tee output.txt"],
+    ["true && rm file.ts"],
+    ["echo ok; touch file.ts"],
+    ["git reset --hard"],
+  ])("classifies shell mutation form: %s", (command) => {
+    const c = classifyToolMutation("bash", { command });
+    expect(c.mutates).toBe(true);
+    expect(c.score).toBeGreaterThanOrEqual(8);
+    expect(c.requiresConfirmation).toBe(true);
+  });
+
+  test.each([
+    ["./.env"],
+    [".env.local"],
+    [".git/hooks/post-commit"],
+    ["node_modules/pkg/index.js"],
+  ])("classifies normalized protected path: %s", (path) => {
+    const c = classifyToolMutation("create_file", { path });
+    expect(c.category).toBe("protected_path");
+    expect(c.allowed).toBe(false);
+  });
+
+  test("classifies multi-edit protected replacement even when other edits are safe", () => {
+    const c = classifyToolMutation("apply_code_replacements", {
+      edits: [
+        { path: "src/safe.ts", oldText: "a", newText: "b" },
+        { path: ".env", oldText: "a", newText: "b" },
+      ],
+    });
+    expect(c.category).toBe("protected_path");
+    expect(c.writePaths).toContain(".env");
+  });
 });

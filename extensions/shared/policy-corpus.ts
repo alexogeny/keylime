@@ -26,7 +26,7 @@ export const POLICY_DOCUMENTS: PolicyDocument[] = [
     id: "routing.debug",
     kind: "routing",
     title: "Debug failing behavior",
-    body: "Reproduce failure, inspect stack traces, search related code, make minimal fix, rerun targeted test. Use run_checks for tests and avoid unrelated refactors.",
+    body: "Reproduce failure, inspect stack traces, search related code, make minimal fix, rerun targeted test. Handles vague debugging language such as exploding after a change, broke after change, why did this fail, and unexpected crash. Use run_checks for tests and avoid unrelated refactors.",
     fields: { active_tools: ["code_search", "inspect_text_matches", "inspect_lines", "run_checks"], locked_tools: ["web", "memory_write"] },
     tags: ["coding", "tests"],
   },

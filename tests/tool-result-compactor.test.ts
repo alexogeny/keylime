@@ -1,5 +1,9 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { compactToolResultContent } from "../extensions/tool-result-compactor";
+import toolResultCompactorExtension, { compactToolResultContent } from "../extensions/tool-result-compactor";
 
 describe("tool result compaction", () => {
   test("leaves small outputs unchanged", () => {
@@ -35,5 +39,81 @@ describe("tool result compaction", () => {
     const text = Array.from({ length: 20 }, (_, i) => `Error ${i}: failed`).join("\n");
     const result = compactToolResultContent(text, { thresholdChars: 20, maxSummaryLines: 3 });
     expect(result.summary).toHaveLength(4);
+  });
+
+  test("tool_result middleware stores oversized successful output and inspect_tool_result retrieves it", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tool-results-"));
+    const handlers: Record<string, any> = {};
+    const tools: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: (tool: any) => { tools[tool.name] = tool; },
+    } as any);
+
+    const huge = `start\n${"x".repeat(7000)}\nError: final failure`;
+    const patch = await handlers.tool_result({
+      toolName: "run_checks",
+      toolCallId: "call-1",
+      input: { suite: "test" },
+      content: [{ type: "text", text: huge }],
+      details: { ok: true },
+      isError: false,
+    }, { cwd });
+
+    expect(patch.details.compacted).toBe(true);
+    expect(patch.details.resultId).toBeString();
+    expect(patch.content[0].text).toContain("Tool result compacted for run_checks");
+    expect(existsSync(join(cwd, patch.details.resultPath))).toBe(true);
+
+    const oldCwd = process.cwd();
+    process.chdir(cwd);
+    try {
+      const full = await tools.inspect_tool_result.execute("id", { result_id: patch.details.resultId, max_chars: 50000 });
+      expect(full.content[0].text).toContain("Error: final failure");
+      expect(full.content[0].text).toContain("call-1");
+    } finally {
+      process.chdir(oldCwd);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tool_result middleware skips errors, small outputs, and inspect_tool_result recursion", async () => {
+    const handlers: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: () => {},
+    } as any);
+
+    await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "small" }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
+    await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "x".repeat(8000) }], isError: true }, { cwd: process.cwd() })).resolves.toBeUndefined();
+    await expect(handlers.tool_result({ toolName: "inspect_tool_result", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
+  });
+
+  test("inspect_tool_result rejects invalid ids and truncates retrieved payloads", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tool-results-"));
+    const handlers: Record<string, any> = {};
+    const tools: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: (tool: any) => { tools[tool.name] = tool; },
+    } as any);
+
+    const patch = await handlers.tool_result({
+      toolName: "code_search",
+      content: [{ type: "text", text: "z".repeat(8000) }],
+      isError: false,
+    }, { cwd });
+
+    const oldCwd = process.cwd();
+    process.chdir(cwd);
+    try {
+      await expect(tools.inspect_tool_result.execute("id", { result_id: "../../etc/passwd" })).rejects.toThrow("Invalid result_id");
+      const capped = await tools.inspect_tool_result.execute("id", { result_id: patch.details.resultId, max_chars: 500 });
+      expect(capped.content[0].text).toContain("[truncated");
+      expect(capped.content[0].text.length).toBeLessThan(900);
+    } finally {
+      process.chdir(oldCwd);
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 });

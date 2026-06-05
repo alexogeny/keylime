@@ -195,6 +195,7 @@ export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute): void {
 
 function policyAssistedRoute(prompt: string, route: IntentRoute, evidence: Array<{ id: string; score: number; kind?: string }>): IntentRoute {
   if (route.primaryIntent !== "chat" || route.confidence > 0.25) return route;
+  if (/\b(remember|recall|forget|memory|preference)\b/i.test(prompt)) return routeForIntent(`remember memory preference ${prompt}`);
   const topRouting = evidence.find(item => item.kind === "routing" && item.score >= 0.45);
   if (!topRouting) return route;
   if (topRouting.id === "routing.refactor") return routeForIntent(`refactor code cleanup preserve behavior ${prompt}`);

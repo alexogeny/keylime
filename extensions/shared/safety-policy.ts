@@ -27,6 +27,18 @@ export interface MutationClassification {
   writePaths: string[];
 }
 
+function normalizeWritePathForPolicy(path: string): string {
+  let normalized = path.replace(/\\/g, "/");
+  normalized = normalized.replace(/^\.\/+/, "");
+  const parts: string[] = [];
+  for (const part of normalized.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
 export const PROTECTED_WRITE_PATHS = [
   ".env", ".env.local", ".env.production", ".env.staging", ".env.secret",
   "node_modules/", ".git/",
@@ -161,7 +173,10 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
     matchedPolicies.push("mutation.file-replacement");
   }
 
-  const protectedPath = writePaths.some(path => PROTECTED_WRITE_PATHS.some(prefix => path === prefix || path.startsWith(prefix)));
+  const protectedPath = writePaths.some(path => {
+    const normalized = normalizeWritePathForPolicy(path);
+    return PROTECTED_WRITE_PATHS.some(prefix => normalized === prefix || normalized.startsWith(prefix));
+  });
   if (protectedPath) {
     score = Math.max(score, 10);
     category = "protected_path";
