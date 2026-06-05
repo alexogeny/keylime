@@ -23,7 +23,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { stringEnum } from "./shared/schema";
+import { readJsonFile, writeJsonFile } from "./shared/json-store";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -32,10 +34,6 @@ import { isCapabilityActive } from "./shared/intent";
 import { registerContextProvider } from "./shared/turn-context";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-
-function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
-  return Type.Union(values.map(value => Type.Literal(value)), options);
-}
 
 interface TechStack {
   language:      string;
@@ -118,19 +116,14 @@ async function findProjectFile(cwd: string): Promise<string | null> {
 async function loadProject(cwd: string): Promise<ProjectPlan | null> {
   const file = await findProjectFile(cwd);
   if (!file) return null;
-  try {
-    return JSON.parse(await readFile(file, "utf8")) as ProjectPlan;
-  } catch {
-    return null;
-  }
+  return readJsonFile<ProjectPlan | null>(file, null);
 }
 
 async function saveProject(cwd: string, plan: ProjectPlan): Promise<string> {
   const dir  = join(cwd, PI_DIR);
   const file = join(dir, PROJECT_FILE);
-  await mkdir(dir, { recursive: true });
   plan.updatedAt = Date.now();
-  await writeFile(file, JSON.stringify(plan, null, 2), "utf8");
+  await writeJsonFile(file, plan);
   return file;
 }
 

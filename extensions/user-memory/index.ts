@@ -55,8 +55,9 @@ import {
   convertTimelineDraftToRememberParams,
   type ProfilePatch,
 } from "./wizard.js";
-import type { MemoryCategory, RememberParams as WizardRememberParams, TimelineMemoryPayload, TimelineSubkind } from "./types.js";
+import type { MemoryCategory, RememberParams as WizardRememberParams, TimelineMemoryPayload, TimelineSubkind, UserProfile } from "./types.js";
 import { backupLabels, createMemoryBackup, listMemoryBackups, loadMemoryBackup, pruneMemoryBackups, restoreEntityBackup } from "./backups.js";
+import { profileContextLines, profileSearchLines } from "./profile-context.js";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -109,14 +110,6 @@ interface Memory {
   timeline?: TimelineMemoryPayload;   // first-class multi-entry temporal profile/history data
 }
 
-interface ProfileMetric {
-  value: string | number;
-  unit?: string;
-  measured_at?: string;
-}
-
-type UserProfile = Record<string, Record<string, string | number | ProfileMetric | ProfileMetric[] | undefined>>;
-
 interface MemoryStore {
   version:  4;
   profile:  UserProfile;
@@ -128,7 +121,9 @@ interface MemoryStore {
 // ─── Ollama (optional neural embeddings) ──────────────────────────────────────
 
 const EMBED_MODEL = process.env.MEMORY_EMBED_MODEL ?? "nomic-embed-text";
+const QUERY_EMBED_CACHE_LIMIT = 256;
 const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1200, embedTimeoutMs: 8000 });
+const queryEmbeddingCache = new Map<string, number[]>();
 
 async function checkOllama(): Promise<boolean> {
   return ollama.check();
@@ -136,6 +131,25 @@ async function checkOllama(): Promise<boolean> {
 
 async function embedText(text: string): Promise<number[] | null> {
   return ollama.embed(text);
+}
+
+async function cachedQueryEmbedding(query: string): Promise<number[] | null> {
+  const key = `${EMBED_MODEL}:query:${query}`;
+  const cached = queryEmbeddingCache.get(key);
+  if (cached) {
+    queryEmbeddingCache.delete(key);
+    queryEmbeddingCache.set(key, cached);
+    return cached;
+  }
+  const embedding = await embedText(query);
+  if (!embedding) return null;
+  queryEmbeddingCache.set(key, embedding);
+  while (queryEmbeddingCache.size > QUERY_EMBED_CACHE_LIMIT) {
+    const oldest = queryEmbeddingCache.keys().next().value;
+    if (!oldest) break;
+    queryEmbeddingCache.delete(oldest);
+  }
+  return embedding;
 }
 
 // ─── Jaccard similarity (token-set overlap, fast dedup fallback) ──────────────
@@ -791,38 +805,6 @@ interface DetectedHint {
 
 // ─── Extension ────────────────────────────────────────────────────────────────
 
-function profileValueText(value: string | number | ProfileMetric | ProfileMetric[] | undefined): string {
-  if (value == null) return "";
-  if (Array.isArray(value)) return value.map(profileValueText).filter(Boolean).join("; ");
-  if (typeof value === "object") return `${value.value}${value.unit ? ` ${value.unit}` : ""}${value.measured_at ? ` measured at ${value.measured_at}` : ""}`;
-  return String(value);
-}
-
-function profileContextLines(profile: UserProfile): string[] {
-  const lines: string[] = [];
-  for (const [section, fields] of Object.entries(profile)) {
-    const parts = Object.entries(fields)
-      .map(([key, value]) => [key, profileValueText(value)] as const)
-      .filter(([, value]) => value)
-      .map(([key, value]) => `${key}: ${value}`);
-    if (parts.length) lines.push(`- (${section}) ${parts.join("; ")}`);
-  }
-  return lines;
-}
-
-function profileSearchLines(profile: UserProfile, query: string, limit: number): string[] {
-  const q = query.toLowerCase();
-  const matches: string[] = [];
-  for (const [section, fields] of Object.entries(profile)) {
-    for (const [key, value] of Object.entries(fields)) {
-      const text = profileValueText(value);
-      const haystack = `${section} ${key} ${text}`.toLowerCase();
-      if (text && haystack.includes(q)) matches.push(`[profile/${section}] ${key}: ${text}`);
-    }
-  }
-  return matches.slice(0, limit);
-}
-
 export default function userMemoryExtension(pi: ExtensionAPI) {
 
   // In-memory index — rebuilt once per session, updated incrementally on writes
@@ -944,7 +926,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
 
     // Neural cosine (Ollama) if available — otherwise TF-IDF cosine
     const useNeural = await checkOllama();
-    const qEmbed = useNeural ? await embedText(query) : null;
+    const qEmbed = useNeural ? await cachedQueryEmbedding(query) : null;
     const cosineMap = new Map<string, number>();
 
     if (qEmbed) {

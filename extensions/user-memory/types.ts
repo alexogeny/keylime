@@ -43,6 +43,14 @@ export type TimelineMemoryPayload = {
   notes?: string;
 };
 
+export type ProfileMetric = {
+  value: string | number;
+  unit?: string;
+  measured_at?: string;
+};
+
+export type UserProfile = Record<string, Record<string, string | number | ProfileMetric | ProfileMetric[] | undefined>>;
+
 export type RememberParams = {
   content: string;
   category: MemoryCategory;
