@@ -55,8 +55,17 @@ describe("search memory recall", () => {
 
       expect(result.details.count).toBe(1);
       expect(result.details.results[0].id).toBe("safety");
+      expect(result.details.indexCacheHit).toBe(false);
       expect(result.content[0].text).toContain("Mutation testing finds weak assertions");
       expect(result.content[0].text).toContain("search_id: safety");
+
+      const cached = await tools.recall_web_knowledge.execute("id", {
+        query: "weak assertions mutation coverage",
+        top_k: 1,
+        tags: ["testing"],
+      });
+      expect(cached.details.results[0].id).toBe("safety");
+      expect(cached.details.indexCacheHit).toBe(true);
     } finally {
       if (oldDataDir === undefined) delete process.env.KEYLIME_WEB_SEARCH_DATA_DIR;
       else process.env.KEYLIME_WEB_SEARCH_DATA_DIR = oldDataDir;

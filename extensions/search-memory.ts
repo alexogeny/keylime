@@ -161,6 +161,21 @@ function buildDocText(entry: SearchEntry): string {
   return parts.join(" ");
 }
 
+let recallIndexCache: { key: string; index: BM25Index } | null = null;
+
+function recallPoolKey(pool: SearchEntry[]): string {
+  return pool.map(entry => `${entry.id}:${entry.timestamp}`).sort().join("|");
+}
+
+function recallIndexFor(pool: SearchEntry[]): { index: BM25Index; cacheHit: boolean } {
+  const key = recallPoolKey(pool);
+  if (recallIndexCache?.key === key) return { index: recallIndexCache.index, cacheHit: true };
+  const index = new BM25Index();
+  for (const entry of pool) index.add(entry.id, buildDocText(entry));
+  recallIndexCache = { key, index };
+  return { index, cacheHit: false };
+}
+
 function ageString(ts: number): string {
   const d = Math.floor((Date.now() - ts) / 86_400_000);
   if (d === 0) return "today";
@@ -221,9 +236,8 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
         };
       }
 
-      // BM25 index
-      const bm25 = new BM25Index();
-      for (const e of pool) bm25.add(e.id, buildDocText(e));
+      // BM25 index, cached by filtered entry ids/timestamps to avoid rebuilding on repeated recalls.
+      const { index: bm25, cacheHit: indexCacheHit } = recallIndexFor(pool);
       const hits = bm25.search(params.query, params.top_k ?? 5);
 
       if (hits.length === 0) {
@@ -290,6 +304,8 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
         details: {
           count:       ranked.length,
           reranked:    useOllama,
+          indexCacheHit,
+          indexDocuments: pool.length,
           results:     ranked.map(h => ({ id: h.id, score: h.score, query: entryMap.get(h.id)?.query })),
         },
       };

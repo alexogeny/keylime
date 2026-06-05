@@ -180,9 +180,9 @@ function relativePath(cwd: string, path: string): string {
 
 const SOURCE_MUTATION_GUIDELINES = [
   "For existing source-code edits, use plan_code_replacements/apply_code_replacements instead of built-in edit/write.",
-  "Use create_file for new source, config, test, markdown, and fixture files.",
-  "Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands for repository file mutations.",
-  "Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash.",
+  "Use create_file for new source/config/test/docs/fixtures.",
+  "Do not mutate repo files with raw shell/runtime commands; use safe primitives.",
+  "Use checkpoint/git inspection tools instead of raw git mutation commands.",
 ];
 
 async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targets: string[]): Promise<PlannedReplacement[]> {
@@ -264,7 +264,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       "Use instead of jq, cat, or read when inspecting JSON files.",
       "Use json_path to project small subtrees and omit_keys for bulky fields like embeddings.",
       "Keep max_chars bounded; ask for a narrower json_path if output is truncated.",
-      "Set allow_outside_cwd=true only when the user explicitly asks to inspect a read-only JSON file outside the repository.",
+      "Set allow_outside_cwd=true only for explicit read-only JSON inspection outside cwd.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({

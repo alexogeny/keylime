@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,6 +91,63 @@ describe("tool result compaction", () => {
     await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "small" }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
     await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "x".repeat(8000) }], isError: true }, { cwd: process.cwd() })).resolves.toBeUndefined();
     await expect(handlers.tool_result({ toolName: "inspect_tool_result", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
+  });
+
+  test("list_tool_results prunes manifest entries whose payload files disappeared", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tool-results-"));
+    const handlers: Record<string, any> = {};
+    const tools: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: (tool: any) => { tools[tool.name] = tool; },
+    } as any);
+
+    const patch = await handlers.tool_result({
+      toolName: "code_search",
+      content: [{ type: "text", text: "z".repeat(8000) }],
+      isError: false,
+    }, { cwd });
+    await unlink(join(cwd, patch.details.resultPath));
+
+    const oldCwd = process.cwd();
+    process.chdir(cwd);
+    try {
+      const listed = await tools.list_tool_results.execute("id", { limit: 10 });
+      expect(listed.details.results).toEqual([]);
+      expect(listed.content[0].text).toContain("No compacted tool results");
+    } finally {
+      process.chdir(oldCwd);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("cleanup_tool_results removes old and overflow payloads and rewrites the manifest", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tool-results-"));
+    const tools: Record<string, any> = {};
+    toolResultCompactorExtension({ on: () => {}, registerTool: (tool: any) => { tools[tool.name] = tool; } } as any);
+    const base = join(cwd, ".pi", "tool-results");
+    const day = join(base, "2026-01-01");
+    await mkdir(day, { recursive: true });
+    await writeFile(join(day, "old.json"), "old", "utf8");
+    await writeFile(join(day, "keep.json"), "keep", "utf8");
+    await writeFile(join(base, "index.json"), JSON.stringify([
+      { id: "old", toolName: "bash", createdAt: "2020-01-01T00:00:00.000Z", path: ".pi/tool-results/2026-01-01/old.json", originalChars: 10, summary: [] },
+      { id: "keep", toolName: "bash", createdAt: "2026-01-01T00:00:00.000Z", path: ".pi/tool-results/2026-01-01/keep.json", originalChars: 10, summary: [] },
+    ]), "utf8");
+
+    const oldCwd = process.cwd();
+    process.chdir(cwd);
+    try {
+      const result = await tools.cleanup_tool_results.execute("id", { max_age_days: 30, now: "2026-01-15T00:00:00.000Z" });
+      expect(result.details.deleted).toBe(1);
+      expect(existsSync(join(day, "old.json"))).toBe(false);
+      expect(existsSync(join(day, "keep.json"))).toBe(true);
+      const listed = await tools.list_tool_results.execute("id", { limit: 10 });
+      expect(listed.details.results.map((entry: any) => entry.id)).toEqual(["keep"]);
+    } finally {
+      process.chdir(oldCwd);
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   test("inspect_tool_result rejects invalid ids and truncates retrieved payloads", async () => {

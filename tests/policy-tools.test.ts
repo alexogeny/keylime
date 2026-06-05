@@ -8,9 +8,16 @@ describe("policy tools extension", () => {
     return tools;
   }
 
-  test("registers retrieve_policy, suggest_checks, and codemod_plan", () => {
+  test("registers policy retrieval, checks, planning, and low-risk codemod executors", () => {
     const tools = register();
-    expect(Object.keys(tools).sort()).toEqual(["codemod_plan", "retrieve_policy", "suggest_checks"]);
+    expect(Object.keys(tools).sort()).toEqual([
+      "codemod_add_import",
+      "codemod_insert_test_case",
+      "codemod_plan",
+      "codemod_update_json",
+      "retrieve_policy",
+      "suggest_checks",
+    ]);
   });
 
   test("retrieve_policy returns kind-filtered corpus evidence", async () => {

@@ -265,9 +265,9 @@ describe("code primitive extension tools", () => {
     ].join("\n");
 
     expect(guidelines).toContain("use plan_code_replacements/apply_code_replacements instead of built-in edit/write");
-    expect(guidelines).toContain("Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands");
-    expect(guidelines).toContain("Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash");
-    expect(guidelines).toContain("Use create_file for new source, config, test, markdown, and fixture files");
+    expect(guidelines).toContain("Do not mutate repo files with raw shell/runtime commands");
+    expect(guidelines).toContain("Use checkpoint/git inspection tools instead of raw git mutation commands");
+    expect(guidelines).toContain("Use create_file for new source/config/test/docs/fixtures");
   });
 
   test("inspect_text_matches supports file_glob and language filters", async () => {

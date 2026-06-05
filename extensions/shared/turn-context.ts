@@ -48,8 +48,18 @@ export function clearContextProviders(): void {
   providers.clear();
 }
 
+function stabilityRank(stability: ContextProviderStability | undefined): number {
+  if (stability === "static") return 0;
+  if (stability === "session") return 1;
+  return 2;
+}
+
 export function listContextProviders(): ContextProvider[] {
-  return [...providers.values()].sort((a, b) => b.priority - a.priority);
+  return [...providers.values()].sort((a, b) =>
+    b.priority - a.priority
+    || stabilityRank(a.stability) - stabilityRank(b.stability)
+    || a.id.localeCompare(b.id)
+  );
 }
 
 export function promptFromMessages(messages: any[]): string {

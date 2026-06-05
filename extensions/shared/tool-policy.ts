@@ -30,6 +30,7 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "codemod_insert_test_case", alwaysOn: true, domain: true, risk: "safe" },
   { name: "inspect_tool_result", alwaysOn: true, domain: true, risk: "safe" },
   { name: "list_tool_results", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "cleanup_tool_results", alwaysOn: true, domain: true, risk: "safe" },
   { name: "commit_history", alwaysOn: true, domain: true, risk: "safe" },
   { name: "see_file_commit_history", alwaysOn: true, domain: true, risk: "safe" },
   { name: "git_status", alwaysOn: true, domain: true, risk: "safe" },

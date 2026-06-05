@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -85,6 +85,42 @@ async function writeManifest(cwd: string, entries: ToolResultManifestEntry[]): P
   await writeFile(join(dir, "index.json"), JSON.stringify(entries, null, 2), "utf8");
 }
 
+async function pruneMissingManifestEntries(cwd: string, entries: ToolResultManifestEntry[]): Promise<{ entries: ToolResultManifestEntry[]; pruned: number }> {
+  const kept = entries.filter(entry => existsSync(join(cwd, entry.path)));
+  if (kept.length !== entries.length) await writeManifest(cwd, kept);
+  return { entries: kept, pruned: entries.length - kept.length };
+}
+
+async function cleanupToolResults(cwd: string, options: { maxAgeDays?: number; maxEntries?: number; maxBytes?: number; now?: string } = {}): Promise<{ kept: ToolResultManifestEntry[]; deleted: number; prunedMissing: number }> {
+  const manifest = await readManifest(cwd);
+  const existing = await pruneMissingManifestEntries(cwd, manifest);
+  const nowMs = options.now ? Date.parse(options.now) : Date.now();
+  const maxAgeDays = Math.max(0, options.maxAgeDays ?? 30);
+  const maxEntries = Math.max(0, options.maxEntries ?? 300);
+  const maxBytes = Math.max(0, options.maxBytes ?? 50_000_000);
+  const cutoffMs = nowMs - maxAgeDays * 86_400_000;
+  const sorted = [...existing.entries].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const kept: ToolResultManifestEntry[] = [];
+  let keptBytes = 0;
+  let deleted = 0;
+
+  for (const entry of sorted) {
+    const createdMs = Date.parse(entry.createdAt);
+    const tooOld = Number.isFinite(createdMs) && createdMs < cutoffMs;
+    const overEntries = kept.length >= maxEntries;
+    const overBytes = keptBytes + entry.originalChars > maxBytes;
+    if (tooOld || overEntries || overBytes) {
+      await rm(join(cwd, entry.path), { force: true });
+      deleted += 1;
+      continue;
+    }
+    kept.push(entry);
+    keptBytes += entry.originalChars;
+  }
+  await writeManifest(cwd, kept);
+  return { kept, deleted, prunedMissing: existing.pruned };
+}
+
 async function storeResult(cwd: string, payload: Record<string, unknown>, summary: string[]): Promise<{ id: string; path: string }> {
   const date = new Date().toISOString().slice(0, 10);
   const id = randomUUID();
@@ -156,13 +192,39 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       tool_name: Type.Optional(Type.String({ description: "Filter by tool name" })),
     }),
     async execute(_id, params) {
-      const entries = (await readManifest(process.cwd()))
+      const manifest = await readManifest(process.cwd());
+      const pruned = await pruneMissingManifestEntries(process.cwd(), manifest);
+      const entries = pruned.entries
         .filter(entry => !params.tool_name || entry.toolName === params.tool_name)
         .slice(0, Math.min(params.limit ?? 20, 100));
       const text = entries.length
         ? entries.map(entry => `${entry.id} ${entry.toolName} ${entry.originalChars} chars ${entry.createdAt}\n  ${entry.summary.slice(0, 2).join("\n  ")}`).join("\n")
         : "No compacted tool results found.";
-      return { content: [{ type: "text", text }], details: { results: entries } };
+      return { content: [{ type: "text", text }], details: { results: entries, prunedMissing: pruned.pruned } };
+    },
+  });
+
+  pi.registerTool({
+    name: "cleanup_tool_results",
+    label: "Cleanup Tool Results",
+    description: "Prune compacted tool-result payloads and manifest entries by age, count, or approximate stored output size.",
+    promptSnippet: "Cleanup compacted tool outputs",
+    promptGuidelines: ["Use when .pi/tool-results is stale or too large; reports deletions without loading payloads."],
+    parameters: Type.Object({
+      max_age_days: Type.Optional(Type.Number({ minimum: 0, description: "Delete entries older than this many days" })),
+      max_entries: Type.Optional(Type.Number({ minimum: 0, maximum: 1000, description: "Keep at most this many newest entries" })),
+      max_bytes: Type.Optional(Type.Number({ minimum: 0, description: "Approximate maximum original output chars/bytes to keep" })),
+      now: Type.Optional(Type.String({ description: "Testing override ISO timestamp" })),
+    }),
+    async execute(_id, params) {
+      const result = await cleanupToolResults(process.cwd(), {
+        maxAgeDays: params.max_age_days,
+        maxEntries: params.max_entries,
+        maxBytes: params.max_bytes,
+        now: params.now,
+      });
+      const text = `Deleted ${result.deleted} compacted tool result${result.deleted === 1 ? "" : "s"}; pruned ${result.prunedMissing} missing manifest entr${result.prunedMissing === 1 ? "y" : "ies"}; kept ${result.kept.length}.`;
+      return { content: [{ type: "text", text }], details: result };
     },
   });
 

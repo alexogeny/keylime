@@ -9,6 +9,13 @@ describe("policy corpus retrieval", () => {
     expect(new Set(POLICY_DOCUMENTS.map(doc => doc.kind))).toEqual(new Set(["routing", "mutation", "codemod", "check", "context", "recall"]));
   });
 
+  test("retrieves detailed safe primitive policy moved out of always-on prompts", () => {
+    const results = retrievePolicy("safe source edits raw shell runtime commands", { kind: "mutation", topK: 3 });
+    const doc = results.find(result => result.document.id === "mutation.safe-source-primitives")?.document;
+    expect(doc?.body).toContain("Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection");
+    expect(doc?.fields?.active_tools).toContain("apply_code_replacements");
+  });
+
   test("retrieves runtime eval policy for shell bypass phrasing", () => {
     const hits = retrievePolicy("block node -e and python -c command bypasses", { topK: 3 });
     expect(hits[0].id).toBe("mutation.runtime-eval");

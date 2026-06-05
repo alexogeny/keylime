@@ -28,6 +28,21 @@ describe("turn context composer", () => {
     expect(text.match(/<system-reminder>/g)?.length).toBe(1);
   });
 
+  test("orders equal-priority providers by stability then id for cache-friendly output", async () => {
+    registerContextProvider({ id: "turn-z", priority: 5, maxChars: 100, stability: "turn", build: () => "turn-changing-1" });
+    registerContextProvider({ id: "static-b", priority: 5, maxChars: 100, stability: "static", build: () => "static b" });
+    registerContextProvider({ id: "static-a", priority: 5, maxChars: 100, stability: "static", build: () => "static a" });
+    registerContextProvider({ id: "session-a", priority: 5, maxChars: 100, stability: "session", build: () => "session a" });
+
+    const result = await composeTurnContext(ctx(), messages("hello"));
+    const text = result.messages[0].content;
+
+    expect(result.providerIds).toEqual(["static-a", "static-b", "session-a", "turn-z"]);
+    expect(text.indexOf("static a")).toBeLessThan(text.indexOf("static b"));
+    expect(text.indexOf("static b")).toBeLessThan(text.indexOf("session a"));
+    expect(text.indexOf("session a")).toBeLessThan(text.indexOf("turn-changing-1"));
+  });
+
   test("skips providers that do not apply", async () => {
     registerContextProvider({ id: "skip", priority: 10, maxChars: 100, applies: () => false, build: () => "skip me" });
     registerContextProvider({ id: "keep", priority: 1, maxChars: 100, build: () => "keep me" });
@@ -63,7 +78,7 @@ describe("turn context composer", () => {
   });
 });
 
-test("uses a tighter total budget under high context pressure", async () => {
+test("uses a tighter total budget under high context pressure and drops lowest-priority providers first", async () => {
   clearContextProviders();
   registerContextProvider({ id: "a", priority: 3, maxChars: 800, build: () => "a".repeat(800) });
   registerContextProvider({ id: "b", priority: 2, maxChars: 800, build: () => "b".repeat(800) });
@@ -73,7 +88,9 @@ test("uses a tighter total budget under high context pressure", async () => {
 
   expect(result.diagnostics.pressure).toBe("high");
   expect(result.diagnostics.totalBudget).toBe(900);
-  expect(result.providerIds.length).toBeLessThan(3);
+  expect(result.providerIds).toEqual(["a", "b"]);
+  expect(result.diagnostics.providers.find(p => p.id === "b")).toMatchObject({ included: true, trimmed: true });
+  expect(result.diagnostics.providers.find(p => p.id === "c")).toMatchObject({ included: false, skippedReason: "budget" });
   expect(result.messages[0].content.length).toBeLessThan(1_100);
 });
 
