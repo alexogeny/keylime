@@ -1,3 +1,5 @@
+import { INTENT_PROFILES, type IntentProfileDefinition } from "./intent-registry";
+
 export type IntentId =
   | "chat"
   | "coding"
@@ -47,143 +49,9 @@ export type IntentRoute = {
   ts: number;
 };
 
-type IntentProfile = {
-  id: IntentId;
-  /** Multi-word prompt fragments, e.g. "failing test" or "brooks ghost". */
-  phrases: string[];
-  /** Single-token signals matched after tokenization. */
-  keywords: string[];
-  /** Domain entities/model names that should boost an intent without being skill hints. */
-  entities?: string[];
-  negativeKeywords?: string[];
-  capabilityGroups: CapabilityGroup[];
-  skills: string[];
-  minScore: number;
-};
+type IntentProfile = IntentProfileDefinition;
 
-const PROFILES: IntentProfile[] = [
-  {
-    id: "debugging",
-    phrases: ["debug this", "failing test", "test is failing", "error message", "stack trace", "regression", "root cause", "why is this failing", "track down", "figure out why", "reproduce the bug", "unexpected output", "crashes when", "throws when", "panic when", "broken after", "test failure", "failing spec"],
-    keywords: ["debug", "bug", "bugs", "broken", "error", "errors", "failing", "failed", "failure", "traceback", "stacktrace", "stack", "panic", "exception", "crash", "crashes", "regression", "reproduce", "repro", "isolate", "unexpected", "wrong", "flaky"],
-    capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["debug"],
-    minScore: 3,
-  },
-  {
-    id: "refactor",
-    phrases: ["refactor this", "clean this up", "split this module", "extract function", "without changing behaviour", "without changing behavior", "simplify this", "make this cleaner", "remove duplication", "break up this file", "rename this", "tidy this", "clean architecture"],
-    keywords: ["refactor", "refactoring", "clean", "cleanup", "tidy", "restructure", "reorganize", "reorganise", "rename", "extract", "simplify", "debt", "duplication", "duplicate", "abstraction", "behaviour", "behavior"],
-    capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["refactor"],
-    minScore: 3,
-  },
-  {
-    id: "review",
-    phrases: ["review my code", "code smells", "audit this", "security review", "read only", "look over", "what is wrong", "find issues", "spot problems", "review these changes", "pr review", "pull request review", "code audit", "perf review", "cache invalidation", "prompt pollution", "context drift"],
-    keywords: ["review", "audit", "smell", "smells", "inefficiency", "inefficient", "risk", "risks", "security", "correctness", "maintainability", "pollution", "drift", "cache", "invalidation", "prompt", "context"],
-    capabilityGroups: ["readonly", "repo", "memory-lite"],
-    skills: [],
-    minScore: 3,
-  },
-  {
-    id: "python_engineering",
-    phrases: ["codemod python", "modernize python typing", "rewrite python imports", "bulk edit python", "optimize this python", "optimise this python", "make this faster", "performance bottleneck", "hot path", "profile this", "speed up", "too slow", "reduce allocations", "memory usage", "cpu bound", "io bound", "syscall heavy", "python performance"],
-    keywords: ["python", "py", "pytest", "django", "fastapi", "performance", "optimize", "optimise", "slow", "slower", "profiling", "profile", "hotpath", "latency", "throughput", "allocation", "allocations", "memory", "cpu", "syscall"],
-    capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["python-eng", "python-codemod"],
-    minScore: 4,
-  },
-  {
-    id: "rust_shell_emulator",
-    phrases: ["shell emulator", "terminal emulator", "pseudo terminal", "job control", "ansi parser", "posix shell", "word expansion", "process group", "foreground job", "terminal escape"],
-    keywords: ["rust", "shell", "terminal", "pty", "tty", "ansi", "vt100", "parser", "lexing", "ast", "expansion", "job", "jobs", "signal", "signals", "process", "processes", "posix", "termios"],
-    capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["rust-shell-emulator"],
-    minScore: 5,
-  },
-  {
-    id: "rust_systems",
-    phrases: ["codemod rust", "bulk edit rust", "rename rust module", "rewrite rust imports", "rust systems", "borrow checker", "lifetime issue", "async rust", "no_std", "ownership issue", "trait bounds", "cargo check", "clippy warning", "unsafe rust", "tokio task", "lifetime error"],
-    keywords: ["rust", "cargo", "clippy", "lifetime", "lifetimes", "borrow", "ownership", "tokio", "async", "await", "trait", "traits", "unsafe", "no_std", "mutex", "arc", "pin", "send", "sync"],
-    capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["rust-systems", "rust-codemod"],
-    minScore: 4,
-  },
-  {
-    id: "ui_design",
-    phrases: ["design this screen", "ui design", "component hierarchy", "interaction states", "empty state", "loading state", "error state", "user flow", "wireframe", "responsive design", "accessibility review", "design system"],
-    keywords: ["ui", "ux", "screen", "page", "component", "layout", "responsive", "accessibility", "a11y", "loading", "empty", "error", "success", "state", "states", "flow", "journey", "wireframe", "tokens"],
-    capabilityGroups: ["core", "repo", "coding", "project", "safety"],
-    skills: ["ui-design"],
-    minScore: 3,
-  },
-  {
-    id: "coding",
-    phrases: ["codemod", "bulk edit", "replace across files", "rename across repo", "modernize typing", "build it", "add feature", "change this code", "edit the file", "write tests", "fix tests", "can you build", "can you implement", "make the change", "update the code", "add tests", "write code", "wire this up", "ship this", "next phase"],
-    keywords: ["code", "implement", "implementation", "build", "edit", "file", "files", "test", "tests", "repo", "repository", "function", "class", "module", "typescript", "javascript", "node", "bun", "python", "rust", "fix", "change", "update", "proceed"],
-    capabilityGroups: ["core", "repo", "coding", "project", "safety", "memory-lite"],
-    skills: [],
-    minScore: 3,
-  },
-  {
-    id: "project",
-    phrases: ["project plan", "tdd status", "architectural decision", "open question", "acceptance criteria", "save project", "update feature", "log decision", "decision record", "requirements clarification", "feature list"],
-    keywords: ["project", "plan", "feature", "features", "tdd", "red", "green", "refactor", "adr", "decision", "decisions", "criteria", "requirements", "scope", "milestone", "roadmap"],
-    capabilityGroups: ["core", "repo", "project", "memory-lite"],
-    skills: ["clarify"],
-    minScore: 3,
-  },
-  {
-    id: "planning",
-    phrases: ["plan out", "how would we", "architecture plan", "design the approach", "break this down", "what is left", "what should we do", "next steps", "implementation plan", "migration plan", "rollout plan", "pros and cons"],
-    keywords: ["plan", "planning", "architecture", "approach", "design", "roadmap", "phase", "phases", "strategy", "tradeoff", "tradeoffs", "sequence", "prioritize", "prioritise"],
-    capabilityGroups: ["readonly", "repo", "project", "memory-lite"],
-    skills: ["clarify"],
-    minScore: 3,
-  },
-  {
-    id: "research",
-    phrases: ["web search", "research this", "current information", "look up", "find sources", "read this url", "pasted url", "search the web", "find current", "compare sources", "cite sources", "official docs", "read the docs", "fetch this", "open this link"],
-    keywords: ["research", "search", "web", "current", "latest", "source", "sources", "cite", "citation", "tavily", "serper", "bing", "url", "http", "https", "docs", "documentation", "link", "links", "article", "paper", "reference"],
-    capabilityGroups: ["readonly", "research", "fetch", "memory-lite"],
-    skills: [],
-    minScore: 3,
-  },
-  {
-    id: "memory",
-    phrases: ["remember this", "forget that", "what do you know about me", "my preference", "save this", "store this", "do you remember", "recall my", "update memory", "delete memory", "my details", "about me"],
-    keywords: ["remember", "forget", "memory", "memories", "preference", "preferences", "recall", "stored", "save", "store", "profile", "about", "me"],
-    capabilityGroups: ["memory", "memory-lite"],
-    skills: [],
-    minScore: 3,
-  },
-  {
-    id: "personal",
-    phrases: ["help me decide", "life admin", "habit", "schedule", "personal plan", "make a plan for me", "workout plan", "training plan", "meal plan", "what should i do", "help me choose", "pros and cons for me"],
-    keywords: ["personal", "habit", "habits", "schedule", "calendar", "decide", "decision", "goal", "goals", "life", "admin", "coach", "coaching", "routine", "training", "workout"],
-    capabilityGroups: ["personal", "memory", "memory-lite"],
-    skills: [],
-    minScore: 3,
-  },
-  {
-    id: "running_biomechanics",
-    phrases: ["gait analysis", "running form", "foot strike", "injury prevention", "shin splints", "plantar fasciitis", "heel pain", "knee pain"],
-    keywords: ["gait", "form", "pronation", "supination", "strike", "cadence", "overstride", "injury", "pain", "biomechanics", "stability"],
-    capabilityGroups: ["shoes", "memory-lite"],
-    skills: ["running-biomechanics"],
-    minScore: 3,
-  },
-  {
-    id: "running_shoes",
-    phrases: ["running shoes", "shoe rotation", "heel drop", "stack height", "daily trainer", "tempo shoe", "race shoe", "carbon plate", "super shoe", "stability shoe", "max cushion", "wide fit", "shoe recommendation", "brooks ghost", "ghost max", "brooks glycerin", "brooks adrenaline", "hoka clifton", "hoka bondi", "saucony ride", "saucony triumph", "asics gel nimbus", "asics novablast", "nike pegasus", "new balance 1080"],
-    keywords: ["shoe", "shoes", "trainer", "trainers", "running", "runner", "drop", "stack", "midsole", "outsole", "foam", "plate", "carbon", "cushion"],
-    entities: ["hoka", "saucony", "asics", "nike", "adidas", "brooks", "ghost", "glycerin", "adrenaline", "hyperion", "new balance", "newbalance", "puma", "pegasus", "clifton", "bondi", "novablast", "nimbus", "kayano", "1080", "880"],
-    capabilityGroups: ["shoes", "memory-lite"],
-    skills: [],
-    minScore: 3,
-  },
-];
+const PROFILES: IntentProfile[] = INTENT_PROFILES;
 
 const STOP = new Set(["the", "and", "for", "this", "that", "with", "have", "please", "can", "you", "into", "from", "would", "could"]);
 

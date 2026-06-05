@@ -3,13 +3,22 @@ import intentRouterExtension, { getActiveToolSetDiagnostics, resetIntentRoutingF
 import { getCurrentRoute, setCurrentRoute, classifyIntent } from "../extensions/shared/intent";
 import { bestIntentCorpusMatch, INTENT_CORPUS, matchIntentCorpus, SWITCH_THRESHOLD, FOLLOWUP_STICKINESS_THRESHOLD } from "../extensions/shared/intent-corpus";
 import { mockPiFixture } from "./helpers/mock-pi";
+import { INTENT_FOLLOWUP_CORPUS, INTENT_PROFILES, INTENT_REGISTRY, INTENT_SWITCH_CORPUS } from "../extensions/shared/intent-registry";
 
 beforeEach(() => {
   resetIntentRoutingForTests();
   setCurrentRoute(classifyIntent(""));
 });
 
-describe("intent corpus", () => {
+describe("intent registry and corpus", () => {
+  test("registry centralizes classifier profiles, follow-up corpus, and switch corpus", () => {
+    expect(INTENT_PROFILES.map(profile => profile.id)).toContain("coding");
+    expect(INTENT_PROFILES.map(profile => profile.id)).toContain("running_shoes");
+    expect(INTENT_FOLLOWUP_CORPUS.every(entry => entry.kind === "followup" && entry.sticky)).toBe(true);
+    expect(INTENT_SWITCH_CORPUS.every(entry => entry.kind === "switch" && entry.targetIntent)).toBe(true);
+    expect(new Set(INTENT_REGISTRY.map(entry => entry.id)).size).toBe(INTENT_REGISTRY.length);
+  });
+
   test("contains a broad follow-up and explicit switch corpus", () => {
     const followups = INTENT_CORPUS.filter(entry => entry.kind === "followup").flatMap(entry => entry.examples);
     const switches = INTENT_CORPUS.filter(entry => entry.kind === "switch").flatMap(entry => entry.examples);
