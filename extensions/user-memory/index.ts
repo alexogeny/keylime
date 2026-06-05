@@ -30,15 +30,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readJsonFile, writeJsonFile } from "../shared/json-store";
-import { join } from "node:path";
 import { registerContextProvider } from "../shared/turn-context";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { BM25Index, TFIDFStore, tokenize } from "../shared/retrieval";
-import { createOllamaEmbedder } from "../shared/ollama-embeddings";
 import { ageString, daysUntil } from "../shared/time-format";
-import { cosineSimilarity, jaccardText } from "../shared/similarity";
 import { rawTextFromContent } from "../shared/message-content";
 import {
   type Entity, type EntityStore,
@@ -58,6 +53,10 @@ import type { MemoryCategory, RememberParams as WizardRememberParams, TimelineMe
 import { backupLabels, createMemoryBackup, listMemoryBackups, loadMemoryBackup, pruneMemoryBackups, restoreEntityBackup } from "./backups.js";
 import { profileContextLines, profileSearchLines } from "./profile-context.js";
 import { inferExpiryTier, tierToMs, type ExpiryTier } from "./expiry.js";
+import { DATA_DIR, decayedConfidence, jaccard, loadStore, memoryText, saveStore, type Memory, type MemoryStore } from "./store.js";
+import { cachedQueryEmbedding, checkOllama, embedText } from "./embeddings.js";
+import { findDuplicateMemory, hybridSearch } from "./retrieval.js";
+import { buildExpiryTrace, buildJobChapter, checkPromotion, shouldCreateJobChapter } from "./lifecycle.js";
 import {
   classifyCategory,
   extractCandidates,
@@ -73,215 +72,7 @@ import {
 } from "./timeline-memory.js";
 export { shouldPromptToAddTimelineMemory, temporalContextForMemory, timelineLinkedEntities } from "./timeline-memory.js";
 
-// ─── Paths ─────────────────────────────────────────────────────────────────────
-
-const DATA_DIR     = join(homedir(), ".pi", "data", "user-memory");
-const MEMORY_FILE  = join(DATA_DIR, "memories.json");
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
-// Confidence half-lives in days — governs how quickly a memory loses relevance
-const HALF_LIFE: Record<MemoryCategory, number | null> = {
-  preference: 180,   // slow decay — preferences are sticky
-  fact:       null,  // never decays — facts are facts
-  event:      null,  // doesn't decay, just expires at event date
-  goal:       45,    // moderate decay — goals change
-  skill:      365,   // very slow decay — skills persist
-  context:    14,    // fast decay — context changes quickly
-};
-
-// SensitivityTier is declared with its implementation after the memoryText() helper.
-// TypeScript type aliases are hoisted so the interface reference below resolves fine.
-
-interface Memory {
-  id:               string;
-  content:          string;            // The memory text — what is remembered
-  category:         MemoryCategory;
-  subcategory?:     string;            // freeform, e.g. "tooling", "running", "reading"
-  tags:             string[];          // searchable tags
-  confidence:       number;           // 0–1, decayed over time for applicable categories
-  created_at:       number;           // unix ms
-  updated_at:       number;           // unix ms
-  expires_at?:      number;           // unix ms — for events, auto-remove after this date
-  temporal:         boolean;          // is this time-bound?
-  date_ref?:        string;           // human-readable date ("2026-08-15", "every Monday", etc.)
-  source_session?:  string;           // which session created this
-  supersedes?:      string[];         // IDs of older memories this one replaces
-  embedding?:       number[];         // neural embedding if Ollama available
-  tfidf?:           Record<string, number>; // TF-IDF term vector for pure-TS cosine
-  // ── Evolution fields ──
-  mentions:         number;           // how many times reinforced (starts at 1)
-  first_seen:       number;           // = created_at for new memories
-  promoted_from?:   MemoryCategory;   // if auto-promoted, the original category
-  promoted_at?:     number;           // when promotion occurred
-  // ── Entity graph ──
-  entity_refs:      string[];         // entity IDs extracted from this memory's content
-  // ── Sensitivity ──
-  sensitivity?:     SensitivityTier;  // injection control (default: "general")
-  trace_only?:      boolean;          // true = minimal episodic trace, not for active injection
-  source_memories?: string[];         // for narrative/summary memories, IDs of originals
-  // ── Structured temporal profile memories ──
-  timeline?: TimelineMemoryPayload;   // first-class multi-entry temporal profile/history data
-}
-
-interface MemoryStore {
-  version:  4;
-  profile:  UserProfile;
-  memories: Memory[];
-}
-
-// ─── Shared lexical retrieval (BM25 + TF-IDF) ────────────────────────────────
-
-// ─── Ollama (optional neural embeddings) ──────────────────────────────────────
-
-const EMBED_MODEL = process.env.MEMORY_EMBED_MODEL ?? "nomic-embed-text";
-const QUERY_EMBED_CACHE_LIMIT = 256;
-const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1200, embedTimeoutMs: 8000 });
-const queryEmbeddingCache = new Map<string, number[]>();
-
-async function checkOllama(): Promise<boolean> {
-  return ollama.check();
-}
-
-async function embedText(text: string): Promise<number[] | null> {
-  return ollama.embed(text);
-}
-
-async function cachedQueryEmbedding(query: string): Promise<number[] | null> {
-  const key = `${EMBED_MODEL}:query:${query}`;
-  const cached = queryEmbeddingCache.get(key);
-  if (cached) {
-    queryEmbeddingCache.delete(key);
-    queryEmbeddingCache.set(key, cached);
-    return cached;
-  }
-  const embedding = await embedText(query);
-  if (!embedding) return null;
-  queryEmbeddingCache.set(key, embedding);
-  while (queryEmbeddingCache.size > QUERY_EMBED_CACHE_LIMIT) {
-    const oldest = queryEmbeddingCache.keys().next().value;
-    if (!oldest) break;
-    queryEmbeddingCache.delete(oldest);
-  }
-  return embedding;
-}
-
-// ─── Jaccard similarity (token-set overlap, fast dedup fallback) ──────────────
-
-function jaccard(a: string, b: string): number {
-  return jaccardText(a, b);
-}
-
-// ─── Confidence decay ──────────────────────────────────────────────────────────
-
-function decayedConfidence(mem: Memory, now: number): number {
-  const hl = HALF_LIFE[mem.category];
-  if (hl === null) return mem.confidence;
-  const daysSince = (now - mem.updated_at) / 86_400_000;
-  return mem.confidence * Math.exp(-daysSince * Math.LN2 / hl);
-}
-
-// ─── Storage ──────────────────────────────────────────────────────────────────
-
-async function loadStore(): Promise<MemoryStore> {
-  try {
-    const raw = await readJsonFile<MemoryStore>(MEMORY_FILE, { version: 4, profile: {}, memories: [] });
-    raw.memories ||= [];
-    raw.profile ||= {};
-    // Migrate v2 → v3: backfill evolution + entity fields
-    if ((raw.version as number) < 3) {
-      for (const m of raw.memories) {
-        if (m.mentions     == null) m.mentions    = 1;
-        if (m.first_seen   == null) m.first_seen  = m.created_at;
-        if (m.entity_refs  == null) m.entity_refs = [];
-      }
-    }
-    raw.version = 4;
-    return raw;
-  } catch { return { version: 4, profile: {}, memories: [] }; }
-}
-
-async function saveStore(store: MemoryStore): Promise<void> {
-  await writeJsonFile(MEMORY_FILE, store);
-}
-
-// ─── Memory text for indexing ─────────────────────────────────────────────────
-
-function memoryText(m: Memory): string {
-  const parts = [m.content];
-  if (m.subcategory) parts.push(m.subcategory);
-  if (m.tags.length) parts.push(m.tags.join(" "));
-  if (m.date_ref)    parts.push(m.date_ref);
-  if (m.timeline) {
-    parts.push("profile.timeline", m.timeline.subkind, m.timeline.label ?? "");
-    parts.push(...Object.values(m.timeline.data).map(String));
-    if (m.timeline.notes) parts.push(m.timeline.notes);
-    if (m.timeline.interval.start?.value) parts.push(m.timeline.interval.start.value);
-    if (m.timeline.interval.end?.value) parts.push(m.timeline.interval.end.value);
-    if (m.timeline.interval.current) parts.push("present current now");
-  }
-  return parts.filter(Boolean).join(" ");
-}
-
 // ─── Human-readable age ───────────────────────────────────────────────────────
-
-// ─── Expiry-to-trace ──────────────────────────────────────────────────────────
-// Validated r5: events+career+medical → compressed trace. Relationship context
-// → minimal timestamp note. Transient emotional states → full delete.
-const TRACE_EVENT_SUBCATS    = new Set(["career","work","medical","health","running","fitness","financial","family","education"]);
-const TRACE_RELATION_SUBCATS = new Set(["relationship","family","work-relationship"]);
-
-function buildExpiryTrace(expired: Memory, now: number): Memory | null {
-  const sub = (expired.subcategory ?? "").toLowerCase();
-  if (expired.category==="event" || TRACE_EVENT_SUBCATS.has(sub)) {
-    const date = new Date(expired.created_at).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
-    return { ...expired, id:randomUUID(),
-      content:`[Trace] ${expired.content.slice(0,80)}${expired.content.length>80?"...": ""} — ${date}`,
-      expires_at:undefined, temporal:false, confidence:0.8,
-      trace_only:true, source_memories:[expired.id], created_at:now, updated_at:now,
-      mentions:1, first_seen:expired.first_seen };
-  }
-  if (TRACE_RELATION_SUBCATS.has(sub) && expired.category==="context") {
-    const date  = new Date(expired.created_at).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
-    const brief = expired.content.slice(0,40).split(",")[0];
-    return { ...expired, id:randomUUID(),
-      content:`[Trace] Context note around ${date}: ${brief}`,
-      expires_at:undefined, temporal:false, confidence:0.5,
-      trace_only:true, source_memories:[expired.id], created_at:now, updated_at:now,
-      mentions:1, first_seen:expired.first_seen };
-  }
-  return null;
-}
-
-// ─── Job chapter meta-memory ──────────────────────────────────────────────────
-// Validated r5 #18: keep individual memories AND add a narrative chapter when
-// 3+ work-friction memories accumulate for the same employer entity.
-const WORK_FRICTION_SUBCATS = new Set(["work","work-relationship","work-style","career","financial"]);
-
-function shouldCreateJobChapter(memories: Memory[], entityName: string): { should: boolean; sources: string[] } {
-  const friction = memories.filter(m =>
-    WORK_FRICTION_SUBCATS.has((m.subcategory??"").toLowerCase()) && !m.trace_only);
-  if (friction.length < 3) return { should:false, sources:[] };
-  const exists = memories.some(m => m.trace_only && m.content.includes("[Chapter]") &&
-    m.content.toLowerCase().includes(entityName.toLowerCase()));
-  if (exists) return { should:false, sources:[] };
-  return { should:true, sources:friction.map(m=>m.id) };
-}
-
-function buildJobChapter(entityName: string, frictionMemories: Memory[], now: number): Memory {
-  const dates  = frictionMemories.map(m=>m.created_at).sort((a,b)=>a-b);
-  const from   = new Date(dates[0]).toLocaleDateString("en-AU",{month:"short",year:"numeric"});
-  const to     = new Date(dates[dates.length-1]).toLocaleDateString("en-AU",{month:"short",year:"numeric"});
-  const period = from===to ? from : `${from}–${to}`;
-  const themes = [...new Set(frictionMemories.map(m=>m.subcategory??m.category))].slice(0,3).join(", ");
-  return { id:randomUUID(),
-    content:`[Chapter] ${entityName} (${period}): recurring friction across ${themes}. ${frictionMemories.length} related memories.`,
-    category:"context", subcategory:"job-chapter",
-    tags:[entityName.toLowerCase(),"work","chapter","narrative"],
-    confidence:0.9, created_at:now, updated_at:now, temporal:false,
-    mentions:1, first_seen:now, entity_refs:[], trace_only:false,
-    source_memories:frictionMemories.map(m=>m.id) };
-}
 
 function age(ts: number): string {
   const text = ageString(ts);
@@ -330,6 +121,8 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   let store:        MemoryStore = { version: 4, profile: {}, memories: [] };
   let entityStore:  EntityStore = { version: 1, entities: [] };
   let loaded = false;
+
+  const retrievalDeps = () => ({ memories: store.memories, bm25, tfidf, checkOllama, cachedQueryEmbedding, embedText });
 
   // ── Load & build index ────────────────────────────────────────────────────
 
@@ -380,156 +173,6 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     await Promise.all([saveStore(store), saveEntityStore(entityStore)]);
   }
 
-  // ── Promotion logic ──────────────────────────────────────────────────────────────────
-  //
-  // Called after mentions is incremented on an existing memory.
-  // Rules (ordered, first match wins):
-  //   context + shortLived (expires_at set) + mentions ≥ 2  →  fact
-  //   context (not shortLived)              + mentions ≥ 3  →  fact
-  //   event                                + mentions ≥ 2  →  fact  (confirmed recurring)
-  // A promoted memory loses its expiry, gains promoted_from + promoted_at.
-
-  function checkPromotion(mem: Memory, now: number): { promoted: boolean; note: string } {
-    if (mem.promoted_from) return { promoted: false, note: "" }; // already promoted
-
-    let shouldPromote = false;
-    // Time-limited context (any tier) that recurs → promote to permanent fact
-    if (mem.category === "context" && mem.expires_at && mem.mentions >= 2) shouldPromote = true;
-    // Permanent context (stored without expiry) that recurs even more → promote to fact
-    if (mem.category === "context" && !mem.expires_at && mem.mentions >= 3) shouldPromote = true;
-    // Events that recur → confirmed recurring fact
-    if (mem.category === "event"   && mem.mentions >= 2)                     shouldPromote = true;
-
-    if (!shouldPromote) return { promoted: false, note: "" };
-
-    const from         = mem.category;
-    mem.category       = from === "event" ? "fact" : "fact";
-    mem.promoted_from  = from;
-    mem.promoted_at    = now;
-    mem.expires_at     = undefined;   // permanent now
-    mem.confidence     = Math.min(1, mem.confidence + 0.2); // confidence boost
-    const note = `⬆️ Promoted from ${from} → fact after ${mem.mentions} mentions`;
-    return { promoted: true, note };
-  }
-
-  // ── Hybrid search ─────────────────────────────────────────────────────────
-  //
-  // 1. BM25 retrieves top-20 candidates (fast full-text)
-  // 2. TF-IDF cosine reranks candidates (deterministic vector similarity)
-  // 3. Ollama cosine overrides if neural embeddings available
-  //
-  // Final score = 0.45 * bm25_norm + 0.55 * cosine
-
-  async function hybridSearch(
-    query:        string,
-    topK:         number,
-    filterFn?:    (m: Memory) => boolean,
-  ): Promise<Array<{ memory: Memory; score: number }>> {
-    await ensureLoaded();
-    const memMap = new Map(store.memories.map(m => [m.id, m]));
-    let pool = store.memories;
-    if (filterFn) pool = pool.filter(filterFn);
-    const poolIds = new Set(pool.map(m => m.id));
-
-    // BM25 stage — retrieve 3× topK candidates
-    const bm25Hits = bm25.search(query, topK * 3).filter(h => poolIds.has(h.id));
-    const maxBM25  = bm25Hits[0]?.score ?? 1;
-    const bm25Map  = new Map(bm25Hits.map(h => [h.id, h.score / maxBM25]));
-
-    // Determine candidate set: BM25 hits + ensure we don't miss anything for small pools
-    const candidateIds = bm25Hits.length >= Math.min(pool.length, topK * 2)
-      ? bm25Hits.map(h => h.id)
-      : pool.map(m => m.id);
-
-    // Neural cosine (Ollama) if available — otherwise TF-IDF cosine
-    const useNeural = await checkOllama();
-    const qEmbed = useNeural ? await cachedQueryEmbedding(query) : null;
-    const cosineMap = new Map<string, number>();
-
-    if (qEmbed) {
-      for (const id of candidateIds) {
-        const mem = memMap.get(id);
-        if (!mem) continue;
-        if (mem.embedding) {
-          cosineMap.set(id, cosineSimilarity(qEmbed, mem.embedding));
-        } else {
-          // Fall back to TF-IDF for memories without stored embedding
-          cosineMap.set(id, tfidf.search(query, 1, [id])[0]?.score ?? 0);
-        }
-      }
-    } else {
-      const tfidfHits = tfidf.search(query, candidateIds.length, candidateIds);
-      for (const { id, score } of tfidfHits) cosineMap.set(id, score);
-    }
-
-    // Normalize cosine scores
-    const maxCos = Math.max(...cosineMap.values(), 0.001);
-
-    // Combine: BM25 40% + cosine 55% + confidence 5%
-    const now = Date.now();
-    const results: Array<{ memory: Memory; score: number }> = [];
-    for (const id of candidateIds) {
-      const mem = memMap.get(id);
-      if (!mem) continue;
-      const bm25s   = (bm25Map.get(id)    ?? 0);
-      const cosines = (cosineMap.get(id)  ?? 0) / maxCos;
-      const conf    = decayedConfidence(mem, now);
-      const score   = 0.40 * bm25s + 0.55 * cosines + 0.05 * conf;
-      if (score > 0.01) results.push({ memory: mem, score });
-    }
-
-    return results
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK);
-  }
-
-  // ── Deduplication gate ────────────────────────────────────────────────────
-  //
-  // Before inserting, check if a semantically equivalent memory exists.
-  // Returns the duplicate memory if found, null otherwise.
-
-  async function findDuplicate(
-    content:  string,
-    category: MemoryCategory,
-  ): Promise<Memory | null> {
-    if (store.memories.length === 0) return null;
-
-    // Stage 1: BM25 fast retrieval of candidates
-    const candidates = bm25.search(content, 8).map(h => h.id);
-    if (candidates.length === 0) return null;
-
-    // Stage 2: Jaccard similarity for fast exact-near-duplicate detection
-    // 0.55 threshold: 55% token overlap is unambiguously the same preference/fact
-    const memMap = new Map(store.memories.map(m => [m.id, m]));
-    for (const id of candidates) {
-      const mem = memMap.get(id);
-      if (!mem) continue;
-      if (jaccard(content, mem.content) > 0.55) return mem;
-    }
-
-    // Stage 3: TF-IDF cosine for semantic dedup (same category only)
-    const cosHits = tfidf.search(content, 5, candidates);
-    for (const { id, score } of cosHits) {
-      const mem = memMap.get(id);
-      if (!mem) continue;
-      if (mem.category === category && score > 0.88) return mem;
-    }
-
-    // Stage 4: Neural cosine if Ollama available
-    if (await checkOllama()) {
-      const qEmbed = await embedText(content);
-      if (qEmbed) {
-        for (const id of candidates) {
-          const mem = memMap.get(id);
-          if (!mem?.embedding) continue;
-          if (mem.category === category && cosineSimilarity(qEmbed, mem.embedding) > 0.92) return mem;
-        }
-      }
-    }
-
-    return null;
-  }
-
   async function rememberStructuredMemory(params: WizardRememberParams) {
     await ensureLoaded();
 
@@ -558,7 +201,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     }
 
     // Deduplication check
-    const dup = await findDuplicate(params.content, params.category);
+    const dup = await findDuplicateMemory(retrievalDeps(), params.content, params.category);
     if (dup) {
       // ── Reinforce existing memory ──
       const now = Date.now();
@@ -781,6 +424,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       await ensureLoaded();
       const now  = Date.now();
       const hits = await hybridSearch(
+        retrievalDeps(),
         params.query,
         params.top_k ?? 8,
         m => {
@@ -1132,7 +776,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
 
       // Load the chosen backup
       const restored = await loadMemoryBackup<MemoryStore>(DATA_DIR, chosen);
-      await writeJsonFile(MEMORY_FILE, restored);
+      await saveStore(restored);
       await restoreEntityBackup(DATA_DIR, chosen);
 
       // Rebuild in-memory index
@@ -1390,7 +1034,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
           }
         }
 
-        const relevant = await hybridSearch(prompt, 5);
+        const relevant = await hybridSearch(retrievalDeps(), prompt, 5);
         const seen = new Set<string>(stableIds);
         const volatile: Memory[] = [];
         const candidates = [...upcoming, ...entityMems, ...relevant.map(r => r.memory)];
