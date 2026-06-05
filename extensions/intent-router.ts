@@ -4,7 +4,7 @@ import { classifyIntent, getCurrentRoute, setCurrentRoute, stripSystemReminders,
 import { intentCompletionValues, intentSeedPrompt, intentTarget, resolveIntentAlias, type IntentOverrideId } from "./shared/intent-registry";
 import { lastUserText } from "./shared/message-content";
 import { getCurrentOperationalMode } from "./operational-modes";
-import { researchKeyConfigured } from "./shared/research-config";
+import { researchEnabled as sharedResearchEnabled } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
 import { retrievePolicy } from "./shared/policy-corpus";
 import { alwaysOnToolNames, capabilityToolMap, domainToolNames, LOCKED_BUILTIN_TOOLS } from "./shared/tool-policy";
@@ -89,9 +89,7 @@ export function resetIntentRoutingForTests(): void {
 }
 
 export function researchEnabled(): boolean {
-  if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
-  if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
-  return researchKeyConfigured();
+  return sharedResearchEnabled();
 }
 
 export function shoesEnabled(): boolean {

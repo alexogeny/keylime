@@ -17,62 +17,12 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readJsonDir, readJsonFile } from "./shared/json-store";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import { loadAllSearchEntries, loadSearchEntry, loadSearchIndex } from "./shared/web-search-store";
+import type { SearchEntry, SearchIndex } from "./shared/web-search-types";
 import { BM25Index } from "./shared/retrieval";
 import { createOllamaEmbedder } from "./shared/ollama-embeddings";
 import { cosineSimilarity } from "./shared/similarity";
 import { ageString } from "./shared/time-format";
-
-// ─── Paths ─────────────────────────────────────────────────────────────────────
-
-const DATA_DIR     = process.env.KEYLIME_WEB_SEARCH_DATA_DIR ?? join(homedir(), ".pi", "data", "web-search");
-const SEARCHES_DIR = join(DATA_DIR, "searches");
-const INDEX_FILE   = join(DATA_DIR, "index.json");
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
-interface RawResult {
-  title:    string;
-  url:      string;
-  snippet:  string;
-  position?: number;
-}
-
-interface SearchEntry {
-  id:        string;
-  query:     string;
-  provider:  string;
-  timestamp: number;
-  raw: {
-    results:        RawResult[];
-    answerBox?:     string;
-    knowledgeGraph?: Record<string, string>;
-  };
-  distilled?: {
-    summary:    string;
-    keyFacts:   string[];
-    tags:       string[];
-    categories: string[];
-    sources:    Array<{ title: string; url: string; relevance: string }>;
-  };
-}
-
-interface IndexEntry {
-  id:         string;
-  query:      string;
-  timestamp:  number;
-  tags:       string[];
-  categories: string[];
-  summary?:   string;
-  provider:   string;
-}
-
-interface SearchIndex {
-  version: 1;
-  entries: IndexEntry[];
-}
 
 // ─── Shared lexical retrieval ────────────────────────────────────────────────
 
@@ -84,15 +34,15 @@ const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1500, e
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
 async function loadIndex(): Promise<SearchIndex> {
-  return readJsonFile(INDEX_FILE, { version: 1, entries: [] });
+  return loadSearchIndex();
 }
 
 async function loadAllEntries(): Promise<SearchEntry[]> {
-  return readJsonDir<SearchEntry>(SEARCHES_DIR);
+  return loadAllSearchEntries();
 }
 
 async function loadEntry(id: string): Promise<SearchEntry | null> {
-  return readJsonFile<SearchEntry | null>(join(SEARCHES_DIR, `${id}.json`), null);
+  return loadSearchEntry(id);
 }
 
 // ─── Document text for indexing ───────────────────────────────────────────────

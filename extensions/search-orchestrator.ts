@@ -19,78 +19,21 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFile, writeFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { isCapabilityActive } from "./shared/intent";
-import { researchKeyConfigured } from "./shared/research-config";
+import { researchEnabled } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
-
-// ─── Paths ─────────────────────────────────────────────────────────────────────
-
-function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
-  return Type.Union(values.map(value => Type.Literal(value)), options);
-}
-
-const DATA_DIR     = join(homedir(), ".pi", "data", "web-search");
-const SEARCHES_DIR = join(DATA_DIR, "searches");
-const INDEX_FILE   = join(DATA_DIR, "index.json");
+import { stringEnum } from "./shared/schema";
+import { getSearchStats, loadSearchIndex, saveSearchIndex, webSearchPaths } from "./shared/web-search-store";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-async function getStats(): Promise<{
-  total:       number;
-  withKnowledge: number;
-  allTags:     string[];
-  allCategories: string[];
-  newestQuery?: string;
-  newestAge?:  string;
-}> {
-  if (!existsSync(INDEX_FILE)) return { total: 0, withKnowledge: 0, allTags: [], allCategories: [] };
-  try {
-    const index = JSON.parse(await readFile(INDEX_FILE, "utf8")) as {
-      entries: Array<{ id: string; query: string; timestamp: number; tags: string[]; categories: string[]; summary?: string }>;
-    };
-    const allTags      = new Set<string>();
-    const allCats      = new Set<string>();
-    let withKnowledge  = 0;
-    let newestTs       = 0;
-    let newestQuery    = "";
-
-    for (const e of index.entries) {
-      if (e.summary) withKnowledge++;
-      e.tags.forEach(t => allTags.add(t));
-      e.categories.forEach(c => allCats.add(c));
-      if (e.timestamp > newestTs) { newestTs = e.timestamp; newestQuery = e.query; }
-    }
-
-    const daysOld = Math.floor((Date.now() - newestTs) / 86_400_000);
-    const newestAge = newestTs === 0 ? undefined :
-      daysOld === 0 ? "today" : daysOld === 1 ? "yesterday" : `${daysOld}d ago`;
-
-    return {
-      total:          index.entries.length,
-      withKnowledge,
-      allTags:        [...allTags].sort(),
-      allCategories:  [...allCats].sort(),
-      newestQuery:    newestQuery || undefined,
-      newestAge,
-    };
-  } catch {
-    return { total: 0, withKnowledge: 0, allTags: [], allCategories: [] };
-  }
+async function getStats() {
+  return getSearchStats();
 }
 
 function hasTools(pi: ExtensionAPI, ...names: string[]): boolean {
   const active = new Set(pi.getActiveTools().map(t => t.name));
   return names.every(n => active.has(n));
-}
-
-function researchProviderAvailable(): boolean {
-  if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
-  if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
-  return researchKeyConfigured();
 }
 
 // ─── Extension ────────────────────────────────────────────────────────────────
@@ -107,7 +50,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
   // Volatile KB stats are injected via the `context` event as a system-reminder.
 
   pi.on("before_agent_start", async (event, _ctx) => {
-    if (!isCapabilityActive("research") || !researchProviderAvailable()) return;
+    if (!isCapabilityActive("research") || !researchEnabled()) return;
     const hasSearch = hasTools(pi, "web_search");
     const hasMemory = hasTools(pi, "recall_web_knowledge");
     if (!hasSearch && !hasMemory) return;
@@ -142,7 +85,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
     id: "search-orchestrator",
     priority: 50,
     maxChars: 220,
-    applies: () => isCapabilityActive("research") && researchProviderAvailable(),
+    applies: () => isCapabilityActive("research") && researchEnabled(),
     build: async () => {
       const hasSearch = hasTools(pi, "web_search");
       const hasMemory = hasTools(pi, "recall_web_knowledge");
@@ -197,7 +140,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
         stats.newestQuery ? `  Most recent: "${stats.newestQuery}" (${stats.newestAge})` : "",
         stats.allTags.length     ? `  All tags:       ${stats.allTags.join(", ")}` : "",
         stats.allCategories.length ? `  All categories: ${stats.allCategories.join(", ")}` : "",
-        `  Data dir:   ${DATA_DIR}`,
+        `  Data dir:   ${webSearchPaths().dataDir}`,
       ].filter(Boolean).join("\n");
       ctx.ui.notify(lines, "info");
     },
@@ -209,16 +152,16 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const id = args?.trim();
       if (!id) { ctx.ui.notify("Usage: /forget-search <search_id>", "warning"); return; }
-      if (!existsSync(INDEX_FILE)) { ctx.ui.notify("Index file not found", "error"); return; }
       try {
-        const index  = JSON.parse(await readFile(INDEX_FILE, "utf8")) as { version: 1; entries: Array<{ id: string }> };
+        const index = await loadSearchIndex();
+        if (index.entries.length === 0) { ctx.ui.notify("Index file not found", "error"); return; }
         const before = index.entries.length;
         index.entries = index.entries.filter(e => e.id !== id);
         if (index.entries.length === before) {
           ctx.ui.notify(`search_id not found in index: ${id}`, "warning");
           return;
         }
-        await writeFile(INDEX_FILE, JSON.stringify(index, null, 2), "utf8");
+        await saveSearchIndex(index);
         ctx.ui.notify(`Removed from index: ${id}`, "info");
       } catch (e: any) {
         ctx.ui.notify(`Error: ${e.message}`, "error");

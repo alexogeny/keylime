@@ -25,3 +25,9 @@ export function researchKeyConfigured(): boolean {
   const config = configuredKeys();
   return API_KEY_NAMES.some(name => typeof config[name] === "string" && config[name].trim().length > 0);
 }
+
+export function researchEnabled(): boolean {
+  if (process.env.KEYLIME_DISABLE_RESEARCH === "1") return false;
+  if (process.env.KEYLIME_ENABLE_RESEARCH === "1") return true;
+  return researchKeyConfigured();
+}

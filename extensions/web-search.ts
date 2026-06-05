@@ -16,117 +16,26 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-
-// ─── Storage paths ────────────────────────────────────────────────────────────
-
-function stringEnum<const T extends readonly string[]>(values: T, options?: Record<string, unknown>) {
-  return Type.Union(values.map(value => Type.Literal(value)), options);
-}
-
-const DATA_DIR     = join(homedir(), ".pi", "data", "web-search");
-const SEARCHES_DIR = join(DATA_DIR, "searches");
-const INDEX_FILE   = join(DATA_DIR, "index.json");
-const CONFIG_FILE  = join(DATA_DIR, "config.json");
+import { stringEnum } from "./shared/schema";
+import {
+  ensureWebSearchDirs,
+  loadSearchConfig,
+  loadSearchEntry,
+  loadSearchIndex,
+  saveSearchEntry,
+  saveSearchIndex,
+} from "./shared/web-search-store";
+import type { SearchEntry } from "./shared/web-search-types";
 
 // ─── Config (env vars with fallback to config.json) ──────────────────────────
 
 let _config: Record<string, string> | null = null;
 
-async function loadConfig(): Promise<Record<string, string>> {
-  if (_config) return _config;
-  try {
-    _config = JSON.parse(await readFile(CONFIG_FILE, "utf8"));
-  } catch {
-    _config = {};
-  }
-  return _config!;
-}
-
 async function getKey(name: string): Promise<string | undefined> {
   if (process.env[name]) return process.env[name];
-  const cfg = await loadConfig();
-  return cfg[name];
-}
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface RawResult {
-  title:     string;
-  url:       string;
-  snippet:   string;
-  position?: number;
-}
-
-export interface SearchEntry {
-  id:        string;
-  query:     string;
-  provider:  string;
-  timestamp: number;
-  raw: {
-    results:        RawResult[];
-    answerBox?:     string;
-    knowledgeGraph?: Record<string, string>;
-  };
-  distilled?: {
-    summary:    string;
-    keyFacts:   string[];
-    tags:       string[];
-    categories: string[];
-    sources:    Array<{ title: string; url: string; relevance: "high" | "medium" | "low" }>;
-  };
-}
-
-export interface IndexEntry {
-  id:         string;
-  query:      string;
-  timestamp:  number;
-  tags:       string[];
-  categories: string[];
-  summary?:   string;
-  provider:   string;
-}
-
-export interface SearchIndex {
-  version: 1;
-  entries: IndexEntry[];
-}
-
-// ─── Storage helpers ──────────────────────────────────────────────────────────
-
-async function ensureDirs(): Promise<void> {
-  await mkdir(SEARCHES_DIR, { recursive: true });
-}
-
-async function loadIndex(): Promise<SearchIndex> {
-  if (!existsSync(INDEX_FILE)) return { version: 1, entries: [] };
-  try {
-    return JSON.parse(await readFile(INDEX_FILE, "utf8"));
-  } catch {
-    return { version: 1, entries: [] };
-  }
-}
-
-async function saveIndex(index: SearchIndex): Promise<void> {
-  await writeFile(INDEX_FILE, JSON.stringify(index, null, 2), "utf8");
-}
-
-async function saveEntry(entry: SearchEntry): Promise<void> {
-  await writeFile(join(SEARCHES_DIR, `${entry.id}.json`), JSON.stringify(entry, null, 2), "utf8");
-}
-
-async function loadEntry(id: string): Promise<SearchEntry | null> {
-  const p = join(SEARCHES_DIR, `${id}.json`);
-  if (!existsSync(p)) return null;
-  try {
-    return JSON.parse(await readFile(p, "utf8"));
-  } catch {
-    return null;
-  }
+  _config ??= await loadSearchConfig();
+  return _config[name];
 }
 
 // ─── Search providers ─────────────────────────────────────────────────────────
@@ -245,7 +154,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
       }
       const { provider, key } = found;
 
-      await ensureDirs();
+      await ensureWebSearchDirs();
       const num = Math.min(params.num_results ?? 8, 20);
 
       onUpdate?.({ content: [{ type: "text", text: `Searching "${params.query}" via ${provider}…` }] });
@@ -265,10 +174,10 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         raw,
       };
 
-      await saveEntry(entry);
+      await saveSearchEntry(entry);
 
       // Stub in the index (will be enriched by save_search_knowledge)
-      const index = await loadIndex();
+      const index = await loadSearchIndex();
       index.entries.push({
         id:         entry.id,
         query:      entry.query,
@@ -277,7 +186,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         categories: [],
         provider,
       });
-      await saveIndex(index);
+      await saveSearchIndex(index);
 
       // Format for LLM
       const lines: string[] = [
@@ -342,9 +251,9 @@ export default function webSearchExtension(pi: ExtensionAPI) {
     }),
 
     async execute(_id, params, _signal) {
-      await ensureDirs();
+      await ensureWebSearchDirs();
 
-      const entry = await loadEntry(params.search_id);
+      const entry = await loadSearchEntry(params.search_id);
       if (!entry) throw new Error(`search_id not found: ${params.search_id}. Was it created in this session?`);
 
       entry.distilled = {
@@ -355,10 +264,10 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         sources:    params.sources,
       };
 
-      await saveEntry(entry);
+      await saveSearchEntry(entry);
 
       // Update master index
-      const index = await loadIndex();
+      const index = await loadSearchIndex();
       const idx   = index.entries.findIndex(e => e.id === params.search_id);
       if (idx >= 0) {
         index.entries[idx] = {
@@ -367,7 +276,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
           categories: entry.distilled.categories,
           summary:    params.summary,
         };
-        await saveIndex(index);
+        await saveSearchIndex(index);
       }
 
       return {
