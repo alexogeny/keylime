@@ -205,7 +205,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
     if (!plan) return;
 
     const tddGuide = plan.principles.some(p => p.toLowerCase().includes("tdd"))
-      ? `\nTDD cycle: write a failing test (RED) → minimal code to pass (GREEN) → clean up (REFACTOR) → commit → repeat.`
+      ? `\nTDD cycle: invoke /skill:test-audit to turn acceptance criteria into a behavior/risk matrix, write a failing test (RED), implement minimal code to pass (GREEN), invoke /skill:test-audit again to spot missing edge cases beyond coverage %, clean up (REFACTOR), commit, repeat.`
       : "";
 
     const funcGuide = plan.principles.some(p => p.toLowerCase().includes("functional"))
