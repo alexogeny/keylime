@@ -318,33 +318,140 @@ dp_table.par_iter_mut()
 | `bumpalo` | Bump allocator (arena allocation, fast, no individual free) |
 
 ### Diagnostics & Observability
-| Crate | Use |
-|---|---|
-| `tracing` | Structured logging + async-aware spans |
-| `tracing-subscriber` | Tracing output formatting and filtering |
-| `criterion` | Statistical micro-benchmarking |
-| `flamegraph` | Sampling profiler integration |
+| Crate / Tool | Use | Production dependency? |
+|---|---|---|
+| `tracing` | Structured logging + async-aware spans | Yes, when runtime observability is required |
+| `tracing-subscriber` | Tracing output formatting and filtering | Usually application/runtime only, not library APIs |
+| `criterion` | Statistical benchmarks and regression guards | **Dev-dependency preferred** |
+| `pprof` | CPU profiling / profiler export integration | Dev tooling unless production profiling is operationally required |
+| `dhat` / `dhat-rs` | Allocation/heap profiling | **Dev-dependency preferred** |
+| `flamegraph` / `cargo-flamegraph` | Sampling profiler integration | **Dev tooling preferred** |
+| `cargo-bloat` | Binary size and crate contribution analysis | **Dev tooling preferred** |
+| `cargo-llvm-lines` | LLVM IR/code-size attribution | **Dev tooling preferred** |
+| `heaptrack` | Native heap/allocation profiler | **Dev tooling preferred** |
+| `samply` | Firefox profiler-based sampling profiles | **Dev tooling preferred** |
+
+Default preference: keep production/runtime builds dependency-light. Prefer standard library and first-party tooling in production code; add external crates selectively and document why. Profiling/benchmarking tools are acceptable — often recommended — in dev-only pipelines, CI, benchmarking, and analysis stages, but should not become production dependencies without a concrete operational need.
 
 ---
 
-## 7. Performance Audit Checklist
+## 7. Performance & Optimization Workflow
+
+Treat performance work like debugging:
+
+1. Measure the current behaviour.
+2. Form one hypothesis.
+3. Optimize one thing.
+4. Re-measure with the same workload.
+5. Keep the change only if it improves the measured bottleneck without hurting correctness or portability.
+
+Always profile optimized release builds, not debug builds. Debug builds are useful for correctness and diagnostics but can be 10–100× slower and misleading for optimizer-sensitive code.
+
+Recommended release profile for profiler-friendly symbols:
+
+```toml
+[profile.release]
+debug = "line-tables-only"
+```
+
+For better stack traces in sampling profilers, especially on Linux:
+
+```bash
+RUSTFLAGS="-C force-frame-pointers=yes" cargo build --release
+```
+
+If profiler output contains mangled Rust symbols, use `rustfilt`, or build with `RUSTFLAGS="-C symbol-mangling-version=v0"` where appropriate.
+
+Keep profiling and benchmarking dependencies dev-only by default (`[dev-dependencies]`, cargo subcommands, CI tools, local profilers). Promote them to runtime dependencies only when there is a clear production observability or operational requirement.
+
+### Measurement Ladder
+
+- **End-to-end timing:** `hyperfine`
+- **CPU hotspots:** `perf`, `cargo flamegraph`, `samply`, Instruments, VTune, AMD uProf
+- **Deterministic instruction/cache analysis:** Cachegrind / Callgrind
+- **Heap/allocation profiling:** DHAT, heaptrack, bytehound, jemalloc profiling / `pprof` exporters
+- **Binary/code bloat:** `cargo bloat`, `cargo llvm-lines`
+- **Regression guard:** Criterion benchmarks or integration performance tests
+
+### Command Cookbook
+
+```bash
+cargo build --release
+hyperfine --warmup 10 './target/release/app --workload sample'
+
+cargo flamegraph --bin app -- --workload sample
+perf record -g ./target/release/app --workload sample
+perf report
+
+strace -c ./target/release/app --workload sample
+strace -f -c ./target/release/app --workload sample
+
+heaptrack ./target/release/app --workload sample
+valgrind --tool=dhat ./target/release/app --workload sample
+
+cargo bench
+cargo bench parser
+
+cargo bloat --release --crates
+cargo llvm-lines
+```
+
+### Optimization Priority Order
+
+1. Algorithmic complexity
+2. I/O and syscalls
+3. Allocation churn
+4. Data layout/cache locality
+5. Branch/cache behaviour
+6. Lock contention/concurrency
+7. Binary/code size
+
+### Rust-Specific Tuning Patterns
+
+- Borrow `&str` / `&[T]` instead of cloning `String` / `Vec<T>` in hot paths.
+- Use `Vec::with_capacity`, `String::with_capacity`, and reusable `.clear()` buffers.
+- Prefer `write!(&mut String, ...)` over repeated `format!()` in loops.
+- Avoid regex for simple parsing/tokenization.
+- For tiny maps/sets, sorted `Vec` or arrays can beat `HashMap`.
+- For internal non-adversarial maps, `rustc_hash` / `ahash` can be faster than SipHash; avoid them for attacker-controlled keys unless DoS risk is acceptable, and remember the default production dependency preference.
+- Use `Cow<'_, str>` when most inputs are borrowed but occasional normalization is needed.
+- Watch hidden allocations from `.collect()`.
+- Don’t remove dynamic dispatch unless profiles show it matters.
+- Use LTO/PGO/`target-cpu=native` only after portability and correctness requirements are clear.
+
+### Shell/Systems Profiling Targets
+
+- Startup latency
+- Parser/expansion/completion
+- Fork/exec path
+- TUI refresh loops
+- Sandbox setup
+- `/proc` parsing
+- `PATH`/env/config filesystem probes
+
+---
+
+## 8. Performance Audit Checklist
 
 When reviewing Rust code for performance:
 
-- [ ] **Unnecessary clones:** `clone()` on large types — can it be borrowed instead?
-- [ ] **Box<dyn Trait> in hot paths:** virtual dispatch overhead — consider enum dispatch or generics
-- [ ] **HashMap::new():** uses default hasher (SipHash, security-focused but slower) — use `rustc_hash::FxHashMap` or `ahash` for performance
-- [ ] **Allocations in loops:** `Vec::new()` inside a loop — pre-allocate or reuse with `.clear()`
+- [ ] **Measured bottleneck:** is there profile or benchmark evidence for the optimization?
+- [ ] **Unnecessary clones:** `clone()` on large types — can it be borrowed as `&str`, `&[T]`, or `&T`?
+- [ ] **Box<dyn Trait> in hot paths:** virtual dispatch overhead — only replace with enum dispatch/generics if profiles show it matters
+- [ ] **HashMap::new():** default SipHash is security-focused; faster hashers can help internal non-adversarial keys but add production dependency/risk
+- [ ] **Allocations in loops:** `Vec::new()` / `String::new()` inside loops — pre-allocate or reuse with `.clear()`
 - [ ] **String formatting in hot paths:** `format!()` allocates — use `write!()` into a pre-allocated buffer
-- [ ] **Mutex contention:** profile with `perf`; consider RwLock, dashmap, or lock-free alternatives
+- [ ] **Parsing overhead:** regex or allocation-heavy tokenization for simple parsing — can a byte/char scanner do it?
+- [ ] **Syscall/I/O overhead:** repeated filesystem/env/PATH probes, `/proc` parsing, `fork`/`exec`, small reads/writes
+- [ ] **Mutex contention:** profile with `perf`/flamegraphs; consider narrower critical sections, RwLock, sharding, or lock-free alternatives
 - [ ] **Blocking in async:** any `std::fs`, `std::net`, or heavy computation in async fn without `spawn_blocking`
 - [ ] **Unnecessary Arc/Rc:** shared ownership has overhead — can lifetime annotations eliminate the need?
-- [ ] **Iterator chaining:** lazy evaluation is zero-cost; adding `.collect()` early defeats the purpose
-- [ ] **Release profile:** always benchmark with `cargo build --release`; debug builds are 10–100× slower
+- [ ] **Iterator chaining:** lazy evaluation is zero-cost; adding `.collect()` early can allocate and hide work
+- [ ] **Release profile:** always benchmark/profile with optimized release builds and comparable workloads
 
 ---
 
-## 8. Idiomatic Rust Patterns (2025)
+## 9. Idiomatic Rust Patterns (2025)
 
 ```rust
 // Newtype pattern for type safety
@@ -387,7 +494,7 @@ fn tokenize(input: &str) -> impl Iterator<Item = Token> + '_ {
 
 ---
 
-## 9. Toolchain & Workflow (2025)
+## 10. Toolchain & Workflow (2025)
 
 ```bash
 # Essential tools
@@ -405,9 +512,12 @@ cargo bloat --release            # Find large functions/crates
 cargo machete                    # Find unused dependencies
 cargo doc --open                 # Build and open documentation
 
-# Profiling
+# Profiling / performance analysis (dev tooling preferred)
 cargo flamegraph                 # Sampling profiler (cargo-flamegraph)
-CARGO_PROFILE_RELEASE_DEBUG=true cargo build --release  # Debug symbols for profiling
+RUSTFLAGS="-C force-frame-pointers=yes" cargo build --release
+cargo bloat --release            # Binary size attribution
+cargo llvm-lines                  # LLVM/code-size attribution
+# Prefer [profile.release] debug = "line-tables-only" over globally bloating release artifacts
 
 # Rust editions
 # Rust 2024 edition: let-chains, unsafe extern blocks, async closures (stable)

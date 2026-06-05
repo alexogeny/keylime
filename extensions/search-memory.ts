@@ -29,7 +29,35 @@ import { ageString } from "./shared/time-format";
 // ─── Ollama embedding helpers (optional reranking) ──────────────────────────
 
 const EMBED_MODEL = process.env.SEARCH_EMBED_MODEL ?? "nomic-embed-text";
+const EMBED_CACHE_LIMIT = 512;
 const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1500, embedTimeoutMs: 10000 });
+const embeddingCache = new Map<string, number[]>();
+
+async function cachedEmbedding(key: string, text: string): Promise<number[] | null> {
+  const cached = embeddingCache.get(key);
+  if (cached) {
+    embeddingCache.delete(key);
+    embeddingCache.set(key, cached);
+    return cached;
+  }
+  const embedding = await ollama.embed(text);
+  if (!embedding) return null;
+  embeddingCache.set(key, embedding);
+  while (embeddingCache.size > EMBED_CACHE_LIMIT) {
+    const oldest = embeddingCache.keys().next().value;
+    if (!oldest) break;
+    embeddingCache.delete(oldest);
+  }
+  return embedding;
+}
+
+function entryEmbeddingKey(entry: SearchEntry): string {
+  return `${EMBED_MODEL}:entry:${entry.id}:${entry.timestamp}`;
+}
+
+function queryEmbeddingKey(query: string): string {
+  return `${EMBED_MODEL}:query:${query}`;
+}
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
 
@@ -142,13 +170,13 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
       const useOllama = await ollama.check();
       let ranked = hits;
       if (useOllama) {
-        const qEmbed = await ollama.embed(params.query);
+        const qEmbed = await cachedEmbedding(queryEmbeddingKey(params.query), params.query);
         if (qEmbed) {
           const poolMap = new Map(pool.map(e => [e.id, e]));
           const reranked: Array<{ id: string; score: number }> = [];
           for (const h of hits) {
             const e = poolMap.get(h.id)!;
-            const dEmbed = await ollama.embed(buildDocText(e));
+            const dEmbed = await cachedEmbedding(entryEmbeddingKey(e), buildDocText(e));
             if (dEmbed) {
               const semScore = cosineSimilarity(qEmbed, dEmbed);
               reranked.push({ id: h.id, score: 0.4 * h.score + 0.6 * semScore * 10 });
@@ -197,6 +225,7 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
           reranked:    useOllama,
           indexCacheHit,
           indexDocuments: pool.length,
+          embeddingCacheSize: embeddingCache.size,
           results:     ranked.map(h => ({ id: h.id, score: h.score, query: entryMap.get(h.id)?.query })),
         },
       };

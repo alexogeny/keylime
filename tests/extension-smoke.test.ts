@@ -6,27 +6,11 @@ import intentRouter from "../extensions/intent-router";
 import policyTools from "../extensions/policy-tools";
 import testRunner from "../extensions/test-runner";
 import toolResultCompactor from "../extensions/tool-result-compactor";
-
-function mockPi() {
-  const tools: Record<string, any> = {};
-  const commands: Record<string, any> = {};
-  const handlers: Record<string, any[]> = {};
-  const pi = {
-    registerTool: (tool: any) => { tools[tool.name] = tool; },
-    registerCommand: (name: string, command: any) => { commands[name] = command; },
-    on: (name: string, handler: any) => { (handlers[name] ??= []).push(handler); },
-    getAllTools: () => Object.keys(tools).map(name => ({ name })),
-    getActiveTools: () => Object.keys(tools).map(name => ({ name })),
-    setActiveTools: () => {},
-    appendEntry: () => {},
-    registerShortcut: () => {},
-  } as any;
-  return { pi, tools, commands, handlers };
-}
+import { mockPiFixture } from "./helpers/mock-pi";
 
 describe("extension registration smoke", () => {
   test("core coding/policy/safety extensions register expected tools, commands, and handlers", () => {
-    const harness = mockPi();
+    const harness = mockPiFixture();
 
     codePrimitives(harness.pi);
     policyTools(harness.pi);

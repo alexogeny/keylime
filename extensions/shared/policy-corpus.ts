@@ -91,6 +91,14 @@ export const POLICY_DOCUMENTS: PolicyDocument[] = [
     tags: ["safety", "bash"],
   },
   {
+    id: "codemod.file-size-cap",
+    kind: "codemod",
+    title: "Prefer small files before broad codemods",
+    body: "Before broad codemods or major refactors, inspect target file sizes and module boundaries. Treat ~10kB as a speculative soft cap: files above it should trigger an early split/extraction plan unless there is a clear reason to keep them large. Prefer small shared modules, domain modules, and focused tests over megalithic files.",
+    fields: { active_tools: ["list_files", "inspect_code_structure", "code_search", "run_checks"], commands: ["targeted_checks"] },
+    tags: ["refactor", "codemod", "file-size", "maintainability"],
+  },
+  {
     id: "codemod.add-import",
     kind: "codemod",
     title: "Add import if missing",

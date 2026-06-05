@@ -30,18 +30,16 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { mkdir } from "node:fs/promises";
 import { readJsonFile, writeJsonFile } from "../shared/json-store";
-import { pruneFilesByNewest } from "../shared/retention";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { registerContextProvider } from "../shared/turn-context";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { BM25Index, TFIDFStore, tokenize } from "../shared/retrieval";
 import { createOllamaEmbedder } from "../shared/ollama-embeddings";
-import { ageString, daysUntil, safeTimestampForFilename } from "../shared/time-format";
+import { ageString, daysUntil } from "../shared/time-format";
 import { cosineSimilarity, jaccardText } from "../shared/similarity";
+import { rawTextFromContent } from "../shared/message-content";
 import {
   type Entity, type EntityStore, type ExtractedEntity,
   loadEntityStore, saveEntityStore,
@@ -56,10 +54,9 @@ import {
   inferTimelineSubkindFromQuery,
   convertTimelineDraftToRememberParams,
   type ProfilePatch,
-  type RememberParams as WizardRememberParams,
-  type TimelineMemoryPayload,
-  type TimelineSubkind,
 } from "./wizard.js";
+import type { MemoryCategory, RememberParams as WizardRememberParams, TimelineMemoryPayload, TimelineSubkind } from "./types.js";
+import { backupLabels, createMemoryBackup, listMemoryBackups, loadMemoryBackup, pruneMemoryBackups, restoreEntityBackup } from "./backups.js";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -67,8 +64,6 @@ const DATA_DIR     = join(homedir(), ".pi", "data", "user-memory");
 const MEMORY_FILE  = join(DATA_DIR, "memories.json");
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-
-type MemoryCategory = "preference" | "fact" | "event" | "goal" | "skill" | "context";
 
 // Confidence half-lives in days — governs how quickly a memory loses relevance
 const HALF_LIFE: Record<MemoryCategory, number | null> = {
@@ -392,14 +387,7 @@ function age(ts: number): string {
 
 /** Extract plain text from a user message content (string or content block array). */
 function extractMsgText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return (content as any[])
-      .filter((b: any) => b?.type === "text")
-      .map((b: any) => b.text as string)
-      .join("\n");
-  }
-  return "";
+  return rawTextFromContent(content);
 }
 
 // ─── Signal Detection Pipeline ──────────────────────────────────────────────────
@@ -1606,13 +1594,7 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     description: "Back up memory + entity store to a timestamped snapshot",
     handler: async (_args, ctx) => {
       await ensureLoaded();
-      const backupDir = join(DATA_DIR, "backups");
-      await mkdir(backupDir, { recursive: true });
-      const ts  = safeTimestampForFilename();
-      const mDst = join(backupDir, `memories-${ts}.json`);
-      const eDst = join(backupDir, `entities-${ts}.json`);
-      await writeJsonFile(mDst, store);
-      await writeJsonFile(eDst, entityStore);
+      const { timestamp: ts } = await createMemoryBackup(DATA_DIR, store, entityStore);
       ctx.ui.notify(
         `💾 Backed up ${store.memories.length} memories → backups/memories-${ts}.json`,
         "info",
@@ -1625,32 +1607,14 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.registerCommand("restore-memory", {
     description: "Restore memory store from a backup snapshot",
     handler: async (_args, ctx) => {
-      const backupDir = join(DATA_DIR, "backups");
-      await mkdir(backupDir, { recursive: true });
-
-      // List available memory backups
-      const { readdir } = await import("node:fs/promises");
-      const files = (await readdir(backupDir).catch(() => [] as string[]))
-        .filter(f => f.startsWith("memories-") && f.endsWith(".json"))
-        .sort()
-        .reverse(); // newest first
+      const files = await listMemoryBackups(DATA_DIR);
 
       if (files.length === 0) {
         ctx.ui.notify("No backups found. Run /backup-memory first.", "error");
         return;
       }
 
-      // Show picker
-      const labels = await Promise.all(files.map(async f => {
-        try {
-          const raw = await readJsonFile<MemoryStore>(join(backupDir, f), { version: 1, memories: [] });
-          const count = raw.memories?.length ?? 0;
-          const ts    = f.replace("memories-", "").replace(".json", "").replace(/-/g, (m, i) => i === 13 ? ":" : i === 16 ? ":" : i === 10 ? "T" : "-");
-          return `${ts}  (${count} memories)`;
-        } catch {
-          return f;
-        }
-      }));
+      const labels = await backupLabels(DATA_DIR, files);
 
       const choice = await ctx.ui.select("Restore from backup:", labels);
       if (!choice) return;
@@ -1665,21 +1629,12 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
       if (!ok) return;
 
       // Auto-backup current state before restoring
-      const safetyTs  = safeTimestampForFilename();
-      await writeJsonFile(join(backupDir, `memories-${safetyTs}.json`), store);
-      await writeJsonFile(join(backupDir, `entities-${safetyTs}.json`), entityStore);
+      const { timestamp: safetyTs } = await createMemoryBackup(DATA_DIR, store, entityStore);
 
       // Load the chosen backup
-      const restored = await readJsonFile<MemoryStore>(join(backupDir, chosen), { version: 1, memories: [] });
+      const restored = await loadMemoryBackup<MemoryStore>(DATA_DIR, chosen);
       await writeJsonFile(MEMORY_FILE, restored);
-
-      // Try to load matching entities backup
-      const eBackup = chosen.replace("memories-", "entities-");
-      const eBackupPath = join(backupDir, eBackup);
-      if (existsSync(eBackupPath)) {
-        const restoredEntities = await readJsonFile<EntityStore>(eBackupPath, { version: 1, entities: [] });
-        await writeJsonFile(join(DATA_DIR, "entities.json"), restoredEntities);
-      }
+      await restoreEntityBackup(DATA_DIR, chosen);
 
       // Rebuild in-memory index
       loaded = false;
@@ -1982,17 +1937,9 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     // Auto-backup on session start (keeps last 10; prunes older ones)
     if (store.memories.length > 0) {
       try {
-        const backupDir = join(DATA_DIR, "backups");
-        await mkdir(backupDir, { recursive: true });
-        const ts = safeTimestampForFilename();
-        await writeJsonFile(join(backupDir, `memories-${ts}.json`), store);
-        await writeJsonFile(join(backupDir, `entities-${ts}.json`), entityStore);
+        await createMemoryBackup(DATA_DIR, store, entityStore);
         // Prune: keep only the 10 most recent backups
-        await pruneFilesByNewest(backupDir, {
-          keep: 10,
-          filter: file => file.startsWith("memories-"),
-          relatedFiles: file => [file.replace("memories-", "entities-")],
-        });
+        await pruneMemoryBackups(DATA_DIR, 10);
       } catch { /* non-fatal */ }
     }
     // Session status disabled (noise reduction)
