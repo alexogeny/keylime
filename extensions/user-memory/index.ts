@@ -30,7 +30,6 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { registerContextProvider } from "../shared/turn-context";
 import { randomUUID } from "node:crypto";
 import { BM25Index, TFIDFStore, tokenize } from "../shared/retrieval";
 import { ageString, daysUntil } from "../shared/time-format";
@@ -38,12 +37,8 @@ import { rawTextFromContent } from "../shared/message-content";
 import {
   type Entity, type EntityStore,
   loadEntityStore, saveEntityStore,
-  upsertEntity, unlinkMemory, queryEntities, findEntity,
+  upsertEntity, unlinkMemory, findEntity,
 } from "./entity.js";
-import {
-  type PendingClarification,
-  detectThirdPartyShare, detectBorderlineScope, detectContradiction,
-} from "./clarify.js";
 import {
   registerMemoryWizardCommand,
   convertTimelineDraftToRememberParams,
@@ -51,19 +46,14 @@ import {
 } from "./wizard.js";
 import type { MemoryCategory, RememberParams as WizardRememberParams, TimelineMemoryPayload, UserProfile } from "./types.js";
 import { backupLabels, createMemoryBackup, listMemoryBackups, loadMemoryBackup, pruneMemoryBackups, restoreEntityBackup } from "./backups.js";
-import { profileContextLines, profileSearchLines } from "./profile-context.js";
-import { inferExpiryTier, tierToMs, type ExpiryTier } from "./expiry.js";
+import { profileSearchLines } from "./profile-context.js";
+import { tierToMs, type ExpiryTier } from "./expiry.js";
 import { DATA_DIR, decayedConfidence, jaccard, loadStore, memoryText, saveStore, type Memory, type MemoryStore } from "./store.js";
 import { cachedQueryEmbedding, checkOllama, embedText } from "./embeddings.js";
 import { findDuplicateMemory, hybridSearch } from "./retrieval.js";
 import { buildExpiryTrace, buildJobChapter, checkPromotion, shouldCreateJobChapter } from "./lifecycle.js";
-import {
-  classifyCategory,
-  extractCandidates,
-  HIGH_SIGNAL_THRESHOLD,
-  SHORT_LIVED_FEATURES,
-  type DetectedHint,
-} from "./signals.js";
+import { registerUserMemoryContext } from "./context-provider.js";
+import { registerMemoryDetector } from "./memory-detector.js";
 import { inferSensitivityTier, TEMPORAL_GATE_DAYS, type SensitivityTier } from "./sensitivity.js";
 import {
   memoryEntities,
@@ -792,289 +782,29 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
 
   // /memories was retired in favor of /memory-wizard plus memory tools.
 
-  // ── Auto-detection: pending hints + clarification queues ────────────────────
-  // Populated by agent_end, consumed by before_agent_start on the next turn.
-  const pendingHints:         DetectedHint[]         = [];
-  const pendingClarifications: PendingClarification[] = [];
-
-  // ── agent_end: run the signal detection pipeline ───────────────────────────
-  //
-  // Runs AFTER the LLM has finished responding.  Looks at the USER messages
-  // from this turn, runs all three deterministic stages, and queues hints for
-  // the next turn.  Zero LLM calls — formulation happens on the next turn
-  // when I see the hint in my system prompt and decide whether to call remember().
-
-  pi.on("agent_end", async (event, _ctx) => {
-    await ensureLoaded();
-
-    // Extract user message text from this turn
-    const userTexts: string[] = [];
-    for (const msg of event.messages) {
-      if (msg.role !== "user") continue;
-      for (const part of msg.content) {
-        if (part.type === "text") userTexts.push(part.text);
-      }
-    }
-    if (userTexts.length === 0) return;
-    const fullUserText = userTexts.join(" ");
-
-    // Stage 1: Feature scoring — segment and score
-    const candidates = extractCandidates(fullUserText);
-    if (candidates.length === 0) return;
-
-    for (const candidate of candidates.slice(0, 3)) { // cap at 3 candidates per turn
-      // Stage 2: Novelty gate — skip if already well-represented in memory store
-      const existing = bm25.search(candidate.text, 5);
-      const topBM25  = existing[0]?.score ?? 0;
-      const novelty  = Math.max(0, 1 - topBM25 / 4.0);
-      if (novelty < 0.25) continue; // already well-known, skip
-
-      // Stage 3: Category classification via prototype TF-IDF cosine
-      const { category, confidence } = classifyCategory(candidate.text);
-
-      // Determine hint meta-flags
-      const featureSet = new Set(candidate.features);
-      const isPattern  = featureSet.has("recurrence");
-
-      // Infer how long this memory should live
-      const expiry = inferExpiryTier(candidate.text, candidate.features, candidate.score);
-
-      // Dedup against existing pending hints (Jaccard)
-      const isDup = pendingHints.some(h => jaccard(h.text, candidate.text) > 0.55);
-      if (isDup) continue;
-
-      pendingHints.push({
-        text:       candidate.text,
-        category:   expiry ? "context" : category,
-        features:   candidate.features,
-        score:      candidate.score,
-        confidence,
-        novelty,
-        expiry,
-        isPattern,
-      });
-
-      // ── Clarification checks (run on the same candidate) ───────────────────────
-      // At most one clarification per turn (ICLR 2025: pick the most informative).
-      if (pendingClarifications.length === 0) {
-        // Check 3: Contradiction — run first, highest priority
-        const contradictionC = detectContradiction(
-          candidate.text,
-          existing.map(h => ({ id: h.id, content: store.memories.find(m=>m.id===h.id)?.content ?? "", score: h.score })),
-        );
-        if (contradictionC) {
-          pendingClarifications.push(contradictionC);
-        } else {
-          // Check 1: Third-party share
-          const thirdPartyC = detectThirdPartyShare(fullUserText);
-          if (thirdPartyC) {
-            pendingClarifications.push(thirdPartyC);
-          } else {
-            // Check 2: Borderline scope
-            const borderlineC = detectBorderlineScope(candidate.text, candidate.score, LOW_SIGNAL_THRESHOLD);
-            if (borderlineC) pendingClarifications.push(borderlineC);
-          }
-        }
-      }
-    }
+  const memoryDetector = registerMemoryDetector({
+    pi,
+    ensureLoaded,
+    getStore: () => store,
+    getBm25: () => bm25,
   });
 
-  // ── Inject memories + pending hints into every turn ───────────────────────
-  //
-  // Strategy:
-  //   A) Pending detection hints from last turn (consume and clear)
-  //   B) Always include: upcoming events within 90 days
-  //   C) Query-relevant: top-5 BM25+cosine hits for the current user prompt
-  //   D) Always include: top-3 highest-confidence preferences (baseline)
-  //
-  // ── Memory injection — split into STATIC (system prompt) + VOLATILE (context) ──
-  //
-  // CACHE NOTE: the old single before_agent_start block ran a live BM25+cosine
-  // search against the current prompt and appended ALL results to the system
-  // prompt. Because the results differ every turn, this broke the KV cache on
-  // every request — even the stable project plan and tool definitions sitting
-  // above the memory block were re-processed from scratch each time.
-  //
-  // New architecture:
-  //
-  //  before_agent_start  → STATIC: baseline identity + top-3 locked preferences.
-  //                        These are computed once at session start and only
-  //                        rebuilt when a new memory is stored (store version bump).
-  //                        Stable → cached → free to process on subsequent turns.
-  //
-  //  turn-context provider → VOLATILE: pending hints, clarifications, upcoming
-  //                          events, entity matches, BM25 hits for the prompt.
-  //                          Composed with other providers into one capped
-  //                          reminder, never stored, never breaks the cache.
-  //
-  //  Session ledger      → Tracks which memory IDs have been injected this session.
-  //                        After a memory has been injected 3+ times without a direct
-  //                        recall query, it is suppressed from volatile injection
-  //                        (the model already knows it from conversation history).
 
-  // ── Session-level state ────────────────────────────────────────────────────
-  let stableBlock       = "";           // cached static injection (system prompt)
-  let stableStoreLen    = -1;           // store.memories.length when stableBlock was built
-  const injectionLedger = new Map<string, number>(); // memId → times injected this session
-  const LEDGER_SUPPRESS = 3;           // suppress volatile re-injection after N turns
-  const VOLATILE_CAP    = 7;           // max memories in the volatile reminder per turn
-
-  const PINNED_PROFILE_TAGS = new Set(["name", "height", "weight", "measurements", "body", "dob", "birthday", "age"]);
-
-  function isPinnedProfileMemory(m: Memory): boolean {
-    return !m.trace_only && m.tags.some(t => PINNED_PROFILE_TAGS.has(t.toLowerCase()));
-  }
-
-  function buildStableBlock(): string {
-    const profileLines = profileContextLines(store.profile);
-    if (store.memories.length === 0 && profileLines.length === 0) return "";
-    const now  = Date.now();
-
-    // Pin critical profile facts so they are always injected when present.
-    // This fixes misses like name/body stats not being present in context.
-    const pinned = store.memories.filter(isPinnedProfileMemory);
-
-    const base = store.memories.filter(m => {
-      if (m.trace_only) return false;
-      const tier = m.sensitivity ?? inferSensitivityTier(m);
-      // baseline = identity, health — always stable, always inject
-      if (tier === "baseline") return true;
-      // Top preferences by decayed confidence (general tier only)
-      if (tier === "general" && m.category === "preference") return true;
-      return false;
-    });
-
-    const unique = new Map<string, Memory>();
-    for (const m of [...pinned, ...base]) unique.set(m.id, m);
-
-    const stableMems = [...unique.values()]
-      .map(m => ({ m, conf: decayedConfidence(m, now) }))
-      .sort((a, b) => b.conf - a.conf)
-      .slice(0, 5)  // keep the stable system prompt tight; volatile recall handles the rest
-      .map(x => x.m);
-
-    if (stableMems.length === 0 && profileLines.length === 0) return "";
-
-    const lines = ["## What you know about this user"];
-    lines.push(...profileLines.slice(0, 8));
-    for (const m of stableMems) {
-      const prefix   = `(${m.category}${m.promoted_from ? " ⬆️" : ""}) `;
-      const mentions = m.mentions > 1 ? ` [×${m.mentions}]` : "";
-      const dateRef  = m.date_ref ? ` [${m.date_ref}]` : "";
-      lines.push(`- ${prefix}${m.content}${dateRef}${mentions}`);
-    }
-    return lines.join("\n");
-  }
-
-  // ── STATIC injection: baseline + top preferences ───────────────────────────
-  pi.on("before_agent_start", async (event, _ctx) => {
-    await ensureLoaded();
-    if (store.memories.length === 0) return;
-
-    // Rebuild only when the store has grown (new memory added)
-    if (store.memories.length !== stableStoreLen) {
-      stableBlock    = buildStableBlock();
-      stableStoreLen = store.memories.length;
-    }
-
-    if (!stableBlock) return;
-    return { systemPrompt: event.systemPrompt + "\n\n" + stableBlock };
-  });
-
-  // ── VOLATILE injection: BM25 hits, events, hints, clarifications ─────────
-  registerContextProvider({
-    id: "user-memory",
-    priority: 60,
-    maxChars: 520,
-    build: async ({ prompt }) => {
-      await ensureLoaded();
-      if (store.memories.length === 0) return null;
-
-      const now = Date.now();
-      const lines: string[] = [];
-
-      if (pendingHints.length > 0) {
-        const hints = pendingHints.splice(0);
-        lines.push("Memory hints detected:");
-        for (const h of hints.slice(0, 3)) {
-          const strength = h.score >= HIGH_SIGNAL_THRESHOLD ? "strong" : "moderate";
-          lines.push(`- [${h.category}, ${strength}] "${h.text.slice(0, 100)}"`);
-        }
-      }
-
-      if (pendingClarifications.length > 0) {
-        const [clar] = pendingClarifications.splice(0);
-        pendingClarifications.length = 0;
-        lines.push(clar.priority === "high" ? "Contradiction: ask before proceeding:" : "Consider asking:");
-        lines.push(`- ${clar.question}`);
-      }
-
-      if (prompt.trim()) {
-        const memMap = new Map(store.memories.map(m => [m.id, m]));
-        const stableIds = new Set(
-          store.memories
-            .filter(m => {
-              if (isPinnedProfileMemory(m)) return true;
-              const tier = m.sensitivity ?? inferSensitivityTier(m);
-              return tier === "baseline" || (tier === "general" && m.category === "preference");
-            })
-            .map(m => m.id)
-        );
-
-        const upcoming = store.memories
-          .filter(m => m.expires_at && m.expires_at > now && daysUntil(m.expires_at) <= 90)
-          .sort((a, b) => (a.expires_at ?? 0) - (b.expires_at ?? 0));
-
-        const mentionedEntities = queryEntities(entityStore, prompt);
-        const entityMems: Memory[] = [];
-        for (const entity of mentionedEntities.slice(0, 3)) {
-          for (const mid of entity.memory_ids) {
-            const m = memMap.get(mid);
-            if (m) entityMems.push(m);
-          }
-        }
-
-        const relevant = await hybridSearch(retrievalDeps(), prompt, 5);
-        const seen = new Set<string>(stableIds);
-        const volatile: Memory[] = [];
-        const candidates = [...upcoming, ...entityMems, ...relevant.map(r => r.memory)];
-
-        for (const m of candidates) {
-          if (seen.has(m.id) || m.trace_only) continue;
-          seen.add(m.id);
-
-          const ledgerCount = injectionLedger.get(m.id) ?? 0;
-          const isEntityHit = entityMems.some(em => em.id === m.id);
-          if (ledgerCount >= LEDGER_SUPPRESS && !isEntityHit) continue;
-
-          volatile.push(m);
-          if (volatile.length >= VOLATILE_CAP) break;
-        }
-
-        if (volatile.length > 0) {
-          lines.push("Relevant memory:");
-          for (const m of volatile.slice(0, 5)) {
-            const prefix = m.expires_at ? `in ${daysUntil(m.expires_at)}d` : m.category;
-            const mentions = m.mentions > 1 ? ` [×${m.mentions}]` : "";
-            lines.push(`- (${prefix}) ${m.content}${m.date_ref ? ` [${m.date_ref}]` : ""}${mentions}`);
-            injectionLedger.set(m.id, (injectionLedger.get(m.id) ?? 0) + 1);
-          }
-          if (mentionedEntities.length > 0) {
-            lines.push(`entity context: ${mentionedEntities.map(e => e.name).join(", ")}`);
-          }
-        }
-      }
-
-      return lines.length > 0 ? lines.join("\n") : null;
-    },
+  const memoryContext = registerUserMemoryContext({
+    pi,
+    ensureLoaded,
+    getStore: () => store,
+    getEntityStore: () => entityStore,
+    pendingHints: memoryDetector.pendingHints,
+    pendingClarifications: memoryDetector.pendingClarifications,
+    hybridSearch: (prompt, topK) => hybridSearch(retrievalDeps(), prompt, topK),
   });
 
   // ── Session status ─────────────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
     loaded         = false;
-    stableStoreLen = -1;           // force rebuild of static block
-    injectionLedger.clear();       // reset per-session suppression ledger
+    memoryContext.resetSessionState();
     await ensureLoaded();
 
     // Auto-backup on session start (keeps last 10; prunes older ones)
@@ -1091,7 +821,6 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     loaded = false;
     entityStore = { version: 1, entities: [] };
-    pendingHints.length = 0;
-    pendingClarifications.length = 0;
+    memoryDetector.reset();
   });
 }
