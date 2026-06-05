@@ -86,7 +86,7 @@ export function classifyBashNativeRepoInspection(command: string): BashMutationH
 }
 
 export function looksSideEffectfulBash(command: string): boolean {
-  return classifyBashMutation(command) !== null || /(^|\s)(npm|pnpm|yarn|python|python3|pip|pytest|cargo|make)(\s|$)/.test(command);
+  return classifyBashMutation(command) !== null || /(^|\s)(npm|pnpm|yarn|bun|python|python3|pip|pytest|cargo|make)(\s|$)/.test(command);
 }
 
 export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {

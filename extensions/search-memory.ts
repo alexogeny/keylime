@@ -25,7 +25,7 @@ import { BM25Index } from "./shared/retrieval";
 
 // ─── Paths ─────────────────────────────────────────────────────────────────────
 
-const DATA_DIR     = join(homedir(), ".pi", "data", "web-search");
+const DATA_DIR     = process.env.KEYLIME_WEB_SEARCH_DATA_DIR ?? join(homedir(), ".pi", "data", "web-search");
 const SEARCHES_DIR = join(DATA_DIR, "searches");
 const INDEX_FILE   = join(DATA_DIR, "index.json");
 

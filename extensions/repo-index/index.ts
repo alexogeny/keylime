@@ -409,6 +409,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
   // ── Invalidate index after source file writes ──────────────────────────────
 
   pi.on("tool_result", async (event) => {
+    if ((event as any).isError || (event as any).details?.skipped === true) return;
     const input = (event as any).input ?? {};
 
     if (["write", "edit", "create_file"].includes(event.toolName)) {

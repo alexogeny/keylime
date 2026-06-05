@@ -18,6 +18,7 @@ Most domain tools are still registered by their own extensions, but the router k
 - `KEYLIME_ENABLE_TRAJECTORY=1` — enable trajectory evaluator/session entries.
 - `KEYLIME_ENABLE_ADAPTIVE_POLICY=1` — enable adaptive context policy hints.
 - `KEYLIME_AUTO_CHECKPOINT=off|major|any` — control auto-checkpointing. Default: `major`.
+- `KEYLIME_WEB_SEARCH_DATA_DIR=/path/to/data` — override persisted web-search knowledge location for tests or isolated runs.
 
 Defaults are conservative: research follows provider-key detection, auto-fetch is off, trajectory eval is off, and adaptive policy is off.
 

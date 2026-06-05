@@ -108,6 +108,43 @@ describe("code_search file_glob handling", () => {
     expect(isRepoIndexDirty()).toBe(true);
   });
 
+  test("failed and skipped create_file results do not invalidate repo index", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+    markRepoIndexCleanForTest();
+
+    await handlers.tool_result({ toolName: "create_file", input: { path: "src/new.ts" }, isError: true });
+    expect(isRepoIndexDirty()).toBe(false);
+
+    await handlers.tool_result({ toolName: "create_file", input: { path: "src/new.ts" }, details: { skipped: true } });
+    expect(isRepoIndexDirty()).toBe(false);
+  });
+
+  test("apply_code_replacements invalidates only successful non-dry-run source edits", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+
+    markRepoIndexCleanForTest();
+    await handlers.tool_result({ toolName: "apply_code_replacements", input: { dry_run: true, edits: [{ path: "src/a.ts" }] } });
+    expect(isRepoIndexDirty()).toBe(false);
+
+    await handlers.tool_result({ toolName: "apply_code_replacements", input: { edits: [{ path: "src/a.ts" }] }, isError: true });
+    expect(isRepoIndexDirty()).toBe(false);
+
+    await handlers.tool_result({ toolName: "apply_code_replacements", input: { edits: [{ path: "notes.txt" }] } });
+    expect(isRepoIndexDirty()).toBe(false);
+
+    await handlers.tool_result({ toolName: "apply_code_replacements", input: { edits: [{ path: "src/a.ts" }] } });
+    expect(isRepoIndexDirty()).toBe(true);
+  });
+
+  test("broad successful apply_code_replacements invalidates repo index", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+    markRepoIndexCleanForTest();
+
+    await handlers.tool_result({ toolName: "apply_code_replacements", input: { file_glob: "src/**/*.ts", edits: [] } });
+
+    expect(isRepoIndexDirty()).toBe(true);
+  });
+
   test("create_file ignores non-source files for repo index invalidation", async () => {
     const handlers = await registeredRepoIndexHandlers();
     markRepoIndexCleanForTest();

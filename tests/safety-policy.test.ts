@@ -62,6 +62,19 @@ describe("central mutation classification", () => {
   });
 
   test.each([
+    ["npm install left-pad"],
+    ["pnpm add zod"],
+    ["yarn add zod"],
+    ["bun add zod"],
+    ["cargo add serde"],
+    ["pip install requests"],
+  ])("classifies package-manager side effects: %s", (command) => {
+    const c = classifyToolMutation("bash", { command });
+    expect(c.mutates).toBe(true);
+    expect(c.score).toBeGreaterThanOrEqual(8);
+  });
+
+  test.each([
     ["cat > file.ts"],
     ["printf hi >> file.ts"],
     ["grep foo src 2> errors.log"],
@@ -80,6 +93,9 @@ describe("central mutation classification", () => {
 
   test.each([
     ["./.env"],
+    ["src/../.env"],
+    [".git/../.env"],
+    [".git\\hooks\\post-commit"],
     [".env.local"],
     [".git/hooks/post-commit"],
     ["node_modules/pkg/index.js"],
