@@ -41,6 +41,10 @@ describe("test runner defaults", () => {
     expect(runChecksCommandBlockReason("rm", ["file.ts"])).toContain("file mutation");
     expect(runChecksCommandBlockReason("mkdir", ["src/generated"])).toContain("file mutation");
     expect(runChecksCommandBlockReason("grep", ["foo", "src", ">", "results.txt"])).toContain("redirection");
+    expect(runChecksCommandBlockReason("prettier", ["--write", "."])).toContain("verification-only");
+    expect(runChecksCommandBlockReason("eslint", ["--fix", "."])).toContain("verification-only");
+    expect(runChecksCommandBlockReason("cargo", ["fmt"])).toContain("verification-only");
+    expect(runChecksCommandBlockReason("npm", ["install"])).toContain("verification-only");
     expect(runChecksCommandBlockReason("bun test tests", [])).toContain("shell-style");
     expect(runChecksCommandBlockReason("bun", ["test", "tests"])).toBeNull();
     expect(runChecksCommandBlockReason("cargo", ["test"])).toBeNull();

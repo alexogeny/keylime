@@ -20,7 +20,7 @@ export interface CompactToolResult {
   summary: string[];
 }
 
-const DEFAULT_THRESHOLD = Number(process.env.PI_TOOL_RESULT_COMPACT_THRESHOLD ?? 6000);
+const DEFAULT_THRESHOLD = Number(process.env.PI_TOOL_RESULT_COMPACT_THRESHOLD ?? 3500);
 const DEFAULT_PREVIEW = Number(process.env.PI_TOOL_RESULT_COMPACT_PREVIEW ?? 1400);
 const DEFAULT_SUMMARY_LINES = 12;
 

@@ -20,6 +20,7 @@ import {
   type ReplacementPlan,
 } from "./shared/code-primitives";
 import { classifyToolMutation } from "./shared/safety-policy";
+import { SOURCE_MUTATION_GUIDELINES } from "./shared/coding-contract";
 
 async function readTextFileSafely(path: string): Promise<string> {
   const info = await stat(path);
@@ -175,13 +176,6 @@ type PlannedReplacement = {
 function relativePath(cwd: string, path: string): string {
   return repoRelativePath(cwd, path);
 }
-
-const SOURCE_MUTATION_GUIDELINES = [
-  "For existing source-code edits, use plan_code_replacements/apply_code_replacements instead of built-in edit/write.",
-  "Use create_file for new source/config/test/docs/fixtures.",
-  "Do not mutate repo files with raw shell/runtime commands; use safe primitives.",
-  "Use checkpoint/git inspection tools instead of raw git mutation commands.",
-];
 
 async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targets: string[]): Promise<PlannedReplacement[]> {
   const plannedByPath = new Map<string, PlannedReplacement>();

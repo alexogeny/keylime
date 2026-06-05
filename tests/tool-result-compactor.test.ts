@@ -179,4 +179,11 @@ describe("tool result compaction", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+  test("default threshold compacts medium-large outputs lazily", () => {
+    const text = "x".repeat(3600);
+    const result = compactToolResultContent([{ type: "text", text }]);
+
+    expect(result.shouldCompact).toBe(true);
+    expect(result.originalChars).toBe(3600);
+  });
 });

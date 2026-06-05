@@ -71,7 +71,7 @@ export const INTENT_PROFILES: IntentProfileDefinition[] = [
     id: "review",
     phrases: ["review my code", "code smells", "audit this", "security review", "read only", "look over", "what is wrong", "find issues", "spot problems", "review these changes", "pr review", "pull request review", "code audit", "perf review", "cache invalidation", "prompt pollution", "context drift"],
     keywords: ["review", "audit", "smell", "smells", "inefficiency", "inefficient", "risk", "risks", "security", "correctness", "maintainability", "pollution", "drift", "cache", "invalidation", "prompt", "context"],
-    capabilityGroups: ["readonly", "repo", "memory-lite"],
+    capabilityGroups: ["readonly", "repo", "safety", "memory-lite"],
     skills: [],
     minScore: 3,
   },

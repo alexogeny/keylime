@@ -1,5 +1,6 @@
 import { buildRetrievalIndex, type ScoredResult, type SearchDocument } from "./retrieval";
 import type { IntentId } from "./intent";
+import { CODING_CONTRACT } from "./coding-contract";
 
 export type PolicyDocKind = "routing" | "mutation" | "codemod" | "check" | "context" | "recall";
 
@@ -71,7 +72,7 @@ export const POLICY_DOCUMENTS: PolicyDocument[] = [
     id: "mutation.safe-source-primitives",
     kind: "mutation",
     title: "Use safe source mutation primitives",
-    body: "For existing source-code edits, use plan_code_replacements/apply_code_replacements instead of built-in edit/write. Use create_file for new source, config, test, markdown, and fixture files. Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands for repository file mutations. Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash.",
+    body: CODING_CONTRACT,
     fields: { active_tools: ["plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "git_status", "git_diff"], severity: "high" },
   },
   {

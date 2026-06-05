@@ -9,6 +9,7 @@ import { registerContextProvider } from "./shared/turn-context";
 import { retrievePolicy } from "./shared/policy-corpus";
 import { alwaysOnToolNames, capabilityToolMap, domainToolNames, LOCKED_BUILTIN_TOOLS } from "./shared/tool-policy";
 import { formatAgentStatusLines, formatIntentStatusLines, formatToolPolicyLines } from "./shared/intent-status";
+import { CODING_CONTRACT } from "./shared/coding-contract";
 import { bestIntentCorpusMatch, FOLLOWUP_STICKINESS_THRESHOLD, SWITCH_THRESHOLD, type IntentCorpusMatch } from "./shared/intent-corpus";
 
 const STATUS_KEY = "intent";
@@ -261,10 +262,7 @@ export function reminderText(): string {
   lines.push(`Intent: ${route.primaryIntent}; tools: ${activeGroups.join(", ") || "none"}.`);
 
   if (activeGroups.includes("coding")) {
-    lines.push("Git checkpoints handle rollback safety; do not spend extra turns on manual git safety unless asked.");
-    lines.push("For repository file mutations, use codemod tools/create_file/create_directory; do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands.");
-    lines.push("Use checkpoint/git inspection tools instead of raw git add/commit/reset/restore/clean/rebase/merge/push/stash; use git_status/git_diff for repository state inspection.");
-    lines.push("For verification, prefer run_checks; use bash only when run_checks cannot express the command.");
+    lines.push(`Coding contract: ${CODING_CONTRACT}`);
   }
 
   if (route.suggestedSkills.length > 0) {

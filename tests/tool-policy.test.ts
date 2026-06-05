@@ -9,11 +9,13 @@ describe("shared tool policy", () => {
     expect(DOMAIN_TOOLS).toEqual(new Set(domainToolNames()));
   });
 
-  test("safe policy/codemod/check helpers are known always-on safe tools", () => {
+  test("policy/codemod/check helpers are known but routed instead of always-on", () => {
     for (const name of ["retrieve_policy", "suggest_checks", "codemod_plan", "inspect_tool_result"]) {
       expect(knownToolNames()).toContain(name);
-      expect(toolPolicyFor(name)).toMatchObject({ alwaysOn: true, risk: "safe" });
+      expect(toolPolicyFor(name)).toMatchObject({ alwaysOn: false, risk: "safe" });
+      expect(capabilityToolMap().safety).toContain(name);
     }
+    expect(toolPolicyFor("run_checks")).toMatchObject({ group: "coding", alwaysOn: false, risk: "safe" });
   });
 
   test("dangerous built-ins are known but not always-on safe tools", () => {
@@ -23,10 +25,14 @@ describe("shared tool policy", () => {
     expect(alwaysOnToolNames()).not.toContain("bash");
   });
 
-  test("repo history and tool-result maintenance tools are routed, not always-on", () => {
+  test("mutation, repo, and tool-result maintenance tools are routed, not always-on", () => {
     expect(alwaysOnToolNames()).not.toContain("commit_history");
+    expect(alwaysOnToolNames()).not.toContain("git_status");
+    expect(alwaysOnToolNames()).not.toContain("apply_code_replacements");
     expect(alwaysOnToolNames()).not.toContain("list_tool_results");
     expect(capabilityToolMap().repo).toContain("commit_history");
+    expect(capabilityToolMap().repo).toContain("git_status");
+    expect(capabilityToolMap().coding).toContain("apply_code_replacements");
     expect(capabilityToolMap().coding).toContain("list_tool_results");
   });
 

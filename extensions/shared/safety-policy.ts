@@ -91,6 +91,9 @@ export function looksSideEffectfulBash(command: string): boolean {
   return classifyBashMutation(command) !== null || /(^|\s)(npm|pnpm|yarn|bun|python|python3|pip|pytest|cargo|make)(\s|$)/.test(command);
 }
 
+const MUTATING_CHECK_ARGS = new Set(["--write", "--fix", "--fix-type", "--updateSnapshot", "-u"]);
+const MUTATING_CHECK_SUBCOMMANDS = new Set(["fmt", "format", "install", "update", "generate", "gen", "scaffold"]);
+
 export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {
   if (/\s/.test(command)) return "shell-style custom command strings can bypass coding file-mutation policy; pass command and args separately";
   const base = command.split("/").pop() ?? command;
@@ -102,6 +105,10 @@ export function runChecksCommandBlockReason(command: string, args: string[] = []
   if (base === "deno" && args.includes("eval")) return "deno eval can bypass coding file-mutation policy";
   if (base === "git" && GIT_MUTATION_SUBCOMMANDS.has(args[0] ?? "")) return "raw git mutation command can bypass checkpoint policy";
   if (FILE_MUTATION_COMMANDS.has(base)) return "file mutation command can bypass coding file-mutation policy";
+  const firstCommandArg = args.find(arg => !arg.startsWith("-")) ?? "";
+  if (args.some(arg => MUTATING_CHECK_ARGS.has(arg) || arg.startsWith("--fix=") || arg.startsWith("--write="))) return "mutating check option can bypass verification-only policy";
+  if (MUTATING_CHECK_SUBCOMMANDS.has(firstCommandArg)) return "mutating check subcommand can bypass verification-only policy";
+  if (base === "cargo" && firstCommandArg === "fmt") return "cargo fmt can mutate repository files; use formatting tools explicitly, not run_checks";
   return null;
 }
 

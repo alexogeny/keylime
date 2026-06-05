@@ -21,28 +21,31 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "inspect_text_matches", alwaysOn: true, domain: true, risk: "safe" },
   { name: "inspect_code_structure", alwaysOn: true, domain: true, risk: "safe" },
   { name: "inspect_lines", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "plan_code_replacements", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "apply_code_replacements", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "create_file", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "create_directory", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "run_checks", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "retrieve_policy", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "suggest_checks", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "codemod_plan", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "codemod_update_json", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "codemod_add_import", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "codemod_insert_test_case", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_tool_result", alwaysOn: true, domain: true, risk: "safe" },
+
+  { name: "plan_code_replacements", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "apply_code_replacements", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "create_file", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "create_directory", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "run_checks", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "codemod_update_json", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "codemod_add_import", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "codemod_insert_test_case", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
   { name: "list_tool_results", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
   { name: "cleanup_tool_results", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+
+  { name: "retrieve_policy", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "suggest_checks", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "codemod_plan", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "inspect_tool_result", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
+
   { name: "commit_history", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
   { name: "see_file_commit_history", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "git_status", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "git_status", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
   { name: "git_diff", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
   { name: "inspect_at_checkpoint", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
 
   { name: "bash", group: "core", alwaysOn: false, domain: true, risk: "guarded" },
-  { name: "read", group: "readonly", alwaysOn: false, domain: true, risk: "guarded" },
+  { name: "read", alwaysOn: false, domain: true, risk: "guarded" },
   { name: "fetch_url", group: "fetch", alwaysOn: false, domain: true, risk: "guarded" },
   { name: "edit", alwaysOn: false, domain: true, risk: "dangerous" },
   { name: "write", alwaysOn: false, domain: true, risk: "dangerous" },
@@ -103,7 +106,7 @@ export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
     groups[group] = [...new Set([...groups[group], ...names])].sort();
   };
   addDefaults("core", ["bash"]);
-  addDefaults("readonly", ["bash", "fetch_url", "read"]);
+  addDefaults("readonly", ["bash", "fetch_url"]);
   addDefaults("coding", ["bash"]);
   addDefaults("memory-lite", ["recall_entity", "recall_memories", "remember"]);
   addDefaults("personal", ["recall_entity", "recall_memories", "remember"]);

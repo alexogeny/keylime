@@ -264,10 +264,10 @@ describe("code primitive extension tools", () => {
       ...tools.apply_code_replacements.promptGuidelines,
     ].join("\n");
 
-    expect(guidelines).toContain("use plan_code_replacements/apply_code_replacements instead of built-in edit/write");
-    expect(guidelines).toContain("Do not mutate repo files with raw shell/runtime commands");
-    expect(guidelines).toContain("Use checkpoint/git inspection tools instead of raw git mutation commands");
-    expect(guidelines).toContain("Use create_file for new source/config/test/docs/fixtures");
+    expect(guidelines).toContain("use plan_code_replacements/apply_code_replacements");
+    expect(guidelines).toContain("Do not mutate repo files with raw shell/runtime/git commands");
+    expect(guidelines).toContain("Verify only the changed behavior with run_checks");
+    expect(guidelines).toContain("For new source/config/test/docs/fixtures, use create_file/create_directory");
   });
 
   test("inspect_text_matches supports file_glob and language filters", async () => {

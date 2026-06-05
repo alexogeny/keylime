@@ -46,10 +46,20 @@ describe("activeToolNames", () => {
     expect(tools).toContain("list_files");
     expect(tools).toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
-    expect(tools).toContain("apply_code_replacements");
+    expect(tools).not.toContain("apply_code_replacements");
     expect(tools).not.toContain("read");
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("web_search");
+  });
+
+  test("readonly routing avoids raw read by default", () => {
+    const tools = activeToolNames(pi(["read", "bash", "fetch_url"]), ["readonly"]);
+
+    expect(tools).toContain("code_search");
+    expect(tools).toContain("inspect_lines");
+    expect(tools).toContain("bash");
+    expect(tools).toContain("fetch_url");
+    expect(tools).not.toContain("read");
   });
 });
 
@@ -333,10 +343,10 @@ test("coding route exposes codemod primitives", () => {
   expect(tools).toContain("create_file");
   expect(tools).toContain("create_directory");
   expect(tools).toContain("run_checks");
-  expect(tools).toContain("retrieve_policy");
-  expect(tools).toContain("suggest_checks");
-  expect(tools).toContain("codemod_plan");
-  expect(tools).toContain("inspect_tool_result");
+  expect(tools).not.toContain("retrieve_policy");
+  expect(tools).not.toContain("suggest_checks");
+  expect(tools).not.toContain("codemod_plan");
+  expect(tools).not.toContain("inspect_tool_result");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("write");
 });
@@ -358,11 +368,11 @@ test("review mode keeps always-on code primitives but removes unrelated domain t
   const tools = activeToolNames(pi(["custom_safe_tool", "web_search", "edit"]), ["coding", "research", "memory-lite"]);
   await commands.mode.handler("conversational", ctx);
 
-  expect(tools).toContain("read");
+  expect(tools).not.toContain("read");
   expect(tools).toContain("code_search");
   expect(tools).toContain("inspect_code_structure");
-  expect(tools).toContain("apply_code_replacements");
-  expect(tools).toContain("create_file");
+  expect(tools).not.toContain("apply_code_replacements");
+  expect(tools).not.toContain("create_file");
   expect(tools).toContain("custom_safe_tool");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("web_search");
@@ -411,22 +421,20 @@ test("tool-policy command reports always-on and locked tools", async () => {
 
   expect(notification).toContain("always-on code tools");
   expect(notification).toContain("create_directory");
-  expect(notification).toContain("retrieve_policy");
-  expect(notification).toContain("codemod_plan");
-  expect(notification).toContain("inspect_tool_result");
+  expect(notification).not.toContain("retrieve_policy");
+  expect(notification).not.toContain("codemod_plan");
+  expect(notification).not.toContain("inspect_tool_result");
   expect(notification).toContain("locked built-ins");
   expect(notification).toContain("policy evidence:");
 });
 
-test("coding reminders mention git checkpoint safety and codemod mutation policy", async () => {
+test("coding reminders use the short stable coding contract", async () => {
   const { classifyIntent, setCurrentRoute } = await import("../extensions/shared/intent");
   const { reminderText } = await import("../extensions/intent-router");
+  const { CODING_CONTRACT } = await import("../extensions/shared/coding-contract");
 
   setCurrentRoute(classifyIntent("implement code change"));
 
-  expect(reminderText()).toContain("Git checkpoints handle rollback safety");
-  expect(reminderText()).toContain("use codemod tools");
-  expect(reminderText()).toContain("do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands");
-  expect(reminderText()).toContain("Use checkpoint/git inspection tools");
-  expect(reminderText()).toContain("prefer run_checks");
+  expect(reminderText()).toContain(`Coding contract: ${CODING_CONTRACT}`);
+  expect(reminderText()).not.toContain("do not use read/write/edit");
 });
