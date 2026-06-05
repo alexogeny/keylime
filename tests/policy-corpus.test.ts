@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { POLICY_DOCUMENTS, retrievePolicy } from "../extensions/shared/policy-corpus";
+import { POLICY_DOCUMENTS, retrievePolicy, validatePolicyCorpus } from "../extensions/shared/policy-corpus";
+import { knownToolNames } from "../extensions/shared/tool-policy";
 
 describe("policy corpus retrieval", () => {
   test("has unique, typed seed documents for routing, mutation, codemod, checks, context, and recall", () => {
@@ -31,5 +32,22 @@ describe("policy corpus retrieval", () => {
 
   test("returns empty list when kind filter excludes all lexical matches", () => {
     expect(retrievePolicy("runtime eval python node", { kind: "recall", topK: 2 })).toEqual([]);
+  });
+
+  test("validates policy corpus ids, kinds, bodies, tool names, and check commands", () => {
+    expect(validatePolicyCorpus(POLICY_DOCUMENTS, knownToolNames()).errors).toEqual([]);
+  });
+
+  test("validator catches duplicate ids, empty bodies, and stale tool references", () => {
+    const result = validatePolicyCorpus([
+      { ...POLICY_DOCUMENTS[0], id: "dup", body: "" },
+      { ...POLICY_DOCUMENTS[1], id: "dup", fields: { active_tools: ["missing_tool"] } },
+    ] as any, new Set(["code_search"]));
+
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("duplicate policy id: dup"),
+      expect.stringContaining("empty body"),
+      expect.stringContaining("unknown tool missing_tool"),
+    ]));
   });
 });

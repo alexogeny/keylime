@@ -9,12 +9,33 @@ export type ContextProviderArgs = {
   pressure: "low" | "medium" | "high";
 };
 
+export type ContextProviderStability = "static" | "session" | "turn";
+
 export type ContextProvider = {
   id: string;
   priority: number;
   maxChars: number;
+  stability?: ContextProviderStability;
   applies?: (args: ContextProviderArgs) => boolean | Promise<boolean>;
   build: (args: ContextProviderArgs) => string | null | undefined | Promise<string | null | undefined>;
+};
+
+export type ContextProviderDiagnostic = {
+  id: string;
+  priority: number;
+  stability: ContextProviderStability;
+  budget: number;
+  rawChars: number;
+  finalChars: number;
+  trimmed: boolean;
+  included: boolean;
+  skippedReason?: "not_applicable" | "empty" | "duplicate" | "budget";
+};
+
+export type TurnContextDiagnostics = {
+  pressure: "low" | "medium" | "high";
+  totalBudget: number;
+  providers: ContextProviderDiagnostic[];
 };
 
 const providers = new Map<string, ContextProvider>();
@@ -86,29 +107,56 @@ function appendReminder(messages: any[], text: string): any[] {
   return result;
 }
 
-export async function composeTurnContext(ctx: ExtensionContext, messages: any[]): Promise<{ messages: any[]; providerIds: string[] }> {
+function normalizeForDedupe(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export async function composeTurnContext(ctx: ExtensionContext, messages: any[]): Promise<{ messages: any[]; providerIds: string[]; diagnostics: TurnContextDiagnostics }> {
   const pressure = contextPressure(ctx);
   const route = getCurrentRoute();
   const prompt = promptFromMessages(messages);
   const args: ContextProviderArgs = { ctx, messages, prompt, route, pressure };
   const sections: string[] = [];
   const providerIds: string[] = [];
-  let remaining = totalBudget(pressure);
+  const diagnostics: ContextProviderDiagnostic[] = [];
+  const seen = new Set<string>();
+  const fullBudget = totalBudget(pressure);
+  let remaining = fullBudget;
 
   for (const provider of listContextProviders()) {
-    if (remaining <= 80) break;
-    if (provider.applies && !(await provider.applies(args))) continue;
+    const stability = provider.stability ?? "turn";
+    if (remaining <= 80) {
+      diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "budget" });
+      break;
+    }
+    if (provider.applies && !(await provider.applies(args))) {
+      diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "not_applicable" });
+      continue;
+    }
 
     const raw = await provider.build(args);
-    if (!raw?.trim()) continue;
+    if (!raw?.trim()) {
+      diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: raw?.length ?? 0, finalChars: 0, trimmed: false, included: false, skippedReason: "empty" });
+      continue;
+    }
+
+    const normalized = normalizeForDedupe(raw);
+    if (seen.has(normalized)) {
+      diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: raw.trim().length, finalChars: 0, trimmed: false, included: false, skippedReason: "duplicate" });
+      continue;
+    }
+    seen.add(normalized);
 
     const budget = Math.min(provider.maxChars, remaining);
     const text = trimTo(raw.trim(), budget);
+    const trimmed = text !== raw.trim();
     sections.push(text);
     providerIds.push(provider.id);
+    diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget, rawChars: raw.trim().length, finalChars: text.length, trimmed, included: true });
     remaining -= text.length + 2;
   }
 
-  if (sections.length === 0) return { messages, providerIds };
-  return { messages: appendReminder(messages, sections.join("\n\n")), providerIds };
+  const resultDiagnostics = { pressure, totalBudget: fullBudget, providers: diagnostics };
+  if (sections.length === 0) return { messages, providerIds, diagnostics: resultDiagnostics };
+  return { messages: appendReminder(messages, sections.join("\n\n")), providerIds, diagnostics: resultDiagnostics };
 }

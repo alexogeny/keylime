@@ -4,6 +4,7 @@ import { getCurrentOperationalMode } from "./operational-modes";
 import { researchKeyConfigured } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
 import { retrievePolicy } from "./shared/policy-corpus";
+import { alwaysOnToolNames, capabilityToolMap, domainToolNames } from "./shared/tool-policy";
 
 const STATUS_KEY = "intent";
 
@@ -24,75 +25,11 @@ export function getLastPolicyEvidence() {
   return lastPolicyEvidence;
 }
 
-const ALWAYS_ON_CODE_TOOLS = [
-  "code_search",
-  "list_files",
-  "inspect_json",
-  "inspect_text_matches",
-  "inspect_code_structure",
-  "inspect_lines",
-  "plan_code_replacements",
-  "apply_code_replacements",
-  "create_file",
-  "create_directory",
-  "run_checks",
-  "retrieve_policy",
-  "suggest_checks",
-  "codemod_plan",
-  "inspect_tool_result",
-  "commit_history",
-  "see_file_commit_history",
-  "git_status",
-  "git_diff",
-  "inspect_at_checkpoint",
-];
+export const ALWAYS_ON_CODE_TOOLS = alwaysOnToolNames();
 
-const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = {
-  core: ["bash"],
-  readonly: ["read", "bash", "fetch_url"],
-  coding: ["bash"],
-  repo: [],
-  project: ["save_project_plan", "update_feature_tdd", "log_decision", "manage_question"],
-  memory: ["remember", "recall_memories", "update_memory", "forget_memory", "list_memories", "recall_entity", "list_entities"],
-  "memory-lite": ["remember", "recall_memories", "recall_entity"],
-  research: ["recall_web_knowledge", "list_search_history", "get_search_entry", "web_search", "save_search_knowledge", "research_topic"],
-  fetch: ["fetch_url"],
-  shoes: ["lookup_shoe", "find_shoes_by_spec", "compare_shoes", "shoe_catalog_stats", "add_shoe", "query_shoes"],
-  personal: ["remember", "recall_memories", "recall_entity"],
-  safety: [],
-};
+export const CAPABILITY_TOOLS: Record<CapabilityGroup, string[]> = capabilityToolMap();
 
-const DOMAIN_TOOLS = new Set([
-  "read",
-  "bash",
-  "edit",
-  "write",
-  ...CAPABILITY_TOOLS.project,
-  ...CAPABILITY_TOOLS.memory,
-  ...CAPABILITY_TOOLS.research,
-  ...CAPABILITY_TOOLS.shoes,
-  "fetch_url",
-  "code_search",
-  "list_files",
-  "inspect_json",
-  "inspect_text_matches",
-  "inspect_code_structure",
-  "inspect_lines",
-  "plan_code_replacements",
-  "apply_code_replacements",
-  "create_file",
-  "create_directory",
-  "run_checks",
-  "retrieve_policy",
-  "suggest_checks",
-  "codemod_plan",
-  "inspect_tool_result",
-  "commit_history",
-  "see_file_commit_history",
-  "git_status",
-  "git_diff",
-  "inspect_at_checkpoint",
-]);
+export const DOMAIN_TOOLS = new Set(domainToolNames());
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return stripSystemReminders(content);

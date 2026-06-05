@@ -71,6 +71,10 @@ describe("tool result compaction", () => {
       const full = await tools.inspect_tool_result.execute("id", { result_id: patch.details.resultId, max_chars: 50000 });
       expect(full.content[0].text).toContain("Error: final failure");
       expect(full.content[0].text).toContain("call-1");
+
+      const listed = await tools.list_tool_results.execute("id", { limit: 10 });
+      expect(listed.details.results[0]).toMatchObject({ id: patch.details.resultId, toolName: "run_checks", originalChars: huge.length });
+      expect(listed.content[0].text).toContain("run_checks");
     } finally {
       process.chdir(oldCwd);
       await rm(cwd, { recursive: true, force: true });

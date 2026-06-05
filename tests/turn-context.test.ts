@@ -39,6 +39,20 @@ describe("turn context composer", () => {
     expect(result.messages[0].content).not.toContain("skip me");
   });
 
+  test("dedupes exact duplicate provider output and reports provider diagnostics", async () => {
+    registerContextProvider({ id: "high", priority: 10, maxChars: 100, stability: "turn", build: () => "same reminder" } as any);
+    registerContextProvider({ id: "low", priority: 1, maxChars: 100, stability: "session", build: () => "same reminder" } as any);
+
+    const result = await composeTurnContext(ctx(), messages("hello"));
+
+    expect(result.providerIds).toEqual(["high"]);
+    expect(result.messages[0].content.match(/same reminder/g)).toHaveLength(1);
+    expect(result.diagnostics.providers).toEqual([
+      expect.objectContaining({ id: "high", included: true, stability: "turn", rawChars: 13, finalChars: 13, trimmed: false }),
+      expect.objectContaining({ id: "low", included: false, skippedReason: "duplicate", stability: "session" }),
+    ]);
+  });
+
   test("trims provider output to its budget", async () => {
     registerContextProvider({ id: "big", priority: 1, maxChars: 30, build: () => "x".repeat(200) });
 
@@ -57,6 +71,8 @@ test("uses a tighter total budget under high context pressure", async () => {
 
   const result = await composeTurnContext(ctx(90), messages("hello"));
 
+  expect(result.diagnostics.pressure).toBe("high");
+  expect(result.diagnostics.totalBudget).toBe(900);
   expect(result.providerIds.length).toBeLessThan(3);
   expect(result.messages[0].content.length).toBeLessThan(1_100);
 });

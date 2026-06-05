@@ -13,6 +13,33 @@ export interface PolicyDocument extends SearchDocument {
   };
 }
 
+export const POLICY_DOCUMENT_KINDS: PolicyDocKind[] = ["routing", "mutation", "codemod", "check", "context", "recall"];
+
+export type PolicyCorpusValidationResult = { errors: string[] };
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+export function validatePolicyCorpus(docs: PolicyDocument[], knownTools = new Set<string>()): PolicyCorpusValidationResult {
+  const errors: string[] = [];
+  const ids = new Set<string>();
+  const kinds = new Set(POLICY_DOCUMENT_KINDS);
+  for (const doc of docs) {
+    if (ids.has(doc.id)) errors.push(`duplicate policy id: ${doc.id}`);
+    ids.add(doc.id);
+    if (!kinds.has(doc.kind)) errors.push(`${doc.id}: unknown kind ${doc.kind}`);
+    if (!doc.body?.trim()) errors.push(`${doc.id}: empty body`);
+    for (const tool of asStringArray(doc.fields?.active_tools)) {
+      if (knownTools.size > 0 && !knownTools.has(tool)) errors.push(`${doc.id}: unknown tool ${tool}`);
+    }
+    for (const command of asStringArray(doc.fields?.commands)) {
+      if (!command.trim() || command.includes("&&") || command.includes(";")) errors.push(`${doc.id}: suspicious command ${command}`);
+    }
+  }
+  return { errors };
+}
+
 export const POLICY_DOCUMENTS: PolicyDocument[] = [
   {
     id: "routing.refactor",

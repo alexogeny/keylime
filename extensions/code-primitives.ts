@@ -179,9 +179,6 @@ function relativePath(cwd: string, path: string): string {
 }
 
 const SOURCE_MUTATION_GUIDELINES = [
-  "Use list_files instead of bash ls/find for repository file discovery.",
-  "Use inspect_text_matches instead of bash grep/rg for repository text search.",
-  "Use inspect_json instead of jq/cat/read for JSON inspection and projection.",
   "For existing source-code edits, use plan_code_replacements/apply_code_replacements instead of built-in edit/write.",
   "Use create_file for new source, config, test, markdown, and fixture files.",
   "Do not use read/write/edit, bash, node, python, perl, sed, awk, tee, heredocs, shell redirection, or raw git mutation commands for repository file mutations.",
@@ -299,6 +296,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     description: "Find text or regex matches in one or more files with line/context output.",
     promptSnippet: "Inspect file text matches",
     promptGuidelines: [
+      "Use instead of bash grep/rg.",
       "Use before broad replacements.",
       "Use to locate exact oldText before applying source-code edits.",
       "Prefer this over read when locating code context.",

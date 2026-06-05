@@ -63,14 +63,40 @@ export function compactToolResultContent(content: any, options: CompactToolResul
   };
 }
 
-async function storeResult(cwd: string, payload: Record<string, unknown>): Promise<{ id: string; path: string }> {
+type ToolResultManifestEntry = {
+  id: string;
+  toolName: string;
+  createdAt: string;
+  path: string;
+  originalChars: number;
+  summary: string[];
+};
+
+async function readManifest(cwd: string): Promise<ToolResultManifestEntry[]> {
+  const path = join(cwd, ".pi", "tool-results", "index.json");
+  if (!existsSync(path)) return [];
+  try { return JSON.parse(await readFile(path, "utf8")); }
+  catch { return []; }
+}
+
+async function writeManifest(cwd: string, entries: ToolResultManifestEntry[]): Promise<void> {
+  const dir = join(cwd, ".pi", "tool-results");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "index.json"), JSON.stringify(entries, null, 2), "utf8");
+}
+
+async function storeResult(cwd: string, payload: Record<string, unknown>, summary: string[]): Promise<{ id: string; path: string }> {
   const date = new Date().toISOString().slice(0, 10);
   const id = randomUUID();
   const relDir = join(".pi", "tool-results", date);
   const absDir = join(cwd, relDir);
   await mkdir(absDir, { recursive: true });
   const relPath = join(relDir, `${id}.json`);
-  await writeFile(join(cwd, relPath), JSON.stringify({ ...payload, id }, null, 2), "utf8");
+  const createdAt = new Date().toISOString();
+  await writeFile(join(cwd, relPath), JSON.stringify({ ...payload, id, createdAt }, null, 2), "utf8");
+  const manifest = await readManifest(cwd);
+  manifest.unshift({ id, toolName: String(payload.toolName ?? "unknown"), createdAt, path: relPath, originalChars: Number(payload.originalChars ?? 0), summary });
+  await writeManifest(cwd, manifest.slice(0, 500));
   return { id, path: relPath };
 }
 
@@ -105,7 +131,7 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       details: (event as any).details,
       originalChars: compacted.originalChars,
       createdAt: new Date().toISOString(),
-    });
+    }, compacted.summary);
 
     return {
       content: [{ type: "text", text: compactedContentText((event as any).toolName, stored, compacted) }],
@@ -117,6 +143,27 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
         originalChars: compacted.originalChars,
       },
     };
+  });
+
+  pi.registerTool({
+    name: "list_tool_results",
+    label: "List Tool Results",
+    description: "List compacted tool-result metadata without loading full raw payloads.",
+    promptSnippet: "List compacted tool outputs",
+    promptGuidelines: ["Use to find a compacted result id before inspecting full output."],
+    parameters: Type.Object({
+      limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100, description: "Maximum results" })),
+      tool_name: Type.Optional(Type.String({ description: "Filter by tool name" })),
+    }),
+    async execute(_id, params) {
+      const entries = (await readManifest(process.cwd()))
+        .filter(entry => !params.tool_name || entry.toolName === params.tool_name)
+        .slice(0, Math.min(params.limit ?? 20, 100));
+      const text = entries.length
+        ? entries.map(entry => `${entry.id} ${entry.toolName} ${entry.originalChars} chars ${entry.createdAt}\n  ${entry.summary.slice(0, 2).join("\n  ")}`).join("\n")
+        : "No compacted tool results found.";
+      return { content: [{ type: "text", text }], details: { results: entries } };
+    },
   });
 
   pi.registerTool({

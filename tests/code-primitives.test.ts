@@ -248,6 +248,14 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).toContain("foo(bar");
   });
 
+  test("always-on code primitive prompt guidelines stay compact", () => {
+    const tools = registeredCodePrimitiveTools();
+    for (const name of ["list_files", "inspect_text_matches", "inspect_lines", "inspect_json", "plan_code_replacements", "apply_code_replacements"]) {
+      const text = tools[name].promptGuidelines.join("\n");
+      expect(text.length).toBeLessThan(800);
+    }
+  });
+
   test("source mutation tools warn against native runtime file mutations", () => {
     const tools = registeredCodePrimitiveTools();
     const guidelines = [
