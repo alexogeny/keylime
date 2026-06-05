@@ -1,16 +1,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
-import { classifyIntent, getCurrentRoute, routeSummary, setCurrentRoute, stripSystemReminders, type CapabilityGroup, type IntentId, type IntentRoute } from "./shared/intent";
+import { classifyIntent, getCurrentRoute, setCurrentRoute, stripSystemReminders, type CapabilityGroup, type IntentId, type IntentRoute } from "./shared/intent";
+import { intentCompletionValues, intentSeedPrompt, intentTarget, resolveIntentAlias, type IntentOverrideId } from "./shared/intent-registry";
+import { lastUserText } from "./shared/message-content";
 import { getCurrentOperationalMode } from "./operational-modes";
 import { researchKeyConfigured } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
 import { retrievePolicy } from "./shared/policy-corpus";
-import { alwaysOnToolNames, capabilityToolMap, domainToolNames } from "./shared/tool-policy";
+import { alwaysOnToolNames, capabilityToolMap, domainToolNames, LOCKED_BUILTIN_TOOLS } from "./shared/tool-policy";
+import { formatAgentStatusLines, formatIntentStatusLines, formatToolPolicyLines } from "./shared/intent-status";
 import { bestIntentCorpusMatch, FOLLOWUP_STICKINESS_THRESHOLD, SWITCH_THRESHOLD, type IntentCorpusMatch } from "./shared/intent-corpus";
 
 const STATUS_KEY = "intent";
 
-type IntentOverride = IntentId | "programming";
+type IntentOverride = IntentOverrideId;
 type RouteSource = "classifier" | "policy" | "corpus-switch" | "sticky" | "manual";
 
 export type ActiveToolSetDiagnostics = {
@@ -38,7 +41,7 @@ let lastToolSetDiagnostics: ActiveToolSetDiagnostics = {
   alwaysOn: [],
   routed: [],
   active: [],
-  locked: ["read", "write", "edit"],
+  locked: LOCKED_BUILTIN_TOOLS,
   manualOverride: null,
 };
 
@@ -80,23 +83,9 @@ export function resetIntentRoutingForTests(): void {
     alwaysOn: [],
     routed: [],
     active: [],
-    locked: ["read", "write", "edit"],
+    locked: LOCKED_BUILTIN_TOOLS,
     manualOverride: null,
   };
-}
-
-function textFromContent(content: unknown): string {
-  if (typeof content === "string") return stripSystemReminders(content);
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((block: any) => block?.type === "text")
-    .map((block: any) => block.text as string)
-    .join("\n");
-}
-
-function lastUserPrompt(messages: any[]): string {
-  const msg = [...messages].reverse().find((m: any) => m?.role === "user");
-  return msg ? textFromContent(msg.content) : "";
 }
 
 export function researchEnabled(): boolean {
@@ -151,29 +140,9 @@ export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): st
 }
 
 
-const INTENT_PROMPTS: Partial<Record<IntentOverride, string>> = {
-  programming: "implement code change update code tests repo",
-  coding: "implement code change update code tests repo",
-  debugging: "debug failing test error stack trace root cause",
-  refactor: "refactor code cleanup preserve behavior",
-  review: "review audit critique code quality risks",
-  planning: "make a plan roadmap acceptance criteria",
-  project: "project plan feature tdd implementation",
-  research: "search the web research latest current sources",
-  memory: "remember save memory preference recall",
-  personal: "personal profile preferences about me",
-  running_shoes: "running shoe recommendation drop stack foam",
-  running_biomechanics: "running biomechanics gait injury training load",
-  python_engineering: "python optimize performance typing pytest",
-  rust_systems: "rust systems ownership lifetime cargo clippy",
-  rust_shell_emulator: "rust shell terminal emulator pty ansi parser",
-  ui_design: "ui ux design component accessibility screen",
-  chat: "general chat answer normally no tools",
-};
-
 function forcedRoute(intent: IntentOverride, prompt: string): IntentRoute {
-  const primaryIntent: IntentId = intent === "programming" ? "coding" : intent;
-  const seed = INTENT_PROMPTS[intent] ?? INTENT_PROMPTS[primaryIntent] ?? prompt;
+  const primaryIntent: IntentId = intentTarget(intent);
+  const seed = intentSeedPrompt(intent);
   const route = classifyIntent(seed);
   return {
     ...route,
@@ -214,7 +183,7 @@ export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute, source: Ro
     alwaysOn: [...ALWAYS_ON_CODE_TOOLS].sort(),
     routed,
     active: next,
-    locked: ["read", "write", "edit"],
+    locked: LOCKED_BUILTIN_TOOLS,
     manualOverride: intentOverride,
     ...extras,
   };
@@ -228,9 +197,9 @@ function policyAssistedRoute(prompt: string, route: IntentRoute, evidence: Array
   const topRouting = evidence.find(item => item.kind === "routing" && item.score >= 0.45)
     ?? evidence.find(item => item.id === "routing.refactor" && item.score >= 0.35);
   if (!topRouting) return { route, source: "classifier" };
-  if (topRouting.id === "routing.refactor") return { route: forcedRoute("refactor", prompt), source: "policy" };
-  if (topRouting.id === "routing.debug") return { route: forcedRoute("debugging", prompt), source: "policy" };
-  if (topRouting.id === "routing.agentic-audit") return { route: forcedRoute("review", prompt), source: "policy" };
+  const doc = retrievePolicy(topRouting.id, { topK: 1 }).find(hit => hit.id === topRouting.id)?.document;
+  const targetIntent = doc?.fields?.targetIntent;
+  if (targetIntent) return { route: forcedRoute(targetIntent, prompt), source: "policy" };
   return { route, source: "classifier" };
 }
 
@@ -332,7 +301,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
 
   pi.on("context", async (event, ctx) => {
     const messages = event.messages as any[];
-    const prompt = lastUserPrompt(messages);
+    const prompt = lastUserText(messages);
 
     // Tool results can cause additional context passes without a new input event.
     // Keep route state and tool visibility aligned; applyRouteTools is a no-op
@@ -351,46 +320,12 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
   const intentCommand = {
     description: "Manually override intent routing, or reset to automatic routing",
     getArgumentCompletions: (prefix: string) => {
-      const items = ["auto", "reset", "programming", "coding", "research", "memory", "chat", "debugging", "refactor", "review", "planning", "project", "personal", "running_shoes", "running_biomechanics", "python_engineering", "rust_systems", "rust_shell_emulator", "ui_design"];
-      const filtered = items.filter(item => item.startsWith(prefix.toLowerCase()));
+      const filtered = intentCompletionValues().filter(item => item.startsWith(prefix.toLowerCase().replace(/-/g, "_")));
       return filtered.length > 0 ? filtered.map(value => ({ value, label: value })) : null;
     },
     handler: async (args: string, ctx: any) => {
       const arg = args.trim().toLowerCase().replace(/-/g, "_");
-      const aliases: Record<string, IntentOverride | "auto"> = {
-        "": "auto",
-        auto: "auto",
-        off: "auto",
-        clear: "auto",
-        reset: "auto",
-        code: "coding",
-        coding: "coding",
-        programming: "programming",
-        research: "research",
-        memory: "memory",
-        chat: "chat",
-        debugging: "debugging",
-        debug: "debugging",
-        refactor: "refactor",
-        review: "review",
-        planning: "planning",
-        plan: "planning",
-        project: "project",
-        personal: "personal",
-        running_shoes: "running_shoes",
-        shoes: "running_shoes",
-        running_biomechanics: "running_biomechanics",
-        biomechanics: "running_biomechanics",
-        python_engineering: "python_engineering",
-        python: "python_engineering",
-        rust_systems: "rust_systems",
-        rust: "rust_systems",
-        rust_shell_emulator: "rust_shell_emulator",
-        shell_emulator: "rust_shell_emulator",
-        ui_design: "ui_design",
-        ui: "ui_design",
-      };
-      const selected = aliases[arg];
+      const selected = resolveIntentAlias(arg);
 
       if (selected === "auto") {
         intentOverride = null;
@@ -420,19 +355,14 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     description: "Show current intent routing state and active tool count",
     handler: async (_args, ctx) => {
       const route = getCurrentRoute();
-      ctx.ui.notify([
-        "Intent Router",
-        `  ${routeSummary(route)}`,
-        `  confidence: ${Math.round(route.confidence * 100)}%`,
-        `  route source: ${lastToolSetDiagnostics.source}`,
-        `  tool set fingerprint: ${lastToolSetDiagnostics.fingerprint || "none"}`,
-        `  tool set changed this turn: ${lastToolSetDiagnostics.changed ? "yes" : "no"}`,
-        `  manual override: ${intentOverride ?? "none"}`,
-        `  research enabled: ${researchEnabled() ? "yes" : "no"}`,
-        `  shoes enabled: ${shoesEnabled() ? "yes" : "no"}`,
-        `  policy evidence: ${lastPolicyEvidence.map(e => `${e.id}=${e.score.toFixed(2)}`).join(", ") || "none"}`,
-        `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
-      ].join("\n"), "info");
+      ctx.ui.notify(formatIntentStatusLines({
+        route,
+        status: lastToolSetDiagnostics,
+        researchEnabled: researchEnabled(),
+        shoesEnabled: shoesEnabled(),
+        policyEvidence: lastPolicyEvidence,
+        activeTools: pi.getActiveTools().map(toolName).filter(Boolean) as string[],
+      }).join("\n"), "info");
     },
   });
 
@@ -441,20 +371,13 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const route = getCurrentRoute();
       const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
-      ctx.ui.notify([
-        "Agent Status",
-        `  intent: ${route.primaryIntent} (${Math.round(route.confidence * 100)}%)`,
-        `  route source: ${lastToolSetDiagnostics.source}`,
-        `  tool set fingerprint: ${lastToolSetDiagnostics.fingerprint || "none"}`,
-        `  tool set changed this turn: ${lastToolSetDiagnostics.changed ? "yes" : "no"}`,
-        `  manual override: ${intentOverride ?? "none"}`,
-        `  active groups: ${activeGroups.join(", ") || "none"}`,
-        `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
-        `  locked tools: read, write, edit; bash mutation guarded`,
-        `  policy evidence: ${lastPolicyEvidence.map(e => `${e.id}=${e.score.toFixed(2)}`).join(", ") || "none"}`,
-        "  context: turn-context composer enabled; repo-index injects compact skeleton when available",
-        "  tool results: oversized successful results are compacted to .pi/tool-results and retrievable by inspect_tool_result",
-      ].join("\n"), "info");
+      ctx.ui.notify(formatAgentStatusLines({
+        route,
+        activeGroups,
+        status: lastToolSetDiagnostics,
+        policyEvidence: lastPolicyEvidence,
+        activeTools: pi.getActiveTools().map(toolName).filter(Boolean) as string[],
+      }).join("\n"), "info");
     },
   });
 
@@ -464,19 +387,14 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
       const route = getCurrentRoute();
       const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
       const routed = [...new Set(activeGroups.flatMap(group => CAPABILITY_TOOLS[group]))].sort();
-      ctx.ui.notify([
-        "Tool Policy",
-        `  always-on code tools: ${ALWAYS_ON_CODE_TOOLS.join(", ")}`,
-        `  locked built-ins: read, write, edit; bash is routed and guarded`,
-        `  active groups: ${activeGroups.join(", ") || "none"}`,
-        `  route source: ${lastToolSetDiagnostics.source}`,
-        `  tool set fingerprint: ${lastToolSetDiagnostics.fingerprint || "none"}`,
-        `  tool set changed this turn: ${lastToolSetDiagnostics.changed ? "yes" : "no"}`,
-        `  manual override: ${intentOverride ?? "none"}`,
-        `  policy evidence: ${lastPolicyEvidence.map(e => `${e.id}=${e.score.toFixed(2)}`).join(", ") || "none"}`,
-        `  routed tools: ${routed.join(", ") || "none"}`,
-        `  active tools: ${pi.getActiveTools().map(toolName).filter(Boolean).sort().join(", ")}`,
-      ].join("\n"), "info");
+      ctx.ui.notify(formatToolPolicyLines({
+        alwaysOnTools: ALWAYS_ON_CODE_TOOLS,
+        activeGroups,
+        status: lastToolSetDiagnostics,
+        policyEvidence: lastPolicyEvidence,
+        routedTools: routed,
+        activeTools: pi.getActiveTools().map(toolName).filter(Boolean) as string[],
+      }).join("\n"), "info");
     },
   });
 }

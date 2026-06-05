@@ -3,20 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { activeToolNames } from "../extensions/intent-router";
+import { allKnownTestTools, mockPi } from "./helpers/mock-pi";
 
-const allToolNames = [
-  "read", "bash", "edit", "write", "code_search", "list_files", "inspect_json", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks", "retrieve_policy", "suggest_checks", "codemod_plan", "inspect_tool_result", "commit_history", "see_file_commit_history", "git_status", "git_diff", "inspect_at_checkpoint",
-  "remember", "recall_memories", "recall_entity", "list_memories",
-  "web_search", "research_topic", "fetch_url",
-  "lookup_shoe", "query_shoes",
-  "save_project_plan", "update_feature_tdd", "custom_safe_tool",
-];
+const allToolNames = allKnownTestTools();
 
 function pi(active: string[]) {
-  return {
-    getAllTools: () => allToolNames.map(name => ({ name })),
-    getActiveTools: () => active.map(name => ({ name })),
-  } as any;
+  return mockPi(active);
 }
 
 describe("activeToolNames", () => {

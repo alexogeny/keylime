@@ -1,4 +1,5 @@
 import { buildRetrievalIndex, type ScoredResult, type SearchDocument } from "./retrieval";
+import type { IntentId } from "./intent";
 
 export type PolicyDocKind = "routing" | "mutation" | "codemod" | "check" | "context" | "recall";
 
@@ -10,6 +11,7 @@ export interface PolicyDocument extends SearchDocument {
     paths?: string[];
     commands?: string[];
     severity?: string;
+    targetIntent?: IntentId;
   };
 }
 
@@ -46,7 +48,7 @@ export const POLICY_DOCUMENTS: PolicyDocument[] = [
     kind: "routing",
     title: "Refactor / cleanup mode",
     body: "Clean up code, restructure, rename, split modules, reduce duplication, preserve behavior. Prefer search, structure inspection, planned replacements, guarded application, and targeted checks. Lock web and memory writes unless explicitly requested.",
-    fields: { active_tools: ["code_search", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "run_checks"], locked_tools: ["web", "memory_write", "raw_shell_mutation"] },
+    fields: { active_tools: ["code_search", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "run_checks"], locked_tools: ["web", "memory_write", "raw_shell_mutation"], targetIntent: "refactor" },
     tags: ["coding", "safe-edit"],
   },
   {
@@ -54,7 +56,7 @@ export const POLICY_DOCUMENTS: PolicyDocument[] = [
     kind: "routing",
     title: "Debug failing behavior",
     body: "Reproduce failure, inspect stack traces, search related code, make minimal fix, rerun targeted test. Handles vague debugging language such as exploding after a change, broke after change, why did this fail, and unexpected crash. Use run_checks for tests and avoid unrelated refactors.",
-    fields: { active_tools: ["code_search", "inspect_text_matches", "inspect_lines", "run_checks"], locked_tools: ["web", "memory_write"] },
+    fields: { active_tools: ["code_search", "inspect_text_matches", "inspect_lines", "run_checks"], locked_tools: ["web", "memory_write"], targetIntent: "debugging" },
     tags: ["coding", "tests"],
   },
   {
@@ -62,7 +64,7 @@ export const POLICY_DOCUMENTS: PolicyDocument[] = [
     kind: "routing",
     title: "Agentic programming harness audit",
     body: "Review coding-agent harness design: tool exposure, context lifecycle, prompt hygiene, runtime safety, checkpointing, verification loops, repo index, file tools, observability.",
-    fields: { active_tools: ["code_search", "inspect_code_structure", "inspect_text_matches", "run_checks"], locked_tools: ["raw_shell_mutation"] },
+    fields: { active_tools: ["code_search", "inspect_code_structure", "inspect_text_matches", "run_checks"], locked_tools: ["raw_shell_mutation"], targetIntent: "review" },
     tags: ["keylime", "pi", "audit"],
   },
   {

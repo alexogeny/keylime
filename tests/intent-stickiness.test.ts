@@ -2,38 +2,7 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import intentRouterExtension, { getActiveToolSetDiagnostics, resetIntentRoutingForTests, routeForPrompt, toolSetFingerprint } from "../extensions/intent-router";
 import { getCurrentRoute, setCurrentRoute, classifyIntent } from "../extensions/shared/intent";
 import { bestIntentCorpusMatch, INTENT_CORPUS, matchIntentCorpus, SWITCH_THRESHOLD, FOLLOWUP_STICKINESS_THRESHOLD } from "../extensions/shared/intent-corpus";
-
-const allToolNames = [
-  "bash", "read", "edit", "write", "code_search", "list_files", "inspect_json", "inspect_text_matches", "inspect_code_structure", "inspect_lines",
-  "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks", "retrieve_policy", "suggest_checks", "codemod_plan",
-  "codemod_update_json", "codemod_add_import", "codemod_insert_test_case", "inspect_tool_result", "list_tool_results", "cleanup_tool_results",
-  "commit_history", "see_file_commit_history", "git_status", "git_diff", "inspect_at_checkpoint", "remember", "recall_memories", "recall_entity", "list_memories",
-  "web_search", "research_topic", "fetch_url", "save_project_plan", "update_feature_tdd", "lookup_shoe", "query_shoes",
-];
-
-function piFixture(active = ["code_search"]) {
-  let activeTools = active;
-  const commands: Record<string, any> = {};
-  const notifications: string[] = [];
-  return {
-    pi: {
-      getAllTools: () => allToolNames.map(name => ({ name })),
-      getActiveTools: () => activeTools.map(name => ({ name })),
-      setActiveTools: (names: string[]) => { activeTools = names; },
-      on: () => {},
-      registerCommand: (name: string, command: any) => { commands[name] = command; },
-    } as any,
-    commands,
-    notifications,
-    ctx: {
-      ui: {
-        setStatus: () => {},
-        notify: (text: string) => { notifications.push(text); },
-        theme: { fg: (_style: string, text: string) => text },
-      },
-    } as any,
-  };
-}
+import { mockPiFixture } from "./helpers/mock-pi";
 
 beforeEach(() => {
   resetIntentRoutingForTests();
@@ -64,7 +33,7 @@ describe("intent corpus", () => {
 
 describe("route stickiness and explicit switches", () => {
   test("coding route sticks on low-confidence follow-up", () => {
-    const { pi } = piFixture();
+    const { pi } = mockPiFixture();
     routeForPrompt(pi, "implement this feature and add tests");
     const followup = routeForPrompt(pi, "continue");
 
@@ -74,7 +43,7 @@ describe("route stickiness and explicit switches", () => {
   });
 
   test("research route sticks on follow-up but explicit coding switch wins", () => {
-    const { pi } = piFixture();
+    const { pi } = mockPiFixture();
     routeForPrompt(pi, "search the web for recent browser agent research");
     expect(getCurrentRoute().primaryIntent).toBe("research");
 
@@ -88,7 +57,7 @@ describe("route stickiness and explicit switches", () => {
   });
 
   test("memory and research switches are not suppressed by previous coding route", () => {
-    const { pi } = piFixture();
+    const { pi } = mockPiFixture();
     routeForPrompt(pi, "fix this failing test in the repo");
 
     const memory = routeForPrompt(pi, "remember this preference for future runs");
@@ -101,7 +70,7 @@ describe("route stickiness and explicit switches", () => {
   });
 
   test("no previous non-chat route means follow-up does not invent coding", () => {
-    const { pi } = piFixture();
+    const { pi } = mockPiFixture();
     const route = routeForPrompt(pi, "continue");
     expect(route.primaryIntent).toBe("chat");
     expect(getActiveToolSetDiagnostics().source).not.toBe("sticky");
@@ -118,7 +87,7 @@ describe("route stickiness and explicit switches", () => {
 
 describe("manual intent override", () => {
   test("/intent can force research, coding, chat, and auto", async () => {
-    const fixture = piFixture();
+    const fixture = mockPiFixture();
     intentRouterExtension(fixture.pi);
 
     await fixture.commands.intent.handler("research", fixture.ctx);
@@ -137,7 +106,7 @@ describe("manual intent override", () => {
   });
 
   test("agent status reports source, fingerprint, manual override, and change flag", async () => {
-    const fixture = piFixture();
+    const fixture = mockPiFixture();
     intentRouterExtension(fixture.pi);
     routeForPrompt(fixture.pi, "implement this feature");
     await fixture.commands["agent-status"].handler("", fixture.ctx);

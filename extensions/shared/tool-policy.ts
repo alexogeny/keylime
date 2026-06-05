@@ -2,6 +2,10 @@ import type { CapabilityGroup } from "./intent";
 
 export type ToolRisk = "safe" | "guarded" | "stateful" | "dangerous" | "domain";
 
+export const LOCKED_BUILTIN_TOOLS = ["read", "write", "edit"];
+export const GUARDED_TOOL_NOTES = ["bash mutation guarded"];
+
+
 export interface ToolPolicy {
   name: string;
   group?: CapabilityGroup;
