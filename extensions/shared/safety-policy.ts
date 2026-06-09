@@ -50,7 +50,7 @@ export const PROTECTED_WRITE_PATHS = [
 
 const GIT_MUTATION_SUBCOMMANDS = new Set(["add", "commit", "reset", "restore", "checkout", "switch", "clean", "rebase", "merge", "push", "stash", "tag", "cherry-pick", "revert"]);
 const FILE_MUTATION_COMMANDS = new Set(["touch", "mkdir", "rm", "cp", "mv", "chmod", "chown"]);
-const NATIVE_REPO_INSPECTION_COMMANDS = new Set(["ls", "find", "grep", "egrep", "fgrep", "rg", "jq", "cat", "head", "tail", "sed", "wc"]);
+const NATIVE_REPO_INSPECTION_COMMANDS = new Set(["ls", "find", "grep", "egrep", "fgrep", "rg", "jq", "cat", "head", "tail", "sed", "awk", "wc", "echo", "printf"]);
 
 const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file" },

@@ -86,6 +86,9 @@ describe("danger guard coding-mode hard enforcement", () => {
       "head -20 file.ts",
       "tail -20 file.ts",
       "wc -l file.ts",
+      "awk '{print $1}' file.ts",
+      "printf hi",
+      "echo hi",
       "cat file.ts | grep foo",
     ];
 
@@ -108,7 +111,7 @@ describe("danger guard coding-mode hard enforcement", () => {
   });
 
   test("allows non-repository-inspection bash commands in coding mode", () => {
-    const commands = ["echo hi", "tee /dev/null", "git status --short", "git log --oneline", "git diff", "git show HEAD:README.md"];
+    const commands = ["tee /dev/null", "git status --short", "git log --oneline", "git diff", "git show HEAD:README.md"];
 
     for (const command of commands) {
       expect(looksLikeCodingModeBashMutation(command)).toBeNull();
@@ -116,12 +119,19 @@ describe("danger guard coding-mode hard enforcement", () => {
     }
   });
 
+  test("blocks bash native fallbacks outside coding mode too", () => {
+    setCurrentRoute(classifyIntent("research latest sources"));
+
+    expect(codingModeBlockReasonForToolCall("bash", { command: "printf hi" })).toContain("native repository inspection");
+    expect(codingModeBlockReasonForToolCall("bash", { command: "python - <<'PY'\nprint(1)\nPY" })).toContain("file mutation");
+  });
+
   test("blocks mutation-looking bash commands in coding mode", () => {
     setCodingMode();
 
     expect(codingModeBlockReasonForToolCall("bash", { command: "cat > file.ts" })).toContain("bash file mutation");
     expect(codingModeBlockReasonForToolCall("bash", { command: "rg foo src" })).toContain("native repository inspection");
-    expect(codingModeBlockReasonForToolCall("bash", { command: "echo hi" })).toBeNull();
+    expect(codingModeBlockReasonForToolCall("bash", { command: "echo hi" })).toContain("native repository inspection");
   });
 
   test("extension blocks coding-mode violations without confirmation", async () => {
@@ -142,7 +152,7 @@ describe("danger guard coding-mode hard enforcement", () => {
     );
 
     expect(result.block).toBe(true);
-    expect(result.reason).toContain("coding mode blocks bash file mutation");
+    expect(result.reason).toContain("blocks bash file mutation");
     expect(confirmCalls).toBe(0);
   });
 

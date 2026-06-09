@@ -92,15 +92,16 @@ export function looksLikeCodingModeBashNativeInspection(cmd: string): { flagged:
 }
 
 export function codingModeBlockReasonForToolCall(toolName: string, input: any): string | null {
-  if (!isCapabilityActive("coding")) return null;
-  if (CODING_MODE_BLOCKED_TOOLS.has(toolName)) return `coding mode blocks built-in ${toolName}; use exposed code primitive tools`;
+  const codingActive = isCapabilityActive("coding");
+  if (codingActive && CODING_MODE_BLOCKED_TOOLS.has(toolName)) return `coding mode blocks built-in ${toolName}; use exposed code primitive tools`;
+  if (!codingActive && toolName !== "bash") return null;
 
   const classification = classifyToolMutation(toolName, input);
   if (classification.category === "protected_path") {
     return `coding mode blocks protected path write: ${classification.writePaths.join(", ")}`;
   }
   if (toolName === "bash" && classification.mutates) {
-    return `coding mode blocks bash file mutation (${classification.category}): ${classification.reasons.join(", ")}`;
+    return `blocks bash file mutation (${classification.category}): ${classification.reasons.join(", ")}`;
   }
   if (toolName !== "bash") return null;
 
@@ -108,12 +109,12 @@ export function codingModeBlockReasonForToolCall(toolName: string, input: any): 
   const mutation = looksLikeCodingModeBashMutation(cmd);
   if (mutation) {
     logSafetyFallback("coding_bash_mutation", { toolName, label: mutation.label, command: cmd.slice(0, 500), classifier: classification });
-    return `coding mode blocks bash file mutation: ${mutation.label}`;
+    return `blocks bash file mutation: ${mutation.label}`;
   }
   const nativeInspection = looksLikeCodingModeBashNativeInspection(cmd);
   if (nativeInspection) {
     logSafetyFallback("coding_bash_native_inspection", { toolName, label: nativeInspection.label, command: cmd.slice(0, 500), classifier: classification });
-    return `coding mode blocks native repository inspection: ${nativeInspection.label}`;
+    return `blocks native repository inspection: ${nativeInspection.label}`;
   }
   return null;
 }

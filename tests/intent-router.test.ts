@@ -56,7 +56,9 @@ describe("activeToolNames", () => {
     expect(tools).toContain("list_files");
     expect(tools).toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
-    expect(tools).not.toContain("apply_code_replacements");
+    expect(tools).toContain("apply_code_replacements");
+    expect(tools).toContain("create_file");
+    expect(tools).toContain("run_checks");
     expect(tools).not.toContain("read");
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("web_search");
@@ -67,13 +69,28 @@ describe("activeToolNames", () => {
 
     expect(tools).toContain("code_search");
     expect(tools).toContain("inspect_lines");
-    expect(tools).toContain("bash");
+    expect(tools).toContain("apply_code_replacements");
+    expect(tools).toContain("create_file");
     expect(tools).toContain("fetch_url");
+    expect(tools).not.toContain("bash");
     expect(tools).not.toContain("read");
   });
 });
 
 describe("research gating", () => {
+  test("research mode keeps safe file tools but not bash or raw read/write", () => {
+    const tools = activeToolNames(pi(["bash", "read", "write", "web_search", "fetch_url"]), ["readonly", "research", "fetch", "memory-lite"]);
+
+    expect(tools).toContain("web_search");
+    expect(tools).toContain("fetch_url");
+    expect(tools).toContain("inspect_lines");
+    expect(tools).toContain("apply_code_replacements");
+    expect(tools).toContain("create_file");
+    expect(tools).not.toContain("bash");
+    expect(tools).not.toContain("read");
+    expect(tools).not.toContain("write");
+  });
+
   test("research tools are disabled when explicitly disabled", () => {
     const old = process.env.KEYLIME_DISABLE_RESEARCH;
     process.env.KEYLIME_DISABLE_RESEARCH = "1";
@@ -361,7 +378,7 @@ test("coding route exposes codemod primitives", () => {
   expect(tools).not.toContain("write");
 });
 
-test("review mode keeps always-on code primitives but removes unrelated domain tools", async () => {
+test("review mode keeps safe file primitives but removes unrelated domain tools", async () => {
   const { default: operationalModesExtension } = await import("../extensions/operational-modes");
   const commands: Record<string, any> = {};
   operationalModesExtension({
@@ -381,8 +398,8 @@ test("review mode keeps always-on code primitives but removes unrelated domain t
   expect(tools).not.toContain("read");
   expect(tools).toContain("code_search");
   expect(tools).toContain("inspect_code_structure");
-  expect(tools).not.toContain("apply_code_replacements");
-  expect(tools).not.toContain("create_file");
+  expect(tools).toContain("apply_code_replacements");
+  expect(tools).toContain("create_file");
   expect(tools).toContain("custom_safe_tool");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("web_search");

@@ -15,7 +15,7 @@ describe("shared tool policy", () => {
       expect(toolPolicyFor(name)).toMatchObject({ alwaysOn: false, risk: "safe" });
       expect(capabilityToolMap().safety).toContain(name);
     }
-    expect(toolPolicyFor("run_checks")).toMatchObject({ group: "coding", alwaysOn: false, risk: "safe" });
+    expect(toolPolicyFor("run_checks")).toMatchObject({ group: "coding", alwaysOn: true, risk: "safe" });
     expect(toolPolicyFor("compile_tool_grammar")).toMatchObject({ group: "coding", alwaysOn: false, risk: "stateful" });
     expect(capabilityToolMap().coding).toContain("current_agent_budget");
   });
@@ -27,10 +27,13 @@ describe("shared tool policy", () => {
     expect(alwaysOnToolNames()).not.toContain("bash");
   });
 
-  test("mutation, repo, and tool-result maintenance tools are routed, not always-on", () => {
+  test("safe file mutation tools are always-on while repo and maintenance tools stay routed", () => {
+    expect(alwaysOnToolNames()).toContain("apply_code_replacements");
+    expect(alwaysOnToolNames()).toContain("create_file");
+    expect(alwaysOnToolNames()).toContain("begin_file_write");
+    expect(alwaysOnToolNames()).toContain("run_checks");
     expect(alwaysOnToolNames()).not.toContain("commit_history");
     expect(alwaysOnToolNames()).not.toContain("git_status");
-    expect(alwaysOnToolNames()).not.toContain("apply_code_replacements");
     expect(alwaysOnToolNames()).not.toContain("list_tool_results");
     expect(capabilityToolMap().repo).toContain("commit_history");
     expect(capabilityToolMap().repo).toContain("git_status");

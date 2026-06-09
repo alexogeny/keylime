@@ -24,15 +24,15 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "tool_search", alwaysOn: true, domain: true, risk: "safe" },
   { name: "tool_help", alwaysOn: true, domain: true, risk: "safe" },
 
-  { name: "plan_code_replacements", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "apply_code_replacements", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "create_file", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "begin_file_write", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "append_file_chunk", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "finish_file_write", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "abort_file_write", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "create_directory", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
-  { name: "run_checks", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "plan_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "apply_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "create_file", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "begin_file_write", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "append_file_chunk", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "finish_file_write", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "abort_file_write", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "create_directory", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "run_checks", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "codemod_update_json", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
   { name: "codemod_add_import", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
   { name: "codemod_insert_test_case", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
@@ -123,7 +123,7 @@ export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
     groups[group] = [...new Set([...groups[group], ...names])].sort();
   };
   addDefaults("core", ["bash"]);
-  addDefaults("readonly", ["bash", "fetch_url"]);
+  addDefaults("readonly", ["fetch_url"]);
   addDefaults("coding", ["bash"]);
   addDefaults("memory-lite", ["recall_entity", "recall_memories", "remember"]);
   addDefaults("personal", ["recall_entity", "recall_memories", "remember"]);
