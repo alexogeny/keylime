@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { stringEnum } from "./shared/schema";
-import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { repoRelativePath } from "./shared/path-policy";
 import {
   formatPlanPreview,
@@ -85,6 +85,29 @@ function compactFilePreview(content: string): string {
     ? lines
     : [...lines.slice(0, 4), "…", ...lines.slice(-3)];
   return preview.map((line, index) => `${String(index + 1).padStart(4, " ")} | ${line}`).join("\n");
+}
+
+function sha256(buffer: Buffer | string): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function bool(value: boolean): "yes" | "no" {
+  return value ? "yes" : "no";
+}
+
+function unifiedDiffPreview(a: string, b: string, maxLines = 120): string {
+  const left = a.split("\n");
+  const right = b.split("\n");
+  const lines: string[] = [];
+  const max = Math.max(left.length, right.length);
+  for (let i = 0; i < max && lines.length < maxLines; i += 1) {
+    if (left[i] === right[i]) continue;
+    if (left[i] !== undefined) lines.push(`-${i + 1} | ${left[i]}`);
+    if (right[i] !== undefined) lines.push(`+${i + 1} | ${right[i]}`);
+  }
+  if (lines.length === 0) return "No text differences.";
+  if (lines.length >= maxLines) lines.push("… diff truncated");
+  return lines.join("\n");
 }
 
 async function walkFiles(root: string, dir = root): Promise<string[]> {
@@ -669,6 +692,217 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         content: [{ type: "text", text: `Created ${rel} (${buffer.byteLength} bytes, ${lineCount} lines)\n${compactFilePreview(content)}` }],
         details: { path: rel, bytes: buffer.byteLength, lines: lineCount, skipped: false },
       };
+    },
+  });
+
+  pi.registerTool({
+    name: "inspect_file_metadata",
+    label: "Inspect File Metadata",
+    description: "Inspect bounded file/directory metadata safely. Use instead of stat/file/wc/checksum shell commands.",
+    promptSnippet: "Inspect file metadata",
+    promptGuidelines: [
+      "Use instead of bash stat/file/wc/sha commands.",
+      "Returns metadata only; use inspect_lines or inspect_text_matches for content.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "File or directory path" }),
+      include_sha256: Type.Optional(Type.Boolean({ description: "Include SHA-256 for files" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const rel = repoRelativePath(ctx.cwd, path);
+      const info = await stat(path);
+      const details: any = {
+        path: rel,
+        type: info.isFile() ? "file" : info.isDirectory() ? "directory" : info.isSymbolicLink() ? "symlink" : "other",
+        bytes: info.size,
+        modified: info.mtime.toISOString(),
+        created: info.birthtime.toISOString(),
+        mode: `0${(info.mode & 0o777).toString(8)}`,
+        is_file: info.isFile(),
+        is_directory: info.isDirectory(),
+      };
+      if (info.isFile()) {
+        const buffer = await readFile(path);
+        details.probably_binary = isProbablyBinary(buffer);
+        details.line_count = details.probably_binary ? null : buffer.toString("utf8").split("\n").length - (buffer.toString("utf8").endsWith("\n") ? 1 : 0);
+        if (params.include_sha256) details.sha256 = sha256(buffer);
+      }
+      return { content: [{ type: "text", text: Object.entries(details).map(([key, value]) => `${key}: ${value}`).join("\n") }], details };
+    },
+  });
+
+  pi.registerTool({
+    name: "compare_files",
+    label: "Compare Files",
+    description: "Compare two repository files safely with bounded text diff or binary summary. Use instead of diff/cmp/comm.",
+    promptSnippet: "Compare two files",
+    promptGuidelines: [
+      "Use instead of bash diff/cmp/comm.",
+      "Output is bounded; ask for narrower context if truncated.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      left_path: Type.String({ description: "Left/base file path" }),
+      right_path: Type.String({ description: "Right/compare file path" }),
+      max_lines: Type.Optional(Type.Number({ description: "Maximum diff lines, default 120, max 500" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const leftPath = resolveSafePath(ctx.cwd, params.left_path);
+      const rightPath = resolveSafePath(ctx.cwd, params.right_path);
+      const left = await readFile(leftPath);
+      const right = await readFile(rightPath);
+      const leftRel = repoRelativePath(ctx.cwd, leftPath);
+      const rightRel = repoRelativePath(ctx.cwd, rightPath);
+      const leftBinary = isProbablyBinary(left);
+      const rightBinary = isProbablyBinary(right);
+      const same = left.equals(right);
+      if (leftBinary || rightBinary) {
+        const text = [
+          `Compared ${leftRel} ↔ ${rightRel}`,
+          `same: ${bool(same)}`,
+          `${leftRel}: ${left.byteLength} bytes sha256=${sha256(left)} binary=${bool(leftBinary)}`,
+          `${rightRel}: ${right.byteLength} bytes sha256=${sha256(right)} binary=${bool(rightBinary)}`,
+        ].join("\n");
+        return { content: [{ type: "text", text }], details: { left_path: leftRel, right_path: rightRel, same, binary: true } };
+      }
+      const maxLines = Math.min(Math.max(Number(params.max_lines ?? 120), 1), 500);
+      const diff = unifiedDiffPreview(left.toString("utf8"), right.toString("utf8"), maxLines);
+      return { content: [{ type: "text", text: `Compared ${leftRel} ↔ ${rightRel}\nsame: ${bool(same)}\n${diff}` }], details: { left_path: leftRel, right_path: rightRel, same, binary: false } };
+    },
+  });
+
+  pi.registerTool({
+    name: "delete_file",
+    label: "Delete File",
+    description: "Delete one repository file with protected-path guards. Use instead of rm.",
+    promptSnippet: "Delete a file",
+    promptGuidelines: ["Use instead of bash rm. Deletes files only, not directories.", ...SOURCE_MUTATION_GUIDELINES],
+    parameters: Type.Object({ path: Type.String({ description: "File path to delete" }) }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("delete_file", params);
+      if (!classification.allowed) throw new Error(`delete_file blocked by safety policy: ${classification.reasons.join(", ")}`);
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const rel = repoRelativePath(ctx.cwd, path);
+      const info = await stat(path);
+      if (!info.isFile()) throw new Error(`delete_file refuses non-file path: ${rel}`);
+      await rm(path);
+      return { content: [{ type: "text", text: `Deleted ${rel}` }], details: { path: rel } };
+    },
+  });
+
+  pi.registerTool({
+    name: "move_file",
+    label: "Move File",
+    description: "Move/rename one repository file with protected-path guards. Use instead of mv.",
+    promptSnippet: "Move or rename a file",
+    promptGuidelines: ["Use instead of bash mv. Refuses overwriting unless if_exists=overwrite.", ...SOURCE_MUTATION_GUIDELINES],
+    parameters: Type.Object({
+      from_path: Type.String({ description: "Existing file path" }),
+      to_path: Type.String({ description: "Destination file path" }),
+      if_exists: Type.Optional(stringEnum(["error", "overwrite"] as const, { description: "Behavior if destination exists" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("move_file", params);
+      if (!classification.allowed) throw new Error(`move_file blocked by safety policy: ${classification.reasons.join(", ")}`);
+      const from = resolveSafePath(ctx.cwd, params.from_path);
+      const to = resolveSafePath(ctx.cwd, params.to_path);
+      const fromRel = repoRelativePath(ctx.cwd, from);
+      const toRel = repoRelativePath(ctx.cwd, to);
+      const info = await stat(from);
+      if (!info.isFile()) throw new Error(`move_file refuses non-file source: ${fromRel}`);
+      if (await fileExists(to)) {
+        if (params.if_exists !== "overwrite") throw new Error(`Destination already exists: ${toRel}`);
+        await rm(to);
+      }
+      await mkdir(dirname(to), { recursive: true });
+      await rename(from, to);
+      return { content: [{ type: "text", text: `Moved ${fromRel} -> ${toRel}` }], details: { from_path: fromRel, to_path: toRel } };
+    },
+  });
+
+  pi.registerTool({
+    name: "copy_file",
+    label: "Copy File",
+    description: "Copy one repository file with protected-path guards. Use instead of cp.",
+    promptSnippet: "Copy a file",
+    promptGuidelines: ["Use instead of bash cp. Refuses overwriting unless if_exists=overwrite.", ...SOURCE_MUTATION_GUIDELINES],
+    parameters: Type.Object({
+      from_path: Type.String({ description: "Existing file path" }),
+      to_path: Type.String({ description: "Destination file path" }),
+      if_exists: Type.Optional(stringEnum(["error", "overwrite"] as const, { description: "Behavior if destination exists" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("copy_file", params);
+      if (!classification.allowed) throw new Error(`copy_file blocked by safety policy: ${classification.reasons.join(", ")}`);
+      const from = resolveSafePath(ctx.cwd, params.from_path);
+      const to = resolveSafePath(ctx.cwd, params.to_path);
+      const fromRel = repoRelativePath(ctx.cwd, from);
+      const toRel = repoRelativePath(ctx.cwd, to);
+      const info = await stat(from);
+      if (!info.isFile()) throw new Error(`copy_file refuses non-file source: ${fromRel}`);
+      if (await fileExists(to) && params.if_exists !== "overwrite") throw new Error(`Destination already exists: ${toRel}`);
+      await mkdir(dirname(to), { recursive: true });
+      await copyFile(from, to);
+      return { content: [{ type: "text", text: `Copied ${fromRel} -> ${toRel}` }], details: { from_path: fromRel, to_path: toRel } };
+    },
+  });
+
+  pi.registerTool({
+    name: "replace_file",
+    label: "Replace File",
+    description: "Replace an existing text file with checksum guard and compact preview. Use instead of tee/truncate/cat > file.",
+    promptSnippet: "Replace a file with checksum guard",
+    promptGuidelines: [
+      "Use only when apply_code_replacements is awkward for a whole-file replacement.",
+      "Provide expected_sha256 from inspect_file_metadata to guard against stale overwrites.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "Existing file path" }),
+      content: Type.String({ description: "Replacement text content" }),
+      expected_sha256: Type.String({ description: "SHA-256 of current file content" }),
+      newline: Type.Optional(stringEnum(["preserve", "ensure_final"] as const, { description: "Final newline handling" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("replace_file", params);
+      if (!classification.allowed) throw new Error(`replace_file blocked by safety policy: ${classification.reasons.join(", ")}`);
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const rel = repoRelativePath(ctx.cwd, path);
+      const current = await readFile(path);
+      if (sha256(current) !== params.expected_sha256) throw new Error(`Checksum mismatch for ${rel}`);
+      if (isProbablyBinary(current)) throw new Error(`Refusing to replace probable binary file: ${rel}`);
+      const content = normalizeCreatedContent(params.content, params.newline ?? "ensure_final");
+      const buffer = Buffer.from(content, "utf8");
+      if (buffer.byteLength > CREATE_FILE_MAX_BYTES) throw new Error(`Content too large for replace_file (${buffer.byteLength} bytes > ${CREATE_FILE_MAX_BYTES}). Use targeted replacements or chunked creation plus move if appropriate.`);
+      if (isProbablyBinary(buffer)) throw new Error(`Refusing to write probable binary file: ${rel}`);
+      await writeFile(path, content, "utf8");
+      const lineCount = content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+      return { content: [{ type: "text", text: `Replaced ${rel} (${buffer.byteLength} bytes, ${lineCount} lines)\n${compactFilePreview(content)}` }], details: { path: rel, bytes: buffer.byteLength, lines: lineCount } };
+    },
+  });
+
+  pi.registerTool({
+    name: "inspect_runtime_environment",
+    label: "Inspect Runtime Environment",
+    description: "Inspect bounded runtime/project environment facts safely. Use instead of pwd/env/which/type shell commands.",
+    promptSnippet: "Inspect runtime environment",
+    promptGuidelines: ["Use instead of bash pwd/env/which/type for project/runtime facts.", "Never exposes full environment variables or secrets."],
+    parameters: Type.Object({}),
+    async execute(_id, _params, _signal, _onUpdate, ctx) {
+      const packageJson = resolve(ctx.cwd, "package.json");
+      const details = {
+        cwd: ctx.cwd,
+        repo_root_name: ctx.cwd.split("/").filter(Boolean).at(-1) ?? ctx.cwd,
+        platform: process.platform,
+        arch: process.arch,
+        node: process.version,
+        bun: typeof (globalThis as any).Bun?.version === "string" ? (globalThis as any).Bun.version : null,
+        has_package_json: await fileExists(packageJson),
+        relative_to_process_cwd: relative(process.cwd(), ctx.cwd) || ".",
+      };
+      return { content: [{ type: "text", text: Object.entries(details).map(([key, value]) => `${key}: ${value}`).join("\n") }], details };
     },
   });
 

@@ -172,11 +172,16 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
     category = "directory_create";
     reasons.push("directory creation");
     matchedPolicies.push("mutation.file-create");
-  } else if (toolName === "create_file" || toolName === "finish_file_write") {
+  } else if (toolName === "create_file" || toolName === "finish_file_write" || toolName === "copy_file") {
     score = 2;
     category = "file_create";
-    reasons.push(toolName === "finish_file_write" ? "chunked file creation finalized" : "file creation");
+    reasons.push(toolName === "finish_file_write" ? "chunked file creation finalized" : toolName === "copy_file" ? "file copy" : "file creation");
     matchedPolicies.push("mutation.file-create");
+  } else if (["delete_file", "move_file", "replace_file"].includes(toolName)) {
+    score = 3;
+    category = "file_replace";
+    reasons.push(`${toolName} mutates repository files`);
+    matchedPolicies.push("mutation.file-replacement");
   } else if (toolName === "apply_code_replacements" && input?.dry_run !== true) {
     category = "file_replace";
     if (input?.language || input?.file_glob) {
@@ -252,7 +257,8 @@ export function shouldAutoCheckpointTurn(score: number, lastCheckpointAt: number
 }
 
 export function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory", "delete_file", "replace_file"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["move_file", "copy_file"].includes(toolName)) return [input?.from_path, input?.to_path].filter((path): path is string => typeof path === "string");
   if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
 
   const paths = new Set<string>();

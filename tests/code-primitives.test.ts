@@ -113,6 +113,39 @@ describe("code primitive extension tools", () => {
     expect(tools.inspect_lines.promptGuidelines.join("\n")).toContain("capped at 200 lines");
     expect(tools.inspect_lines.promptGuidelines.join("\n")).toContain("allow_outside_cwd=true");
     expect(tools.list_files.promptGuidelines.join("\n")).toContain("allow_outside_cwd=true");
+    expect(tools.inspect_file_metadata.promptGuidelines.join("\n")).toContain("instead of bash stat/file/wc");
+    expect(tools.compare_files.promptGuidelines.join("\n")).toContain("instead of bash diff/cmp/comm");
+    expect(tools.replace_file.promptGuidelines.join("\n")).toContain("whole-file replacement");
+    expect(tools.inspect_runtime_environment.promptGuidelines.join("\n")).toContain("instead of bash pwd/env/which/type");
+  });
+
+  test("metadata, compare, replace, lifecycle, and runtime tools cover blocked shell capabilities", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "a.txt"), "one\ntwo\n", "utf8");
+    await writeFile(join(cwd, "src", "b.txt"), "one\nthree\n", "utf8");
+    const tools = registeredCodePrimitiveTools();
+
+    const metadata = await tools.inspect_file_metadata.execute("id", { path: "src/a.txt", include_sha256: true }, undefined, undefined, { cwd });
+    expect(metadata.content[0].text).toContain("sha256:");
+    const currentSha = metadata.details.sha256;
+
+    const comparison = await tools.compare_files.execute("id", { left_path: "src/a.txt", right_path: "src/b.txt" }, undefined, undefined, { cwd });
+    expect(comparison.content[0].text).toContain("-2 | two");
+    expect(comparison.content[0].text).toContain("+2 | three");
+
+    await tools.copy_file.execute("id", { from_path: "src/a.txt", to_path: "src/c.txt" }, undefined, undefined, { cwd });
+    expect(await readFile(join(cwd, "src", "c.txt"), "utf8")).toBe("one\ntwo\n");
+    await tools.move_file.execute("id", { from_path: "src/c.txt", to_path: "src/d.txt" }, undefined, undefined, { cwd });
+    expect(await readFile(join(cwd, "src", "d.txt"), "utf8")).toBe("one\ntwo\n");
+    await tools.delete_file.execute("id", { path: "src/d.txt" }, undefined, undefined, { cwd });
+
+    const replaced = await tools.replace_file.execute("id", { path: "src/a.txt", expected_sha256: currentSha, content: "replaced\n" }, undefined, undefined, { cwd });
+    expect(replaced.content[0].text).toContain("Replaced src/a.txt");
+    expect(await readFile(join(cwd, "src", "a.txt"), "utf8")).toBe("replaced\n");
+
+    const runtime = await tools.inspect_runtime_environment.execute("id", {}, undefined, undefined, { cwd });
+    expect(runtime.content[0].text).toContain("platform:");
   });
 
   test("list_files lists sorted files, filters by language, excludes vendor dirs, and caps results", async () => {
