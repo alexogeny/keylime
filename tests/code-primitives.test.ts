@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import codePrimitivesExtension from "../extensions/code-primitives";
+import codePrimitivesExtension, { resetFileWriteSessionsForTests } from "../extensions/code-primitives";
 import {
   formatPlanPreview,
   inspectTextMatches,
@@ -117,6 +117,20 @@ describe("code primitive extension tools", () => {
     expect(tools.compare_files.promptGuidelines.join("\n")).toContain("instead of bash diff/cmp/comm");
     expect(tools.replace_file.promptGuidelines.join("\n")).toContain("whole-file replacement");
     expect(tools.inspect_runtime_environment.promptGuidelines.join("\n")).toContain("instead of bash pwd/env/which/type");
+  });
+
+  test("chunked file write sessions survive in-memory tool reloads", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    const tools = registeredCodePrimitiveTools();
+
+    const started = await tools.begin_file_write.execute("id", { path: "large.txt" }, undefined, undefined, { cwd });
+    resetFileWriteSessionsForTests();
+    await tools.append_file_chunk.execute("id", { handle: started.details.handle, index: 0, content: "hello" }, undefined, undefined, { cwd });
+    resetFileWriteSessionsForTests();
+    const finished = await tools.finish_file_write.execute("id", { handle: started.details.handle, expected_chunks: 1 }, undefined, undefined, { cwd });
+
+    expect(finished.content[0].text).toContain("Created large.txt");
+    expect(await readFile(join(cwd, "large.txt"), "utf8")).toBe("hello\n");
   });
 
   test("metadata, compare, replace, lifecycle, and runtime tools cover blocked shell capabilities", async () => {

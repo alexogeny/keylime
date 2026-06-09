@@ -172,10 +172,10 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
     category = "directory_create";
     reasons.push("directory creation");
     matchedPolicies.push("mutation.file-create");
-  } else if (toolName === "create_file" || toolName === "finish_file_write" || toolName === "copy_file") {
+  } else if (["create_file", "finish_file_write", "copy_file", "create_reporter_document", "convert_document"].includes(toolName)) {
     score = 2;
     category = "file_create";
-    reasons.push(toolName === "finish_file_write" ? "chunked file creation finalized" : toolName === "copy_file" ? "file copy" : "file creation");
+    reasons.push(toolName === "finish_file_write" ? "chunked file creation finalized" : toolName === "copy_file" ? "file copy" : toolName === "convert_document" ? "document conversion" : toolName === "create_reporter_document" ? "reporter document creation" : "file creation");
     matchedPolicies.push("mutation.file-create");
   } else if (["delete_file", "move_file", "replace_file"].includes(toolName)) {
     score = 3;
@@ -257,8 +257,9 @@ export function shouldAutoCheckpointTurn(score: number, lastCheckpointAt: number
 }
 
 export function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory", "delete_file", "replace_file"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory", "delete_file", "replace_file", "create_reporter_document"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
   if (["move_file", "copy_file"].includes(toolName)) return [input?.from_path, input?.to_path].filter((path): path is string => typeof path === "string");
+  if (toolName === "convert_document") return typeof input?.output_path === "string" ? [input.output_path] : [];
   if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
 
   const paths = new Set<string>();

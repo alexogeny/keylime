@@ -132,4 +132,17 @@ describe("agent OS extension", () => {
     expect(current.details.grammar.id).toBe("large_file_create");
     clearContextProviders();
   });
+  test("compiles document workflow grammars", async () => {
+    const { tools } = registerAgentOs();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-os-"));
+
+    const readGrammar = await tools.compile_tool_grammar.execute("id", { intent: "document_read_summarize" }, undefined, undefined, { cwd });
+    expect(readGrammar.details.grammar.id).toBe("document_read_summarize");
+    expect(readGrammar.details.grammar.allowedTools).toContain("inspect_document");
+    expect(readGrammar.details.grammar.allowedTools).toContain("summarize_document");
+
+    const reporterGrammar = await tools.compile_tool_grammar.execute("id", { intent: "reporter_document_create" }, undefined, undefined, { cwd });
+    expect(reporterGrammar.details.grammar.id).toBe("reporter_document_create");
+    expect(reporterGrammar.details.grammar.allowedTools).toContain("create_reporter_document");
+  });
 });

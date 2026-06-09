@@ -162,6 +162,30 @@ function grammarFor(intent: string, riskLevel: RiskLevel): ToolGrammar {
       compiledAt: now,
     };
   }
+  if (intent === "document_read_summarize") {
+    return {
+      id: "document_read_summarize",
+      allowedTools: ["inspect_document", "summarize_document", "inspect_spreadsheet", "extract_document_tables", "inspect_file_metadata", "ctx_region_write"],
+      forbiddenTools: ["bash", "python", "node", "read", "write", "edit"],
+      allowedSequences: ["inspect metadata/document → summarize scaffold → answer or store ctx region"],
+      requiredNext: ["inspect_document", "summarize_document"],
+      stopConditions: ["summary grounded in extracted text", "document extraction reports unsupported/scanned content"],
+      riskLevel,
+      compiledAt: now,
+    };
+  }
+  if (intent === "reporter_document_create") {
+    return {
+      id: "reporter_document_create",
+      allowedTools: ["inspect_document", "summarize_document", "inspect_spreadsheet", "create_reporter_document", "convert_document", "inspect_file_metadata", "run_checks"],
+      forbiddenTools: ["bash", "python", "node", "write", "edit"],
+      allowedSequences: ["gather source text/data → draft semantic sections → create_reporter_document → inspect metadata"],
+      requiredNext: ["create_reporter_document"],
+      stopConditions: ["reporter document created", "blocked by missing source content or output path"],
+      riskLevel,
+      compiledAt: now,
+    };
+  }
   if (intent === "existing_file_edit") {
     return {
       id: "existing_file_edit",
@@ -176,7 +200,7 @@ function grammarFor(intent: string, riskLevel: RiskLevel): ToolGrammar {
   }
   return {
     id: "safe_coding_default",
-    allowedTools: ["code_search", "list_files", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "run_checks"],
+    allowedTools: ["code_search", "list_files", "inspect_text_matches", "inspect_code_structure", "inspect_lines", "inspect_document", "summarize_document", "inspect_spreadsheet", "plan_code_replacements", "apply_code_replacements", "create_file", "create_directory", "create_reporter_document", "run_checks"],
     forbiddenTools: ["write", "edit", "bash for file inspection/mutation"],
     allowedSequences: ["discover → inspect → plan → mutate → verify"],
     stopConditions: ["requested behavior verified", "blocked by missing requirements"],

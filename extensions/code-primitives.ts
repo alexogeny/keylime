@@ -40,11 +40,58 @@ type FileWriteSession = {
 
 const fileWriteSessions = new Map<string, FileWriteSession>();
 
-async function pruneExpiredFileWriteSessions(now = Date.now()): Promise<void> {
-  await Promise.all([...fileWriteSessions.entries()].map(async ([handle, session]) => {
+export function resetFileWriteSessionsForTests(): void {
+  fileWriteSessions.clear();
+}
+
+function fileWriteSessionDir(cwd: string): string {
+  return resolve(cwd, ".pi", "tmp", "file-writes");
+}
+
+function fileWriteSessionMetaPath(cwd: string, handle: string): string {
+  return resolve(fileWriteSessionDir(cwd), `${handle}.json`);
+}
+
+async function saveFileWriteSession(handle: string, session: FileWriteSession): Promise<void> {
+  fileWriteSessions.set(handle, session);
+  await mkdir(dirname(fileWriteSessionMetaPath(session.cwd, handle)), { recursive: true });
+  await writeFile(fileWriteSessionMetaPath(session.cwd, handle), JSON.stringify(session), "utf8");
+}
+
+async function loadFileWriteSession(cwd: string, handle: string): Promise<FileWriteSession | undefined> {
+  const cached = fileWriteSessions.get(handle);
+  if (cached) return cached;
+  try {
+    const session = JSON.parse(await readFile(fileWriteSessionMetaPath(cwd, handle), "utf8")) as FileWriteSession;
+    fileWriteSessions.set(handle, session);
+    return session;
+  } catch {
+    return undefined;
+  }
+}
+
+async function deleteFileWriteSession(handle: string, session: FileWriteSession): Promise<void> {
+  fileWriteSessions.delete(handle);
+  await rm(fileWriteSessionMetaPath(session.cwd, handle), { force: true });
+}
+
+async function pruneExpiredFileWriteSessions(now = Date.now(), cwd = process.cwd()): Promise<void> {
+  const sessions = new Map(fileWriteSessions);
+  try {
+    for (const entry of await readdir(fileWriteSessionDir(cwd))) {
+      if (entry.endsWith(".json")) {
+        const handle = entry.slice(0, -5);
+        const session = await loadFileWriteSession(cwd, handle);
+        if (session) sessions.set(handle, session);
+      }
+    }
+  } catch {
+    // No persisted sessions yet.
+  }
+  await Promise.all([...sessions.entries()].map(async ([handle, session]) => {
     if (now - session.createdAt <= FILE_WRITE_SESSION_TTL_MS) return;
     await rm(session.tmpPath, { force: true });
-    fileWriteSessions.delete(handle);
+    await deleteFileWriteSession(handle, session);
   }));
 }
 
@@ -532,7 +579,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       estimated_bytes: Type.Optional(Type.Number({ description: "Estimated final byte size" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      await pruneExpiredFileWriteSessions();
+      await pruneExpiredFileWriteSessions(Date.now(), ctx.cwd);
       const classification = classifyToolMutation("create_file", params);
       if (!classification.allowed) throw new Error(`begin_file_write blocked by safety policy: ${classification.reasons.join(", ")}`);
       const path = resolveSafePath(ctx.cwd, params.path);
@@ -548,11 +595,11 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       else if (!(await directoryExists(dirname(path)))) throw new Error(`Parent directory does not exist for ${rel}; set create_dirs=true to create it`);
 
       const handle = randomUUID();
-      const tmpDir = resolve(ctx.cwd, ".pi", "tmp", "file-writes");
+      const tmpDir = fileWriteSessionDir(ctx.cwd);
       const tmpPath = resolve(tmpDir, `${handle}.tmp`);
       await mkdir(tmpDir, { recursive: true });
       await writeFile(tmpPath, "", { encoding: "utf8", flag: "wx" });
-      fileWriteSessions.set(handle, { cwd: ctx.cwd, path, rel, tmpPath, nextIndex: 0, bytes: 0, newline: params.newline ?? "ensure_final", createdAt: Date.now() });
+      await saveFileWriteSession(handle, { cwd: ctx.cwd, path, rel, tmpPath, nextIndex: 0, bytes: 0, newline: params.newline ?? "ensure_final", createdAt: Date.now() });
 
       return {
         content: [{ type: "text", text: `Started chunked file write for ${rel}. Append chunks up to ${FILE_WRITE_MAX_CHUNK_BYTES} bytes, then finish_file_write.` }],
@@ -576,7 +623,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       content: Type.String({ description: "Chunk text" }),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const session = fileWriteSessions.get(params.handle);
+      const session = await loadFileWriteSession(ctx.cwd, params.handle);
       if (!session || session.cwd !== ctx.cwd) throw new Error(`Unknown file write handle: ${params.handle}`);
       if (params.index !== session.nextIndex) throw new Error(`Expected chunk index ${session.nextIndex} for ${session.rel}, got ${params.index}`);
       const bytes = Buffer.byteLength(params.content, "utf8");
@@ -584,6 +631,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       await appendFile(session.tmpPath, params.content, "utf8");
       session.nextIndex += 1;
       session.bytes += bytes;
+      await saveFileWriteSession(params.handle, session);
       return { content: [{ type: "text", text: `Accepted chunk ${params.index} for ${session.rel} (${bytes} bytes)` }], details: { handle: params.handle, index: params.index, bytes, total_bytes: session.bytes } };
     },
   });
@@ -604,7 +652,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       sha256: Type.Optional(Type.String({ description: "Expected SHA-256 checksum of the final content" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const session = fileWriteSessions.get(params.handle);
+      const session = await loadFileWriteSession(ctx.cwd, params.handle);
       if (!session || session.cwd !== ctx.cwd) throw new Error(`Unknown file write handle: ${params.handle}`);
       if (params.expected_chunks !== undefined && params.expected_chunks !== session.nextIndex) throw new Error(`Expected ${params.expected_chunks} chunks, received ${session.nextIndex}`);
       const classification = classifyToolMutation("create_file", { path: session.rel });
@@ -621,7 +669,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       if (isProbablyBinary(buffer)) throw new Error(`Refusing to create probable binary file: ${session.rel}`);
       if (content !== staged) await writeFile(session.tmpPath, content, "utf8");
       await rename(session.tmpPath, session.path);
-      fileWriteSessions.delete(params.handle);
+      await deleteFileWriteSession(params.handle, session);
 
       const lineCount = content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
       return {
@@ -641,10 +689,10 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       handle: Type.String({ description: "Handle returned by begin_file_write" }),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const session = fileWriteSessions.get(params.handle);
+      const session = await loadFileWriteSession(ctx.cwd, params.handle);
       if (!session || session.cwd !== ctx.cwd) throw new Error(`Unknown file write handle: ${params.handle}`);
       await rm(session.tmpPath, { force: true });
-      fileWriteSessions.delete(params.handle);
+      await deleteFileWriteSession(params.handle, session);
       return { content: [{ type: "text", text: `Aborted chunked file write for ${session.rel}` }], details: { handle: params.handle, path: session.rel, aborted: true } };
     },
   });

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import agentOs from "../extensions/agent-os";
 import codePrimitives from "../extensions/code-primitives";
 import dangerGuard from "../extensions/danger-guard";
+import documentPrimitives from "../extensions/document-primitives";
 import gitCheckpoint from "../extensions/git-checkpoint";
 import intentRouter from "../extensions/intent-router";
 import policyTools from "../extensions/policy-tools";
@@ -15,6 +16,7 @@ describe("extension registration smoke", () => {
 
     agentOs(harness.pi);
     codePrimitives(harness.pi);
+    documentPrimitives(harness.pi);
     policyTools(harness.pi);
     toolResultCompactor(harness.pi);
     testRunner(harness.pi);
@@ -26,6 +28,8 @@ describe("extension registration smoke", () => {
       "list_files",
       "inspect_json",
       "apply_code_replacements",
+      "inspect_document",
+      "create_reporter_document",
       "retrieve_policy",
       "suggest_checks",
       "codemod_plan",
