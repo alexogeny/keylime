@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import codePrimitivesExtension from "../extensions/code-primitives";
@@ -342,6 +343,99 @@ describe("code primitive extension tools", () => {
     }, undefined, undefined, { cwd })).rejects.toThrow("File already exists");
 
     expect(await readFile(join(cwd, "existing.ts"), "utf8")).toBe("old\n");
+  });
+
+  test("create_file rejects large content and points to chunked writer", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.create_file.execute("id", {
+      path: "large.ts",
+      content: "x".repeat(32 * 1024 + 1),
+    }, undefined, undefined, { cwd })).rejects.toThrow("Use begin_file_write");
+  });
+
+  test("chunked file writer creates a file atomically from ordered chunks", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+
+    const tools = registeredCodePrimitiveTools();
+    expect(tools.begin_file_write.promptGuidelines.join("\n")).toContain("larger files");
+
+    const begin = await tools.begin_file_write.execute("id", {
+      path: "src/large.ts",
+      create_dirs: true,
+    }, undefined, undefined, { cwd });
+
+    await tools.append_file_chunk.execute("id", {
+      handle: begin.details.handle,
+      index: 0,
+      content: "export const a = 1;\n",
+    }, undefined, undefined, { cwd });
+    await tools.append_file_chunk.execute("id", {
+      handle: begin.details.handle,
+      index: 1,
+      content: "export const b = 2;\n",
+    }, undefined, undefined, { cwd });
+
+    await expect(readFile(join(cwd, "src", "large.ts"), "utf8")).rejects.toThrow();
+
+    await expect(tools.finish_file_write.execute("id", {
+      handle: begin.details.handle,
+      sha256: "not-the-real-checksum",
+    }, undefined, undefined, { cwd })).rejects.toThrow("Checksum mismatch");
+    await expect(readFile(join(cwd, "src", "large.ts"), "utf8")).rejects.toThrow();
+
+    const sha256 = createHash("sha256").update("export const a = 1;\nexport const b = 2;\n").digest("hex");
+    const finished = await tools.finish_file_write.execute("id", {
+      handle: begin.details.handle,
+      expected_chunks: 2,
+      sha256,
+    }, undefined, undefined, { cwd });
+
+    expect(await readFile(join(cwd, "src", "large.ts"), "utf8")).toBe("export const a = 1;\nexport const b = 2;\n");
+    expect(finished.details.path).toBe("src/large.ts");
+    expect(finished.details.bytes).toBeGreaterThan(0);
+    expect(finished.content[0].text).toContain("Created src/large.ts");
+  });
+
+  test("chunked file writer validates path before accepting content", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.begin_file_write.execute("id", {
+      path: ".env.local",
+    }, undefined, undefined, { cwd })).rejects.toThrow("blocked by safety policy");
+  });
+
+  test("chunked file writer enforces chunk order, chunk size, and abort cleanup", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+
+    const tools = registeredCodePrimitiveTools();
+    const begin = await tools.begin_file_write.execute("id", {
+      path: "large.txt",
+    }, undefined, undefined, { cwd });
+
+    await expect(tools.append_file_chunk.execute("id", {
+      handle: begin.details.handle,
+      index: 1,
+      content: "late\n",
+    }, undefined, undefined, { cwd })).rejects.toThrow("Expected chunk index 0");
+
+    await expect(tools.append_file_chunk.execute("id", {
+      handle: begin.details.handle,
+      index: 0,
+      content: "x".repeat(begin.details.max_chunk_bytes + 1),
+    }, undefined, undefined, { cwd })).rejects.toThrow("Chunk too large");
+
+    const aborted = await tools.abort_file_write.execute("id", {
+      handle: begin.details.handle,
+    }, undefined, undefined, { cwd });
+    expect(aborted.details.aborted).toBe(true);
+
+    await expect(tools.finish_file_write.execute("id", {
+      handle: begin.details.handle,
+    }, undefined, undefined, { cwd })).rejects.toThrow("Unknown file write handle");
+    await expect(readFile(join(cwd, "large.txt"), "utf8")).rejects.toThrow();
   });
 
   test("file mutation tools enforce central protected-path classification", async () => {

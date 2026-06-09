@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { stringEnum } from "./shared/schema";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { repoRelativePath } from "./shared/path-policy";
 import {
@@ -21,6 +22,31 @@ import {
 } from "./shared/code-primitives";
 import { classifyToolMutation } from "./shared/safety-policy";
 import { SOURCE_MUTATION_GUIDELINES } from "./shared/coding-contract";
+
+const CREATE_FILE_MAX_BYTES = 32 * 1024;
+const FILE_WRITE_MAX_CHUNK_BYTES = 16 * 1024;
+const FILE_WRITE_SESSION_TTL_MS = 60 * 60 * 1000;
+
+type FileWriteSession = {
+  cwd: string;
+  path: string;
+  rel: string;
+  tmpPath: string;
+  nextIndex: number;
+  bytes: number;
+  newline: "preserve" | "ensure_final";
+  createdAt: number;
+};
+
+const fileWriteSessions = new Map<string, FileWriteSession>();
+
+async function pruneExpiredFileWriteSessions(now = Date.now()): Promise<void> {
+  await Promise.all([...fileWriteSessions.entries()].map(async ([handle, session]) => {
+    if (now - session.createdAt <= FILE_WRITE_SESSION_TTL_MS) return;
+    await rm(session.tmpPath, { force: true });
+    fileWriteSessions.delete(handle);
+  }));
+}
 
 async function readTextFileSafely(path: string): Promise<string> {
   const info = await stat(path);
@@ -445,12 +471,149 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "begin_file_write",
+    label: "Begin Chunked File Write",
+    description: "Validate a large new file write before accepting content. Returns a temporary handle for bounded chunks.",
+    promptSnippet: "Begin chunked file write",
+    promptGuidelines: [
+      "Use begin_file_write, append_file_chunk, and finish_file_write for larger files instead of putting large content in create_file.",
+      "Call begin_file_write with path metadata only; do not include file content in this call.",
+      "The final repository mutation happens atomically at finish_file_write.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      path: Type.String({ description: "New file path" }),
+      create_dirs: Type.Optional(Type.Boolean({ description: "Create parent directories" })),
+      if_exists: Type.Optional(stringEnum(["error", "skip"] as const, { description: "Behavior if file exists" })),
+      newline: Type.Optional(stringEnum(["preserve", "ensure_final"] as const, { description: "Final newline handling" })),
+      estimated_bytes: Type.Optional(Type.Number({ description: "Estimated final byte size" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      await pruneExpiredFileWriteSessions();
+      const classification = classifyToolMutation("create_file", params);
+      if (!classification.allowed) throw new Error(`begin_file_write blocked by safety policy: ${classification.reasons.join(", ")}`);
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const rel = relativePath(ctx.cwd, path);
+      if (await fileExists(path)) {
+        if (params.if_exists === "skip") {
+          return { content: [{ type: "text", text: `Skipped existing file ${rel}` }], details: { path: rel, skipped: true } };
+        }
+        throw new Error(`File already exists: ${rel}`);
+      }
+      if (await directoryExists(path)) throw new Error(`Path exists and is a directory: ${rel}`);
+      if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
+      else if (!(await directoryExists(dirname(path)))) throw new Error(`Parent directory does not exist for ${rel}; set create_dirs=true to create it`);
+
+      const handle = randomUUID();
+      const tmpDir = resolve(ctx.cwd, ".pi", "tmp", "file-writes");
+      const tmpPath = resolve(tmpDir, `${handle}.tmp`);
+      await mkdir(tmpDir, { recursive: true });
+      await writeFile(tmpPath, "", { encoding: "utf8", flag: "wx" });
+      fileWriteSessions.set(handle, { cwd: ctx.cwd, path, rel, tmpPath, nextIndex: 0, bytes: 0, newline: params.newline ?? "ensure_final", createdAt: Date.now() });
+
+      return {
+        content: [{ type: "text", text: `Started chunked file write for ${rel}. Append chunks up to ${FILE_WRITE_MAX_CHUNK_BYTES} bytes, then finish_file_write.` }],
+        details: { handle, path: rel, max_chunk_bytes: FILE_WRITE_MAX_CHUNK_BYTES, skipped: false },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "append_file_chunk",
+    label: "Append File Chunk",
+    description: "Append one bounded, ordered text chunk to a staged chunked file write.",
+    promptSnippet: "Append file chunk",
+    promptGuidelines: [
+      "Use after begin_file_write for larger files; send chunks in ascending index order starting at 0.",
+      "Keep each chunk at or below the returned max_chunk_bytes.",
+    ],
+    parameters: Type.Object({
+      handle: Type.String({ description: "Handle returned by begin_file_write" }),
+      index: Type.Number({ description: "Zero-based chunk index" }),
+      content: Type.String({ description: "Chunk text" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const session = fileWriteSessions.get(params.handle);
+      if (!session || session.cwd !== ctx.cwd) throw new Error(`Unknown file write handle: ${params.handle}`);
+      if (params.index !== session.nextIndex) throw new Error(`Expected chunk index ${session.nextIndex} for ${session.rel}, got ${params.index}`);
+      const bytes = Buffer.byteLength(params.content, "utf8");
+      if (bytes > FILE_WRITE_MAX_CHUNK_BYTES) throw new Error(`Chunk too large (${bytes} bytes > ${FILE_WRITE_MAX_CHUNK_BYTES} max)`);
+      await appendFile(session.tmpPath, params.content, "utf8");
+      session.nextIndex += 1;
+      session.bytes += bytes;
+      return { content: [{ type: "text", text: `Accepted chunk ${params.index} for ${session.rel} (${bytes} bytes)` }], details: { handle: params.handle, index: params.index, bytes, total_bytes: session.bytes } };
+    },
+  });
+
+  pi.registerTool({
+    name: "finish_file_write",
+    label: "Finish Chunked File Write",
+    description: "Finalize a staged chunked file write atomically and return a compact preview.",
+    promptSnippet: "Finish chunked file write",
+    promptGuidelines: [
+      "Use after all append_file_chunk calls to atomically create the target file.",
+      "If the write should not continue, use abort_file_write instead.",
+      ...SOURCE_MUTATION_GUIDELINES,
+    ],
+    parameters: Type.Object({
+      handle: Type.String({ description: "Handle returned by begin_file_write" }),
+      expected_chunks: Type.Optional(Type.Number({ description: "Expected number of chunks" })),
+      sha256: Type.Optional(Type.String({ description: "Expected SHA-256 checksum of the final content" })),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const session = fileWriteSessions.get(params.handle);
+      if (!session || session.cwd !== ctx.cwd) throw new Error(`Unknown file write handle: ${params.handle}`);
+      if (params.expected_chunks !== undefined && params.expected_chunks !== session.nextIndex) throw new Error(`Expected ${params.expected_chunks} chunks, received ${session.nextIndex}`);
+      const classification = classifyToolMutation("create_file", { path: session.rel });
+      if (!classification.allowed) throw new Error(`finish_file_write blocked by safety policy: ${classification.reasons.join(", ")}`);
+      if (await fileExists(session.path)) throw new Error(`File already exists: ${session.rel}`);
+
+      const staged = await readFile(session.tmpPath, "utf8");
+      const content = normalizeCreatedContent(staged, session.newline);
+      const buffer = Buffer.from(content, "utf8");
+      if (params.sha256) {
+        const actualSha256 = createHash("sha256").update(content).digest("hex");
+        if (actualSha256 !== params.sha256) throw new Error(`Checksum mismatch for ${session.rel}: expected ${params.sha256}, got ${actualSha256}`);
+      }
+      if (isProbablyBinary(buffer)) throw new Error(`Refusing to create probable binary file: ${session.rel}`);
+      if (content !== staged) await writeFile(session.tmpPath, content, "utf8");
+      await rename(session.tmpPath, session.path);
+      fileWriteSessions.delete(params.handle);
+
+      const lineCount = content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+      return {
+        content: [{ type: "text", text: `Created ${session.rel} (${buffer.byteLength} bytes, ${lineCount} lines)\n${compactFilePreview(content)}` }],
+        details: { path: session.rel, bytes: buffer.byteLength, lines: lineCount, chunks: session.nextIndex, skipped: false },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "abort_file_write",
+    label: "Abort Chunked File Write",
+    description: "Abort a staged chunked file write and delete its temporary content.",
+    promptSnippet: "Abort chunked file write",
+    promptGuidelines: ["Use to clean up a chunked file write that should not be finalized."],
+    parameters: Type.Object({
+      handle: Type.String({ description: "Handle returned by begin_file_write" }),
+    }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const session = fileWriteSessions.get(params.handle);
+      if (!session || session.cwd !== ctx.cwd) throw new Error(`Unknown file write handle: ${params.handle}`);
+      await rm(session.tmpPath, { force: true });
+      fileWriteSessions.delete(params.handle);
+      return { content: [{ type: "text", text: `Aborted chunked file write for ${session.rel}` }], details: { handle: params.handle, path: session.rel, aborted: true } };
+    },
+  });
+
+  pi.registerTool({
     name: "create_file",
     label: "Create File",
-    description: "Create a new text/source file. Refuses overwrites, supports parent directory creation, and returns a compact preview.",
+    description: "Create a new text/source file. Refuses overwrites, supports parent directory creation, and returns a compact preview. Large content is capped; use chunked file write tools for larger files.",
     promptSnippet: "Create a new file",
     promptGuidelines: [
-      "Use create_file for new source, config, test, markdown, and fixture files.",
+      `Use create_file for new source, config, test, markdown, and fixture files up to ${CREATE_FILE_MAX_BYTES} bytes.`,
+      "Use begin_file_write/append_file_chunk/finish_file_write for larger files instead of streaming huge content into create_file.",
       "Never use read/write/edit, bash, node, python, sed, awk, tee, heredocs, or shell redirection to create repository files.",
       "Use apply_code_replacements for existing files; do not overwrite existing files with create_file.",
       "Set create_dirs=true only when the parent directory does not already exist.",
@@ -476,6 +639,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
 
       const content = normalizeCreatedContent(params.content, params.newline ?? "ensure_final");
       const buffer = Buffer.from(content, "utf8");
+      if (buffer.byteLength > CREATE_FILE_MAX_BYTES) throw new Error(`Content too large for create_file (${buffer.byteLength} bytes > ${CREATE_FILE_MAX_BYTES}). Use begin_file_write, append_file_chunk, and finish_file_write for larger files.`);
       if (isProbablyBinary(buffer)) throw new Error(`Refusing to create probable binary file: ${rel}`);
       if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
       await writeFile(path, content, { encoding: "utf8", flag: "wx" });

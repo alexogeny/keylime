@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyToolMutation, mutationScoreForTool, runChecksCommandBlockReason } from "../extensions/shared/safety-policy";
+import { classifyToolMutation, mutationScoreForTool, runChecksCommandBlockReason, writePathsForTool } from "../extensions/shared/safety-policy";
 
 describe("central mutation classification", () => {
   test("classifies read-only tools as non-mutating", () => {
@@ -18,7 +18,10 @@ describe("central mutation classification", () => {
 
   test("classifies create operations and keeps mutationScoreForTool compatible", () => {
     expect(classifyToolMutation("create_file", { path: "src/new.ts" })).toMatchObject({ category: "file_create", score: 2 });
+    expect(classifyToolMutation("begin_file_write", { path: "src/large.ts" })).toMatchObject({ category: "file_create", score: 2 });
     expect(classifyToolMutation("create_directory", { path: "src/new" })).toMatchObject({ category: "directory_create", score: 1 });
+    expect(writePathsForTool("begin_file_write", { path: "src/large.ts" })).toEqual(["src/large.ts"]);
+    expect(writePathsForTool("append_file_chunk", { handle: "h" })).toEqual([]);
     expect(mutationScoreForTool("create_file", { path: "src/new.ts" })).toBe(2);
   });
 

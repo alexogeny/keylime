@@ -163,10 +163,10 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
     category = "directory_create";
     reasons.push("directory creation");
     matchedPolicies.push("mutation.file-create");
-  } else if (toolName === "create_file") {
+  } else if (toolName === "create_file" || toolName === "begin_file_write") {
     score = 2;
     category = "file_create";
-    reasons.push("file creation");
+    reasons.push(toolName === "begin_file_write" ? "chunked file creation" : "file creation");
     matchedPolicies.push("mutation.file-create");
   } else if (toolName === "apply_code_replacements" && input?.dry_run !== true) {
     category = "file_replace";
@@ -225,7 +225,7 @@ export function shouldAutoCheckpointTurn(score: number, lastCheckpointAt: number
 }
 
 export function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit", "create_file", "create_directory"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["write", "edit", "create_file", "begin_file_write", "create_directory"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
   if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
 
   const paths = new Set<string>();
