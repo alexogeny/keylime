@@ -122,8 +122,12 @@ async function listEntries(cwd: string, options: {
   language?: Language;
   exclude_globs?: string[];
   max_results?: number;
+  allow_outside_cwd?: boolean;
 }): Promise<{ entries: ListedEntry[]; truncated: boolean }> {
-  const root = resolveSafePath(cwd, options.path ?? ".");
+  const root = options.allow_outside_cwd
+    ? (isAbsolute(options.path ?? ".") ? resolve(options.path ?? ".") : resolve(cwd, options.path ?? "."))
+    : resolveSafePath(cwd, options.path ?? ".");
+  const displayRoot = options.allow_outside_cwd ? root : cwd;
   const rootInfo = await stat(root);
   if (!rootInfo.isDirectory()) throw new Error(`Not a directory: ${options.path ?? "."}`);
   const maxResults = Math.min(Math.max(1, options.max_results ?? 200), 1000);
@@ -138,7 +142,7 @@ async function listEntries(cwd: string, options: {
     for (const entry of dirents) {
       if (truncated) return;
       const fsPath = `${dir}/${entry.name}`;
-      const rel = repoRelativePath(cwd, fsPath);
+      const rel = repoRelativePath(displayRoot, fsPath);
       if (shouldExcludePath(rel, options.exclude_globs)) continue;
       if (entry.isDirectory()) {
         if (includeDirs && (!options.file_glob || matchesGlob(rel, options.file_glob))) entries.push({ path: rel, type: "dir" });
@@ -244,8 +248,10 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptSnippet: "List files/directories",
     promptGuidelines: [
       "Use instead of bash ls/find for repository file discovery.",
-      "Use file_glob/language/exclude_globs to narrow results before inspecting content.",
-      "Keep max_results bounded; follow with code_search, inspect_text_matches, or inspect_lines as needed.",
+      "Narrow with file_glob/language/exclude_globs before inspecting content.",
+      "Set allow_outside_cwd=true only for explicit read-only listing outside cwd.",
+      "If blocked, ask to update Keylime; never fall back to head/tail/grep/cat/sed.",
+      "Keep max_results bounded; follow with search/match/lines tools.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
@@ -256,6 +262,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       language: Type.Optional(stringEnum(["typescript", "javascript", "python", "rust"] as const)),
       exclude_globs: Type.Optional(Type.Array(Type.String(), { description: "Extra excludes" })),
       max_results: Type.Optional(Type.Number({ description: "Result cap, max 1000" })),
+      allow_outside_cwd: Type.Optional(Type.Boolean({ description: "Allow read-only directory listing outside cwd when explicitly requested" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const { entries, truncated } = await listEntries(ctx.cwd, {
@@ -266,6 +273,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         language: params.language as Language | undefined,
         exclude_globs: params.exclude_globs,
         max_results: params.max_results,
+        allow_outside_cwd: params.allow_outside_cwd,
       });
       const lines = entries.map(entry => entry.type === "dir" ? `${entry.path}/` : `${entry.path}${entry.bytes === undefined ? "" : ` (${entry.bytes} bytes)`}`);
       const header = `list_files: ${entries.length}${truncated ? "+" : ""} result${entries.length === 1 ? "" : "s"}${truncated ? " (truncated)" : ""}`;
@@ -404,10 +412,11 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     description: "Inspect a bounded numbered line window from one text file. Use only when search/context tools are insufficient.",
     promptSnippet: "Inspect specific file lines",
     promptGuidelines: [
-      "Use only after code_search or inspect_text_matches fails to provide enough local context.",
-      "Prefer code_search, inspect_text_matches, and inspect_code_structure before inspecting lines.",
+      "Use after search/match/structure when context is insufficient.",
       "Request the smallest useful line window; never dump whole files.",
-      "inspect_lines is capped at 200 lines; use a focused search radius from code_search/inspect_text_matches before requesting a window.",
+      "inspect_lines is capped at 200 lines; request a focused window.",
+      "Set allow_outside_cwd=true only for explicit read-only file inspection outside cwd.",
+      "If blocked, ask to update Keylime; never fall back to head/tail/grep/cat/sed.",
       "Do not use read for source files; use inspect_lines as the bounded fallback.",
     ],
     parameters: Type.Object({
@@ -416,9 +425,12 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       end: Type.Optional(Type.Number({ description: "End line, inclusive" })),
       context: Type.Optional(Type.Number({ description: "Context lines around start/end" })),
       max_lines: Type.Optional(Type.Number({ description: "Maximum lines allowed (default 80)" })),
+      allow_outside_cwd: Type.Optional(Type.Boolean({ description: "Allow read-only inspection outside cwd when explicitly requested" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = params.allow_outside_cwd
+        ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
+        : resolveSafePath(ctx.cwd, params.path);
       const text = await readTextFileSafely(path);
       const lines = text.split("\n");
       const context = Math.max(0, params.context ?? 0);

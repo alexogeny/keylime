@@ -111,6 +111,8 @@ describe("code primitive extension tools", () => {
     expect(tools.inspect_text_matches.promptGuidelines.join("\n")).toContain("instead of bash grep/rg");
     expect(tools.inspect_json.promptGuidelines.join("\n")).toContain("instead of jq");
     expect(tools.inspect_lines.promptGuidelines.join("\n")).toContain("capped at 200 lines");
+    expect(tools.inspect_lines.promptGuidelines.join("\n")).toContain("allow_outside_cwd=true");
+    expect(tools.list_files.promptGuidelines.join("\n")).toContain("allow_outside_cwd=true");
   });
 
   test("list_files lists sorted files, filters by language, excludes vendor dirs, and caps results", async () => {
@@ -147,6 +149,25 @@ describe("code primitive extension tools", () => {
     expect(result.details.truncated).toBe(true);
     expect(result.details.entries).toHaveLength(1);
     expect(result.content[0].text).toContain("truncated");
+  });
+
+  test("list_files can explicitly inspect read-only directories outside cwd", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    const outside = await mkdtemp(join(tmpdir(), "code-primitives-outside-"));
+    await writeFile(join(outside, "outside.ts"), "export {};\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.list_files.execute("id", {
+      path: outside,
+    }, undefined, undefined, { cwd })).rejects.toThrow("outside cwd");
+
+    const result = await tools.list_files.execute("id", {
+      path: outside,
+      allow_outside_cwd: true,
+    }, undefined, undefined, { cwd });
+
+    expect(result.details.entries.map((entry: any) => entry.path)).toEqual(["outside.ts"]);
+    expect(result.content[0].text).toContain("outside.ts");
   });
 
   test("inspect_json projects simple paths and omits bulky keys by default", async () => {
@@ -521,6 +542,28 @@ describe("code primitive extension tools", () => {
       end: 100,
       max_lines: 2,
     }, undefined, undefined, { cwd })).rejects.toThrow("Requested line window exceeds max_lines");
+  });
+
+  test("inspect_lines can explicitly inspect read-only files outside cwd", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    const outside = await mkdtemp(join(tmpdir(), "code-primitives-outside-"));
+    const outsidePath = join(outside, "notes.txt");
+    await writeFile(outsidePath, "alpha\nbeta\ngamma\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.inspect_lines.execute("id", {
+      path: outsidePath,
+      start: 2,
+    }, undefined, undefined, { cwd })).rejects.toThrow("outside cwd");
+
+    const result = await tools.inspect_lines.execute("id", {
+      path: outsidePath,
+      start: 2,
+      allow_outside_cwd: true,
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain("2 | beta");
+    expect(result.details.path).toContain("notes.txt");
   });
 
   test("plan_code_replacements previews without writing files", async () => {

@@ -90,7 +90,7 @@ describe("danger guard coding-mode hard enforcement", () => {
     ];
 
     for (const command of commands) {
-      expect(looksLikeCodingModeBashNativeInspection(command)?.label).toContain("use first-class safe tools");
+      expect(looksLikeCodingModeBashNativeInspection(command)?.label).toContain("use list_files/inspect_text_matches/inspect_lines");
     }
   });
 

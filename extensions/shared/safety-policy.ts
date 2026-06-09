@@ -50,7 +50,7 @@ export const PROTECTED_WRITE_PATHS = [
 
 const GIT_MUTATION_SUBCOMMANDS = new Set(["add", "commit", "reset", "restore", "checkout", "switch", "clean", "rebase", "merge", "push", "stash", "tag", "cherry-pick", "revert"]);
 const FILE_MUTATION_COMMANDS = new Set(["touch", "mkdir", "rm", "cp", "mv", "chmod", "chown"]);
-const NATIVE_REPO_INSPECTION_COMMANDS = new Set(["ls", "find", "grep", "egrep", "fgrep", "rg", "jq", "cat", "head", "tail", "wc"]);
+const NATIVE_REPO_INSPECTION_COMMANDS = new Set(["ls", "find", "grep", "egrep", "fgrep", "rg", "jq", "cat", "head", "tail", "sed", "wc"]);
 
 const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file" },
@@ -82,7 +82,7 @@ export function classifyBashNativeRepoInspection(command: string): BashMutationH
   for (const segment of segments) {
     const withoutEnv = segment.replace(/^(?:env\s+)?(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+)\s+)*/, "");
     const base = withoutEnv.match(/^([\w.-]+)/)?.[1]?.split("/").pop();
-    if (base && NATIVE_REPO_INSPECTION_COMMANDS.has(base)) return { label: `${base} repository inspection; use first-class safe tools` };
+    if (base && NATIVE_REPO_INSPECTION_COMMANDS.has(base)) return { label: `${base} repository inspection; use list_files/inspect_text_matches/inspect_lines instead. If a safe tool cannot inspect the needed read-only path, ask the user to update Keylime rather than falling back to shell inspection.` };
   }
   return null;
 }

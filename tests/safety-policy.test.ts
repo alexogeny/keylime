@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyToolMutation, mutationScoreForTool, runChecksCommandBlockReason, writePathsForTool } from "../extensions/shared/safety-policy";
+import { classifyBashNativeRepoInspection, classifyToolMutation, mutationScoreForTool, runChecksCommandBlockReason, writePathsForTool } from "../extensions/shared/safety-policy";
 
 describe("central mutation classification", () => {
   test("classifies read-only tools as non-mutating", () => {
@@ -75,6 +75,17 @@ describe("central mutation classification", () => {
     const c = classifyToolMutation("bash", { command });
     expect(c.mutates).toBe(true);
     expect(c.score).toBeGreaterThanOrEqual(8);
+  });
+
+  test.each([
+    ["cat package.json"],
+    ["head -50 src/index.ts"],
+    ["tail -20 logs.txt"],
+    ["grep foo src/index.ts"],
+    ["sed -n '1,20p' src/index.ts"],
+  ])("classifies native repo inspection command as blocked: %s", (command) => {
+    const hit = classifyBashNativeRepoInspection(command);
+    expect(hit?.label).toContain("use list_files/inspect_text_matches/inspect_lines");
   });
 
   test.each([
