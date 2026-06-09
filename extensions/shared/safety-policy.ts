@@ -49,15 +49,23 @@ export const PROTECTED_WRITE_PATHS = [
 ];
 
 const GIT_MUTATION_SUBCOMMANDS = new Set(["add", "commit", "reset", "restore", "checkout", "switch", "clean", "rebase", "merge", "push", "stash", "tag", "cherry-pick", "revert"]);
-const FILE_MUTATION_COMMANDS = new Set(["touch", "mkdir", "rm", "cp", "mv", "chmod", "chown"]);
-const NATIVE_REPO_INSPECTION_COMMANDS = new Set(["ls", "find", "grep", "egrep", "fgrep", "rg", "jq", "cat", "head", "tail", "sed", "awk", "wc", "echo", "printf"]);
+const FILE_MUTATION_COMMANDS = new Set(["touch", "mkdir", "rm", "cp", "mv", "chmod", "chown", "ln", "install", "truncate", "dd"]);
+const NATIVE_REPO_INSPECTION_COMMANDS = new Set([
+  "ls", "find", "grep", "egrep", "fgrep", "rg", "jq", "cat", "head", "tail", "sed", "awk", "wc", "cut", "sort", "uniq", "tr", "nl", "less", "more", "tree", "stat", "file", "strings", "od", "xxd", "hexdump", "diff", "cmp", "comm", "xargs", "echo", "printf",
+]);
+const UNSAFE_BASH_FALLBACK_COMMANDS = new Set([
+  "true", "false", "pwd", "env", "printenv", "which", "command", "type", "whereis", "readlink", "realpath", "basename", "dirname", "test", "[",
+  "git", "curl", "wget", "http", "httpie", "nc", "netcat", "ssh", "scp", "sftp", "rsync", "ftp", "telnet",
+  "python", "python3", "node", "bun", "deno", "perl", "ruby", "php", "lua", "Rscript", "go", "cargo", "make", "npm", "pnpm", "yarn", "npx",
+  "vi", "vim", "nvim", "nano", "emacs", "ed", "ex", "tee", "touch", "mkdir", "rm", "cp", "mv", "chmod", "chown", "ln", "install", "truncate", "dd",
+]);
 
 const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file" },
   { pattern: /<<-?\s*['"]?\w+['"]?/m, label: "heredoc shell input" },
   { pattern: /\btee\b\s+(?:-[a-zA-Z]+\s+)*(?!\/dev\/null\b)[^\s|;&]+/i, label: "tee writing to a file" },
   { pattern: /(?:^|[\s;|&])(?:echo|printf)\b[\s\S]*(?:>>?|&>)\s*(?!\/dev\/null\b)[^\s|;&]+/i, label: "shell output redirection to a file" },
-  { pattern: /(?:^|[\s;|&])(?:touch|mkdir|rm|cp|mv|chmod|chown)\b/i, label: "shell file mutation command" },
+  { pattern: /(?:^|[;|&]\s*)(?:touch|mkdir|rm|cp|mv|chmod|chown|ln|install|truncate|dd)\b/i, label: "shell file mutation command" },
   { pattern: /\b(?:sh|bash|zsh|fish)\b\s+-c\b/i, label: "shell command string" },
   { pattern: /\bsed\b\s+(?:[^\n;&|]*\s)?(?:-[a-zA-Z]*i[a-zA-Z]*\b|--in-place\b)/i, label: "sed in-place edit" },
   { pattern: /\bperl\b[\s\S]*(?:\s-pi\b|\s-[a-zA-Z]*i[a-zA-Z]*\b|\s-e\s+['"][\s\S]*(?:open|write))/i, label: "perl file mutation" },
@@ -81,8 +89,9 @@ export function classifyBashNativeRepoInspection(command: string): BashMutationH
   const segments = command.split(/&&|\|\||[;|]/).map(segment => segment.trim()).filter(Boolean);
   for (const segment of segments) {
     const withoutEnv = segment.replace(/^(?:env\s+)?(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+)\s+)*/, "");
-    const base = withoutEnv.match(/^([\w.-]+)/)?.[1]?.split("/").pop();
+    const base = withoutEnv.match(/^([^\s|;&]+)/)?.[1]?.split("/").pop();
     if (base && NATIVE_REPO_INSPECTION_COMMANDS.has(base)) return { label: `${base} repository inspection; use list_files/inspect_text_matches/inspect_lines instead. If a safe tool cannot inspect the needed read-only path, ask the user to update Keylime rather than falling back to shell inspection.` };
+    if (base && UNSAFE_BASH_FALLBACK_COMMANDS.has(base)) return { label: `${base} shell fallback; use exposed Keylime tools such as run_checks, fetch_url, git_status/git_diff, or file primitives instead.` };
   }
   return null;
 }

@@ -54,6 +54,9 @@ describe("danger guard coding-mode hard enforcement", () => {
       "rm file.ts",
       "cp a.ts b.ts",
       "mv a.ts b.ts",
+      "ln -s a.ts b.ts",
+      "truncate -s 0 file.ts",
+      "dd if=/dev/zero of=file.ts bs=1 count=1",
       "perl -pi -e 's/a/b/' file.ts",
       "bun -e \"require('fs').writeFileSync('file.ts', 'x')\"",
       "deno eval \"Deno.writeTextFile('file.ts', 'x')\"",
@@ -87,6 +90,15 @@ describe("danger guard coding-mode hard enforcement", () => {
       "tail -20 file.ts",
       "wc -l file.ts",
       "awk '{print $1}' file.ts",
+      "cut -d: -f1 file.ts",
+      "sort file.ts",
+      "uniq file.ts",
+      "tree .",
+      "stat file.ts",
+      "file file.ts",
+      "strings binary.bin",
+      "xxd file.ts",
+      "diff a.ts b.ts",
       "printf hi",
       "echo hi",
       "cat file.ts | grep foo",
@@ -110,12 +122,24 @@ describe("danger guard coding-mode hard enforcement", () => {
     rmSync(logPath, { force: true });
   });
 
-  test("allows non-repository-inspection bash commands in coding mode", () => {
-    const commands = ["tee /dev/null", "git status --short", "git log --oneline", "git diff", "git show HEAD:README.md"];
+  test("blocks broad shell fallback commands even when they do not directly mutate", () => {
+    const commands = [
+      "true",
+      "pwd",
+      "which bun",
+      "git status --short",
+      "git diff",
+      "curl https://example.com",
+      "python --version",
+      "node --version",
+      "bun test",
+      "npm test",
+      "make test",
+      "vim file.ts",
+    ];
 
     for (const command of commands) {
-      expect(looksLikeCodingModeBashMutation(command)).toBeNull();
-      expect(looksLikeCodingModeBashNativeInspection(command)).toBeNull();
+      expect(looksLikeCodingModeBashNativeInspection(command)?.label).toMatch(/shell fallback|repository inspection/);
     }
   });
 
