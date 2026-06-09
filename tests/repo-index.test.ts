@@ -128,6 +128,26 @@ describe("code_search file_glob handling", () => {
     expect(isRepoIndexDirty()).toBe(false);
   });
 
+  test("finish_file_write invalidates source repo index from result details", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+    markRepoIndexCleanForTest();
+
+    await handlers.tool_result({ toolName: "finish_file_write", input: { handle: "h" }, details: { path: "src/large.ts" } });
+
+    expect(isRepoIndexDirty()).toBe(true);
+  });
+
+  test("failed, skipped, and non-source finish_file_write results do not invalidate repo index", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+    markRepoIndexCleanForTest();
+
+    await handlers.tool_result({ toolName: "finish_file_write", input: { handle: "h" }, details: { path: "src/large.ts" }, isError: true });
+    await handlers.tool_result({ toolName: "finish_file_write", input: { handle: "h" }, details: { path: "src/large.ts", skipped: true } });
+    await handlers.tool_result({ toolName: "finish_file_write", input: { handle: "h" }, details: { path: "notes.txt" } });
+
+    expect(isRepoIndexDirty()).toBe(false);
+  });
+
   test("apply_code_replacements invalidates only successful non-dry-run source edits", async () => {
     const handlers = await registeredRepoIndexHandlers();
 

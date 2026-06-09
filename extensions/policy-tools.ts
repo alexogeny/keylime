@@ -5,6 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { planCodemod, retrievePolicyEvidence, suggestChecks } from "./shared/policy-actions";
 import { classifyToolMutation } from "./shared/safety-policy";
+import { TOOL_POLICIES, toolPolicyFor } from "./shared/tool-policy";
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -39,6 +40,58 @@ function escapeRegExp(value: string): string {
 }
 
 export default function policyToolsExtension(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "tool_search",
+    label: "Tool Search",
+    description: "Search the local Keylime tool policy catalog without loading every tool schema into context.",
+    promptSnippet: "Search available tools",
+    promptGuidelines: [
+      "Use when you need a capability but are unsure which tool to call.",
+      "Keeps prompt pollution low by returning compact tool references; use tool_help for one specific tool.",
+    ],
+    parameters: Type.Object({
+      query: Type.String({ description: "Capability or tool name to search for" }),
+      group: Type.Optional(Type.String({ description: "Optional capability group filter" })),
+      risk: Type.Optional(Type.String({ description: "Optional risk filter" })),
+      limit: Type.Optional(Type.Number({ description: "Maximum matches" })),
+    }),
+    async execute(_id, params) {
+      const terms = params.query.toLowerCase().split(/\s+/).filter(Boolean);
+      const scored = TOOL_POLICIES
+        .filter(policy => !params.group || policy.group === params.group)
+        .filter(policy => !params.risk || policy.risk === params.risk)
+        .map(policy => {
+          const haystack = [policy.name, policy.name.replace(/_/g, " "), policy.group ?? "", policy.risk, policy.alwaysOn ? "always-on" : "", policy.domain ? "domain" : ""].join(" ").toLowerCase();
+          const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0) + (policy.name.toLowerCase().includes(params.query.toLowerCase()) ? 2 : 0);
+          return { policy, score };
+        })
+        .filter(item => item.score > 0 || terms.length === 0)
+        .sort((a, b) => b.score - a.score || a.policy.name.localeCompare(b.policy.name))
+        .slice(0, Math.min(Math.max(1, params.limit ?? 12), 50));
+      const results = scored.map(({ policy }) => policy);
+      const text = results.length
+        ? results.map(policy => `${policy.name} — group=${policy.group ?? "always-on"} risk=${policy.risk}${policy.alwaysOn ? " always_on" : ""}`).join("\n")
+        : "No matching tools found.";
+      return { content: [{ type: "text", text }], details: { results } };
+    },
+  });
+
+  pi.registerTool({
+    name: "tool_help",
+    label: "Tool Help",
+    description: "Return compact policy metadata for one known Keylime tool.",
+    promptSnippet: "Inspect one tool policy",
+    promptGuidelines: ["Use after tool_search when you need one specific tool's routing/risk metadata."],
+    parameters: Type.Object({
+      name: Type.String({ description: "Tool name" }),
+    }),
+    async execute(_id, params) {
+      const policy = toolPolicyFor(params.name);
+      if (!policy) throw new Error(`Unknown tool: ${params.name}`);
+      return { content: [{ type: "text", text: formatJson(policy) }], details: { policy } };
+    },
+  });
+
   pi.registerTool({
     name: "retrieve_policy",
     label: "Retrieve Policy",

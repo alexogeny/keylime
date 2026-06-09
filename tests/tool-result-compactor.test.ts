@@ -95,6 +95,34 @@ describe("tool result compaction", () => {
     await expect(handlers.tool_result({ toolName: "inspect_tool_result", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
   });
 
+  test("tool result tools use execution cwd instead of process cwd", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tool-results-"));
+    const other = await mkdtemp(join(tmpdir(), "tool-results-other-"));
+    const handlers: Record<string, any> = {};
+    const tools: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: (tool: any) => { tools[tool.name] = tool; },
+    } as any);
+
+    try {
+      const patch = await handlers.tool_result({
+        toolName: "code_search",
+        content: [{ type: "text", text: "z".repeat(8000) }],
+        isError: false,
+      }, { cwd });
+
+      const empty = await tools.list_tool_results.execute("id", { limit: 10 }, undefined, undefined, { cwd: other });
+      expect(empty.details.results).toEqual([]);
+
+      const listed = await tools.list_tool_results.execute("id", { limit: 10 }, undefined, undefined, { cwd });
+      expect(listed.details.results.map((entry: any) => entry.id)).toEqual([patch.details.resultId]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(other, { recursive: true, force: true });
+    }
+  });
+
   test("list_tool_results prunes manifest entries whose payload files disappeared", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tool-results-"));
     const handlers: Record<string, any> = {};

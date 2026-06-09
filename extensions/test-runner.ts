@@ -87,6 +87,7 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
 
       const text = results.map(r => [
         `${r.ok ? "✓" : "✗"} ${r.label}`,
+        `Ran: ${[r.command, ...r.args].join(" ")}`,
         r.stdout?.trim() ? `stdout:\n${r.stdout.trim()}` : "",
         r.stderr?.trim() ? `stderr:\n${r.stderr.trim()}` : "",
       ].filter(Boolean).join("\n")).join("\n\n");

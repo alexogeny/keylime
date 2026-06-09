@@ -326,6 +326,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       "Use before broad replacements.",
       "Use to locate exact oldText before applying source-code edits.",
       "Prefer this over read when locating code context.",
+      "Set allow_outside_cwd=true only for explicit read-only file inspection outside cwd.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
@@ -338,10 +339,13 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       case_sensitive: Type.Optional(Type.Boolean({ description: "Case-sensitive" })),
       context_lines: Type.Optional(Type.Number({ description: "Context lines" })),
       max_matches: Type.Optional(Type.Number({ description: "Max matches" })),
+      allow_outside_cwd: Type.Optional(Type.Boolean({ description: "Allow read-only text matching outside cwd when explicitly requested" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const targets = params.path
-        ? [resolveSafePath(ctx.cwd, params.path)]
+        ? [params.allow_outside_cwd
+          ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
+          : resolveSafePath(ctx.cwd, params.path)]
         : await collectTargetFiles(ctx.cwd, {
           file_glob: params.file_glob,
           language: params.language as Language | undefined,
@@ -386,14 +390,18 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use for quick structure checks before codemods.",
       "Prefer this over read when imports/declarations are enough.",
+      "Set allow_outside_cwd=true only for explicit read-only file inspection outside cwd.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
       path: Type.String({ description: "File path" }),
       language: stringEnum(["typescript", "javascript", "python", "rust"] as const),
+      allow_outside_cwd: Type.Optional(Type.Boolean({ description: "Allow read-only structure inspection outside cwd when explicitly requested" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = params.allow_outside_cwd
+        ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
+        : resolveSafePath(ctx.cwd, params.path);
       const text = await readTextFileSafely(path);
       const structure = inspectCodeStructure(text, params.language as Language);
       const lines = [

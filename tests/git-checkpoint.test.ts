@@ -3,13 +3,15 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest } from "../extensions/git-checkpoint";
+import { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
     expect(shouldCheckpointTool("write", { path: "x" })).toBe(true);
     expect(shouldCheckpointTool("edit", { path: "x" })).toBe(true);
     expect(shouldCheckpointTool("create_file", { path: "x" })).toBe(true);
+    expect(shouldCheckpointTool("begin_file_write", { path: "x" })).toBe(false);
+    expect(mutationScoreForToolResult({ toolName: "finish_file_write", details: { path: "x.ts" } })).toBe(2);
     expect(shouldCheckpointTool("create_directory", { path: "x" })).toBe(true);
     expect(shouldCheckpointTool("apply_code_replacements", { edits: [{ path: "x" }] })).toBe(true);
     expect(shouldCheckpointTool("apply_code_replacements", { dry_run: true, edits: [{ path: "x" }] })).toBe(false);
@@ -69,6 +71,8 @@ describe("git checkpoint tool gating", () => {
     expect(mutationScoreForTool("apply_code_replacements", { edits: [{ path: "x" }] })).toBe(3);
     expect(mutationScoreForTool("apply_code_replacements", { file_glob: "src/**/*.ts", edits: [{ oldText: "a", newText: "b" }] })).toBe(8);
     expect(mutationScoreForTool("bash", { command: "mkdir x" })).toBe(8);
+    expect(mutationScoreForTool("begin_file_write", { path: "src/x.ts" })).toBe(0);
+    expect(mutationScoreForToolResult({ toolName: "finish_file_write", details: { path: "src/x.ts" } })).toBe(2);
     expect(mutationScoreForTool("code_search", { query: "x" })).toBe(0);
   });
 

@@ -17,7 +17,19 @@ describe("policy tools extension", () => {
       "codemod_update_json",
       "retrieve_policy",
       "suggest_checks",
+      "tool_help",
+      "tool_search",
     ]);
+  });
+
+  test("tool_search and tool_help expose compact tool policy metadata", async () => {
+    const tools = register();
+    const search = await tools.tool_search.execute("id", { query: "file write", group: "coding" });
+    expect(search.content[0].text).toContain("begin_file_write");
+    expect(search.content[0].text).toContain("finish_file_write");
+
+    const help = await tools.tool_help.execute("id", { name: "begin_file_write" });
+    expect(help.details.policy.group).toBe("coding");
   });
 
   test("retrieve_policy returns kind-filtered corpus evidence", async () => {

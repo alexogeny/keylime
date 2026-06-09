@@ -13,8 +13,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
-import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
-export { autoCheckpointMode, classifyToolMutation, looksSideEffectfulBash, mutationScoreForTool, shouldAutoCheckpointTurn } from "./shared/safety-policy";
+import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
+export { autoCheckpointMode, classifyToolMutation, classifyToolResultMutation, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
 const CHECKPOINT_EXCLUDED_PATHS = [".pi"];
 
@@ -149,7 +149,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_result", async (event: any) => {
     if (event.isError) return;
-    mutationScoreThisTurn += mutationScoreForTool(event.toolName, event.input);
+    mutationScoreThisTurn += mutationScoreForToolResult(event);
   });
 
   pi.on("agent_end", async (_event, ctx) => {

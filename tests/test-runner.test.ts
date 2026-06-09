@@ -64,6 +64,16 @@ describe("test runner defaults", () => {
     setCurrentRoute(classifyIntent("hello"));
   });
 
+  test("run_checks reports exact command argv", async () => {
+    const { default: testRunnerExtension } = await import("../extensions/test-runner");
+    const tools: Record<string, any> = {};
+    testRunnerExtension({ registerTool: (tool: any) => { tools[tool.name] = tool; } } as any);
+
+    const result = await tools.run_checks.execute("id", { command: "bun", args: ["--version"] }, undefined, undefined, { cwd: process.cwd() });
+
+    expect(result.content[0].text).toContain("Ran: bun --version");
+  });
+
   test("summarizes large check streams while preserving key failure lines", () => {
     const large = [
       "start of output",

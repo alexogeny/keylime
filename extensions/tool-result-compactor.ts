@@ -182,9 +182,10 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100, description: "Maximum results" })),
       tool_name: Type.Optional(Type.String({ description: "Filter by tool name" })),
     }),
-    async execute(_id, params) {
-      const manifest = await readManifest(process.cwd());
-      const pruned = await pruneMissingManifestEntries(process.cwd(), manifest);
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const cwd = ctx?.cwd ?? process.cwd();
+      const manifest = await readManifest(cwd);
+      const pruned = await pruneMissingManifestEntries(cwd, manifest);
       const entries = pruned.entries
         .filter(entry => !params.tool_name || entry.toolName === params.tool_name)
         .slice(0, Math.min(params.limit ?? 20, 100));
@@ -207,8 +208,8 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       max_bytes: Type.Optional(Type.Number({ minimum: 0, description: "Approximate maximum original output chars/bytes to keep" })),
       now: Type.Optional(Type.String({ description: "Testing override ISO timestamp" })),
     }),
-    async execute(_id, params) {
-      const result = await cleanupToolResults(process.cwd(), {
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const result = await cleanupToolResults(ctx?.cwd ?? process.cwd(), {
         maxAgeDays: params.max_age_days,
         maxEntries: params.max_entries,
         maxBytes: params.max_bytes,
@@ -232,8 +233,8 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       result_id: Type.String({ description: "Compacted result id" }),
       max_chars: Type.Optional(Type.Number({ minimum: 500, maximum: 50000, description: "Maximum characters to return" })),
     }),
-    async execute(_id, params) {
-      const base = join(process.cwd(), ".pi", "tool-results");
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const base = join(ctx?.cwd ?? process.cwd(), ".pi", "tool-results");
       const max = Math.min(params.max_chars ?? 12000, 50000);
       // Result ids are UUIDs; reject path-like input before scanning date dirs.
       if (!/^[0-9a-f-]{20,}$/i.test(params.result_id)) throw new Error("Invalid result_id");

@@ -25,7 +25,13 @@ describe("activeToolNames", () => {
     expect(tools).toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("create_file");
+    expect(tools).toContain("begin_file_write");
+    expect(tools).toContain("append_file_chunk");
+    expect(tools).toContain("finish_file_write");
+    expect(tools).toContain("abort_file_write");
     expect(tools).toContain("create_directory");
+    expect(tools).toContain("tool_search");
+    expect(tools).toContain("tool_help");
     expect(tools).toContain("commit_history");
     expect(tools).toContain("see_file_commit_history");
     expect(tools).toContain("git_status");

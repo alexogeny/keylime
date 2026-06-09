@@ -163,10 +163,10 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
     category = "directory_create";
     reasons.push("directory creation");
     matchedPolicies.push("mutation.file-create");
-  } else if (toolName === "create_file" || toolName === "begin_file_write") {
+  } else if (toolName === "create_file" || toolName === "finish_file_write") {
     score = 2;
     category = "file_create";
-    reasons.push(toolName === "begin_file_write" ? "chunked file creation" : "file creation");
+    reasons.push(toolName === "finish_file_write" ? "chunked file creation finalized" : "file creation");
     matchedPolicies.push("mutation.file-create");
   } else if (toolName === "apply_code_replacements" && input?.dry_run !== true) {
     category = "file_replace";
@@ -211,6 +211,24 @@ export function mutationScoreForTool(toolName: string, input: any): number {
   return classifyToolMutation(toolName, input).score;
 }
 
+export function classifyToolResultMutation(event: { toolName: string; input?: any; details?: any; isError?: boolean }): MutationClassification {
+  if (event.isError || event.details?.skipped === true || event.details?.aborted === true) {
+    return classifyToolMutation("readonly", {});
+  }
+  if (event.toolName === "finish_file_write") {
+    return classifyToolMutation("finish_file_write", { path: event.details?.path });
+  }
+  return classifyToolMutation(event.toolName, event.input ?? {});
+}
+
+export function mutationScoreForToolResult(event: { toolName: string; input?: any; details?: any; isError?: boolean }): number {
+  return classifyToolResultMutation(event).score;
+}
+
+export function writePathsForToolResult(event: { toolName: string; input?: any; details?: any; isError?: boolean }): string[] {
+  return classifyToolResultMutation(event).writePaths;
+}
+
 export function autoCheckpointMode(value = process.env.KEYLIME_AUTO_CHECKPOINT): AutoCheckpointMode {
   if (value === "off" || value === "any" || value === "major") return value;
   return "major";
@@ -225,7 +243,7 @@ export function shouldAutoCheckpointTurn(score: number, lastCheckpointAt: number
 }
 
 export function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit", "create_file", "begin_file_write", "create_directory"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
   if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
 
   const paths = new Set<string>();

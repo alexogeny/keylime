@@ -220,6 +220,23 @@ describe("code primitive extension tools", () => {
     expect(result.details.path).toBe("../outside.json");
   });
 
+  test("inspect_text_matches and inspect_code_structure can explicitly inspect outside cwd", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    const cwd = join(parent, "repo");
+    await mkdir(cwd);
+    const outside = join(parent, "outside.ts");
+    await writeFile(outside, "export function outsideThing() {\n  return 'needle';\n}\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.inspect_text_matches.execute("id", { path: outside, query: "needle" }, undefined, undefined, { cwd })).rejects.toThrow("outside cwd");
+    const matches = await tools.inspect_text_matches.execute("id", { path: outside, query: "needle", allow_outside_cwd: true }, undefined, undefined, { cwd });
+    expect(matches.content[0].text).toContain("needle");
+
+    await expect(tools.inspect_code_structure.execute("id", { path: outside, language: "typescript" }, undefined, undefined, { cwd })).rejects.toThrow("outside cwd");
+    const structure = await tools.inspect_code_structure.execute("id", { path: outside, language: "typescript", allow_outside_cwd: true }, undefined, undefined, { cwd });
+    expect(structure.content[0].text).toContain("function outsideThing");
+  });
+
   test("apply_code_replacements uses colored diff previews", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await writeFile(join(cwd, "x.ts"), "const value = 1;\n", "utf8");

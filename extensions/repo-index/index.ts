@@ -32,6 +32,7 @@ import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { join, relative, dirname, extname, delimiter } from "node:path";
 import { repoRelativePath } from "../shared/path-policy";
+import { writePathsForToolResult } from "../shared/safety-policy";
 
 const execFileAsync = promisify(execFile);
 
@@ -415,6 +416,11 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
   pi.on("tool_result", async (event) => {
     if ((event as any).isError || (event as any).details?.skipped === true) return;
     const input = (event as any).input ?? {};
+    const resultWritePaths = writePathsForToolResult(event as any);
+    if (event.toolName === "finish_file_write") {
+      if (resultWritePaths.some(path => isIndexedSourcePath(path))) markRepoIndexDirty();
+      return;
+    }
 
     if (["write", "edit", "create_file"].includes(event.toolName)) {
       if (isIndexedSourcePath(input.path ?? "")) markRepoIndexDirty();
