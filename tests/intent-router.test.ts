@@ -32,6 +32,10 @@ describe("activeToolNames", () => {
     expect(tools).toContain("create_directory");
     expect(tools).toContain("tool_search");
     expect(tools).toContain("tool_help");
+    expect(tools).toContain("read_agent_registers");
+    expect(tools).toContain("ctx_region_write");
+    expect(tools).toContain("compile_tool_grammar");
+    expect(tools).toContain("current_agent_budget");
     expect(tools).toContain("commit_history");
     expect(tools).toContain("see_file_commit_history");
     expect(tools).toContain("git_status");

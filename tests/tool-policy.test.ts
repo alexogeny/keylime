@@ -16,6 +16,8 @@ describe("shared tool policy", () => {
       expect(capabilityToolMap().safety).toContain(name);
     }
     expect(toolPolicyFor("run_checks")).toMatchObject({ group: "coding", alwaysOn: false, risk: "safe" });
+    expect(toolPolicyFor("compile_tool_grammar")).toMatchObject({ group: "coding", alwaysOn: false, risk: "stateful" });
+    expect(capabilityToolMap().coding).toContain("current_agent_budget");
   });
 
   test("dangerous built-ins are known but not always-on safe tools", () => {

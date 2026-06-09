@@ -1,0 +1,94 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import agentOsExtension from "../extensions/agent-os";
+import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
+import { clearContextProviders, composeTurnContext } from "../extensions/shared/turn-context";
+
+function registerAgentOs() {
+  const tools: Record<string, any> = {};
+  const commands: Record<string, any> = {};
+  agentOsExtension({
+    registerTool: (tool: any) => { tools[tool.name] = tool; },
+    registerCommand: (name: string, command: any) => { commands[name] = command; },
+  } as any);
+  return { tools, commands };
+}
+
+describe("agent OS extension", () => {
+  test("registers cognitive registers and injects compact hot state", async () => {
+    clearContextProviders();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-os-"));
+    const { tools } = registerAgentOs();
+
+    await tools.update_agent_registers.execute("id", {
+      goal: "implement agent OS",
+      hypothesis: "registers act like CPU state",
+      next_action: "run focused tests",
+      risks: ["context bloat"],
+      done_when: ["tests pass"],
+    }, undefined, undefined, { cwd });
+
+    const read = await tools.read_agent_registers.execute("id", {}, undefined, undefined, { cwd });
+    expect(read.details.registers.goal).toBe("implement agent OS");
+
+    setCurrentRoute(classifyIntent("implement code change"));
+    const composed = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue" }]);
+    expect(composed.providerIds).toContain("agent-os");
+    expect(composed.messages[0].content).toContain("AGENT REGISTERS");
+    expect(composed.messages[0].content).toContain("implement agent OS");
+    clearContextProviders();
+  });
+
+  test("manages addressable context regions with pinning, ttl, and bounded reads", async () => {
+    clearContextProviders();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-os-"));
+    const { tools } = registerAgentOs();
+
+    await tools.ctx_region_write.execute("id", {
+      id: "failure-trace",
+      kind: "failure",
+      content: "latest check failed because finish_file_write did not invalidate index. ".repeat(8),
+      priority: 90,
+      pinned: true,
+      source_refs: ["tests/repo-index.test.ts"],
+    }, undefined, undefined, { cwd });
+
+    const listed = await tools.ctx_region_list.execute("id", {}, undefined, undefined, { cwd });
+    expect(listed.details.regions[0]).toMatchObject({ id: "failure-trace", kind: "failure", pinned: true });
+
+    const read = await tools.ctx_region_read.execute("id", { id: "failure-trace", max_chars: 10 }, undefined, undefined, { cwd });
+    expect(read.content[0].text).toContain("trimmed");
+
+    setCurrentRoute(classifyIntent("debug failing tests"));
+    const composed = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue" }]);
+    expect(composed.messages[0].content).toContain("CTX REGION ctx://failure-trace");
+
+    await tools.ctx_region_evict.execute("id", { id: "failure-trace" }, undefined, undefined, { cwd });
+    const empty = await tools.ctx_region_list.execute("id", {}, undefined, undefined, { cwd });
+    expect(empty.details.regions).toEqual([]);
+    clearContextProviders();
+  });
+
+  test("compiles task-local tool grammars and budget plans", async () => {
+    clearContextProviders();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-os-"));
+    const { tools } = registerAgentOs();
+
+    const grammar = await tools.compile_tool_grammar.execute("id", {
+      intent: "large_file_create",
+      risk_level: "medium",
+    }, undefined, undefined, { cwd });
+    expect(grammar.details.grammar.allowedTools).toEqual(["begin_file_write", "append_file_chunk", "finish_file_write", "abort_file_write", "run_checks"]);
+    expect(grammar.content[0].text).toContain("begin_file_write → append_file_chunk* → finish_file_write");
+
+    const budget = await tools.current_agent_budget.execute("id", {}, undefined, undefined, { cwd });
+    expect(budget.details.budget.maxBranchCount).toBe(0);
+    expect(budget.details.budget.reasoningBudget).toBe("medium");
+
+    const current = await tools.current_tool_grammar.execute("id", {}, undefined, undefined, { cwd });
+    expect(current.details.grammar.id).toBe("large_file_create");
+    clearContextProviders();
+  });
+});

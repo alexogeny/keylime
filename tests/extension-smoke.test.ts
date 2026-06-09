@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import agentOs from "../extensions/agent-os";
 import codePrimitives from "../extensions/code-primitives";
 import dangerGuard from "../extensions/danger-guard";
 import gitCheckpoint from "../extensions/git-checkpoint";
@@ -12,6 +13,7 @@ describe("extension registration smoke", () => {
   test("core coding/policy/safety extensions register expected tools, commands, and handlers", () => {
     const harness = mockPiFixture();
 
+    agentOs(harness.pi);
     codePrimitives(harness.pi);
     policyTools(harness.pi);
     toolResultCompactor(harness.pi);
@@ -29,6 +31,9 @@ describe("extension registration smoke", () => {
       "codemod_plan",
       "inspect_tool_result",
       "run_checks",
+      "read_agent_registers",
+      "ctx_region_write",
+      "compile_tool_grammar",
     ]));
     expect(Object.keys(harness.commands)).toEqual(expect.arrayContaining([
       "agent-status",
