@@ -14,6 +14,22 @@ export interface ToolPolicy {
   risk: ToolRisk;
 }
 
+export interface ActiveToolResolutionInput {
+  availableToolNames: Iterable<string>;
+  currentActiveToolNames?: Iterable<string>;
+  groups: CapabilityGroup[];
+  continuityToolNames?: Iterable<string>;
+}
+
+export interface ActiveToolResolution {
+  active: string[];
+  alwaysOn: string[];
+  routed: string[];
+  continuity: string[];
+  preserved: string[];
+  locked: string[];
+}
+
 export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "code_search", alwaysOn: true, domain: true, risk: "safe" },
   { name: "list_files", alwaysOn: true, domain: true, risk: "safe" },
@@ -61,7 +77,7 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "git_diff", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
   { name: "inspect_at_checkpoint", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
 
-  { name: "bash", group: "core", alwaysOn: false, domain: true, risk: "guarded" },
+  { name: "bash", alwaysOn: false, domain: true, risk: "guarded" },
   { name: "read", alwaysOn: false, domain: true, risk: "guarded" },
   { name: "fetch_url", group: "fetch", alwaysOn: false, domain: true, risk: "guarded" },
   { name: "edit", alwaysOn: false, domain: true, risk: "dangerous" },
@@ -122,11 +138,45 @@ export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
   const addDefaults = (group: CapabilityGroup, names: string[]) => {
     groups[group] = [...new Set([...groups[group], ...names])].sort();
   };
-  addDefaults("core", ["bash"]);
+  addDefaults("core", []);
   addDefaults("readonly", ["fetch_url"]);
-  addDefaults("coding", ["bash"]);
+  addDefaults("coding", []);
   addDefaults("memory-lite", ["recall_entity", "recall_memories", "remember"]);
   addDefaults("personal", ["recall_entity", "recall_memories", "remember"]);
   for (const group of Object.keys(groups) as CapabilityGroup[]) groups[group].sort();
   return groups;
+}
+
+export function resolveActiveToolSet(input: ActiveToolResolutionInput): ActiveToolResolution {
+  const available = new Set(input.availableToolNames);
+  const desired = new Set<string>();
+  const alwaysOn = alwaysOnToolNames();
+  const capabilityTools = capabilityToolMap();
+  const routed = [...new Set(input.groups.flatMap(group => capabilityTools[group] ?? []))].sort();
+  const continuity = [...new Set(input.continuityToolNames ?? [])].sort();
+  const domainTools = new Set(domainToolNames());
+  const preserved: string[] = [];
+
+  for (const name of alwaysOn) desired.add(name);
+  for (const name of routed) desired.add(name);
+  for (const name of continuity) desired.add(name);
+
+  // Preserve non-domain tools from other extensions/providers. Domain tools are
+  // governed by route/grammar except always-on safe primitives, preventing prompt
+  // pollution while avoiding stranded inspect/edit/check workflows.
+  for (const name of input.currentActiveToolNames ?? []) {
+    if (!domainTools.has(name)) {
+      desired.add(name);
+      preserved.push(name);
+    }
+  }
+
+  return {
+    active: [...desired].filter(name => available.has(name)).sort(),
+    alwaysOn,
+    routed,
+    continuity,
+    preserved: [...new Set(preserved)].sort(),
+    locked: [...LOCKED_BUILTIN_TOOLS].sort(),
+  };
 }

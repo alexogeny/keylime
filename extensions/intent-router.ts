@@ -7,7 +7,7 @@ import { getCurrentOperationalMode } from "./operational-modes";
 import { researchEnabled as sharedResearchEnabled } from "./shared/research-config";
 import { registerContextProvider } from "./shared/turn-context";
 import { retrievePolicy } from "./shared/policy-corpus";
-import { alwaysOnToolNames, capabilityToolMap, domainToolNames, LOCKED_BUILTIN_TOOLS } from "./shared/tool-policy";
+import { alwaysOnToolNames, capabilityToolMap, domainToolNames, LOCKED_BUILTIN_TOOLS, resolveActiveToolSet } from "./shared/tool-policy";
 import { formatAgentStatusLines, formatIntentStatusLines, formatToolPolicyLines } from "./shared/intent-status";
 import { CODING_CONTRACT } from "./shared/coding-contract";
 import { bestIntentCorpusMatch, FOLLOWUP_STICKINESS_THRESHOLD, SWITCH_THRESHOLD, type IntentCorpusMatch } from "./shared/intent-corpus";
@@ -118,27 +118,17 @@ export function modeAdjustedGroups(groups: CapabilityGroup[]): CapabilityGroup[]
   return groups;
 }
 
+function resolveToolsForRoute(pi: ExtensionAPI, groups: CapabilityGroup[]) {
+  return resolveActiveToolSet({
+    availableToolNames: pi.getAllTools().map(toolName).filter(Boolean) as string[],
+    currentActiveToolNames: pi.getActiveTools().map(toolName).filter(Boolean) as string[],
+    groups: enabledGroups(modeAdjustedGroups(groups)),
+    continuityToolNames: agentOsContinuityToolNames(),
+  });
+}
+
 export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): string[] {
-  const available = new Set(pi.getAllTools().map(toolName).filter(Boolean) as string[]);
-  const desired = new Set<string>();
-
-  for (const name of ALWAYS_ON_CODE_TOOLS) desired.add(name);
-
-  for (const group of enabledGroups(modeAdjustedGroups(groups))) {
-    for (const name of CAPABILITY_TOOLS[group]) desired.add(name);
-  }
-
-  for (const name of agentOsContinuityToolNames()) desired.add(name);
-
-  // Preserve non-domain tools from other extensions/providers. Domain tools are
-  // explicitly governed by intent except always-on safe code primitives, which
-  // avoid routing mistakes stranding repository inspection/editing.
-  for (const tool of pi.getActiveTools()) {
-    const name = toolName(tool);
-    if (name && !DOMAIN_TOOLS.has(name)) desired.add(name);
-  }
-
-  return [...desired].filter(name => available.has(name)).sort();
+  return resolveToolsForRoute(pi, groups).active;
 }
 
 
@@ -171,9 +161,9 @@ function sameTools(left: string[], right: string[]): boolean {
 }
 
 export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute, source: RouteSource = "classifier", extras: { stickyFrom?: IntentCorpusMatch; switchFrom?: IntentCorpusMatch } = {}): void {
-  const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
-  const routed = [...new Set(activeGroups.flatMap(group => CAPABILITY_TOOLS[group]))].filter(Boolean).sort();
-  const next = activeToolNames(pi, route.capabilityGroups);
+  const resolution = resolveToolsForRoute(pi, route.capabilityGroups);
+  const routed = resolution.routed;
+  const next = resolution.active;
   const current = sortedToolNames(pi.getActiveTools());
   const fingerprint = toolSetFingerprint(next);
   const changed = lastFingerprint !== fingerprint;
@@ -183,10 +173,10 @@ export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute, source: Ro
     source,
     fingerprint,
     changed,
-    alwaysOn: [...ALWAYS_ON_CODE_TOOLS].sort(),
+    alwaysOn: resolution.alwaysOn,
     routed,
     active: next,
-    locked: LOCKED_BUILTIN_TOOLS,
+    locked: resolution.locked,
     manualOverride: intentOverride,
     ...extras,
   };
@@ -393,14 +383,14 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const route = getCurrentRoute();
       const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
-      const routed = [...new Set(activeGroups.flatMap(group => CAPABILITY_TOOLS[group]))].sort();
+      const resolution = resolveToolsForRoute(pi, route.capabilityGroups);
       ctx.ui.notify(formatToolPolicyLines({
-        alwaysOnTools: ALWAYS_ON_CODE_TOOLS,
+        alwaysOnTools: resolution.alwaysOn,
         activeGroups,
         status: lastToolSetDiagnostics,
         policyEvidence: lastPolicyEvidence,
-        routedTools: routed,
-        activeTools: pi.getActiveTools().map(toolName).filter(Boolean) as string[],
+        routedTools: resolution.routed,
+        activeTools: resolution.active,
       }).join("\n"), "info");
     },
   });
