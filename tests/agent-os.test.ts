@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import agentOsExtension from "../extensions/agent-os";
+import agentOsExtension, { resetAgentOsMemoryForTests } from "../extensions/agent-os";
+import { routeForPrompt } from "../extensions/intent-router";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
+import { mockPiFixture } from "./helpers/mock-pi";
 import { clearContextProviders, composeTurnContext } from "../extensions/shared/turn-context";
 
 function registerAgentOs() {
@@ -15,6 +17,10 @@ function registerAgentOs() {
   } as any);
   return { tools, commands };
 }
+
+beforeEach(() => {
+  resetAgentOsMemoryForTests();
+});
 
 describe("agent OS extension", () => {
   test("registers cognitive registers and injects compact hot state", async () => {
@@ -68,6 +74,41 @@ describe("agent OS extension", () => {
     await tools.ctx_region_evict.execute("id", { id: "failure-trace" }, undefined, undefined, { cwd });
     const empty = await tools.ctx_region_list.execute("id", {}, undefined, undefined, { cwd });
     expect(empty.details.regions).toEqual([]);
+    clearContextProviders();
+  });
+
+  test("active grammar preserves continuity tools through intent drift", async () => {
+    clearContextProviders();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-os-"));
+    const harness = mockPiFixture({ active: ["code_search"] });
+    agentOsExtension(harness.pi);
+
+    await harness.tools.compile_tool_grammar.execute("id", {
+      intent: "existing_file_edit",
+      risk_level: "medium",
+    }, undefined, undefined, { cwd });
+
+    const route = routeForPrompt(harness.pi, "thanks, that makes sense");
+    expect(route.primaryIntent).toBe("chat");
+    expect(harness.activeTools).toContain("apply_code_replacements");
+    expect(harness.activeTools).toContain("run_checks");
+    clearContextProviders();
+  });
+
+  test("agent registers bias weak follow-up routing toward coding", async () => {
+    clearContextProviders();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-os-"));
+    const harness = mockPiFixture({ active: ["code_search"] });
+    agentOsExtension(harness.pi);
+
+    await harness.tools.update_agent_registers.execute("id", {
+      goal: "implement repo index invalidation fix",
+      next_action: "apply code replacement and run checks",
+    }, undefined, undefined, { cwd });
+
+    const route = routeForPrompt(harness.pi, "continue");
+    expect(["coding", "debugging", "refactor"]).toContain(route.primaryIntent);
+    expect(harness.activeTools).toContain("apply_code_replacements");
     clearContextProviders();
   });
 

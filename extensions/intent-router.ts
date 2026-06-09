@@ -11,6 +11,7 @@ import { alwaysOnToolNames, capabilityToolMap, domainToolNames, LOCKED_BUILTIN_T
 import { formatAgentStatusLines, formatIntentStatusLines, formatToolPolicyLines } from "./shared/intent-status";
 import { CODING_CONTRACT } from "./shared/coding-contract";
 import { bestIntentCorpusMatch, FOLLOWUP_STICKINESS_THRESHOLD, SWITCH_THRESHOLD, type IntentCorpusMatch } from "./shared/intent-corpus";
+import { agentOsContinuityToolNames, agentOsRoutingPromptSuffix } from "./agent-os";
 
 const STATUS_KEY = "intent";
 
@@ -127,6 +128,8 @@ export function activeToolNames(pi: ExtensionAPI, groups: CapabilityGroup[]): st
     for (const name of CAPABILITY_TOOLS[group]) desired.add(name);
   }
 
+  for (const name of agentOsContinuityToolNames()) desired.add(name);
+
   // Preserve non-domain tools from other extensions/providers. Domain tools are
   // explicitly governed by intent except always-on safe code primitives, which
   // avoid routing mistakes stranding repository inspection/editing.
@@ -155,7 +158,8 @@ function forcedRoute(intent: IntentOverride, prompt: string): IntentRoute {
 
 function routeForIntent(prompt: string): IntentRoute {
   if (intentOverride) return forcedRoute(intentOverride, prompt);
-  return classifyIntent(prompt);
+  const suffix = agentOsRoutingPromptSuffix();
+  return classifyIntent(suffix ? `${prompt}\n\nActive agent OS registers: ${suffix}` : prompt);
 }
 
 function sortedToolNames(tools: any[]): string[] {

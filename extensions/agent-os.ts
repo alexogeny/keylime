@@ -71,6 +71,29 @@ const DEFAULT_BUDGET: AgentBudget = {
 };
 
 const STATE_FILE = join(".pi", "agent-os.json");
+let activeContinuityTools = new Set<string>();
+let activeRegisterRoutingText = "";
+
+export function agentOsContinuityToolNames(): string[] {
+  return [...activeContinuityTools].sort();
+}
+
+export function agentOsRoutingPromptSuffix(): string {
+  return activeRegisterRoutingText;
+}
+
+export function resetAgentOsMemoryForTests(): void {
+  activeContinuityTools = new Set();
+  activeRegisterRoutingText = "";
+}
+
+function updateInMemoryAgentOs(state: AgentOsState): void {
+  activeContinuityTools = new Set(state.grammar?.allowedTools ?? []);
+  const registers = state.registers;
+  activeRegisterRoutingText = [registers.goal, registers.state, registers.hypothesis, registers.nextAction, registers.blockedOn, ...(registers.risks ?? []), ...(registers.doneWhen ?? [])]
+    .filter(Boolean)
+    .join(" ");
+}
 
 function statePath(cwd: string): string {
   return join(cwd, STATE_FILE);
@@ -82,10 +105,13 @@ function defaultState(): AgentOsState {
 
 async function loadState(cwd: string): Promise<AgentOsState> {
   const state = await readJsonFile<AgentOsState>(statePath(cwd), defaultState());
-  return { ...defaultState(), ...state, budget: { ...DEFAULT_BUDGET, ...(state as any).budget }, regions: state.regions ?? [], registers: state.registers ?? {} };
+  const normalized = { ...defaultState(), ...state, budget: { ...DEFAULT_BUDGET, ...(state as any).budget }, regions: state.regions ?? [], registers: state.registers ?? {} };
+  updateInMemoryAgentOs(normalized);
+  return normalized;
 }
 
 async function saveState(cwd: string, state: AgentOsState): Promise<void> {
+  updateInMemoryAgentOs(state);
   await writeJsonFile(statePath(cwd), state, { finalNewline: true });
 }
 
