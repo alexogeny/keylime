@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, extname, relative, resolve } from "node:path";
+import { dirname, extname } from "node:path";
+import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { stringEnum } from "./shared/schema";
 import { repoRelativePath } from "./shared/path-policy";
@@ -215,6 +216,92 @@ async function extractDocument(path: string, format: Exclude<DocFormat, "auto">,
   throw new Error(`Unsupported format: ${format}`);
 }
 
+function inspectArchiveBuffer(buffer: Buffer, maxEntries: number): Array<{ name: string; bytes: number; method?: number }> {
+  const extZip = (() => {
+    try { return parseZip(buffer).map(entry => ({ name: entry.name, bytes: entry.compressedSize, method: entry.method })); } catch { return null; }
+  })();
+  if (extZip) return extZip.slice(0, maxEntries);
+  const entries: Array<{ name: string; bytes: number }> = [];
+  for (let offset = 0; offset + 512 <= buffer.length && entries.length < maxEntries; offset += 512) {
+    const block = buffer.slice(offset, offset + 512);
+    if (block.every(byte => byte === 0)) break;
+    const name = block.slice(0, 100).toString("utf8").replace(/\0.*$/, "");
+    const sizeOctal = block.slice(124, 136).toString("utf8").replace(/\0.*$/, "").trim();
+    const size = Number.parseInt(sizeOctal || "0", 8) || 0;
+    if (name) entries.push({ name, bytes: size });
+    offset += Math.ceil(size / 512) * 512;
+  }
+  return entries;
+}
+
+function imageMetadata(buffer: Buffer): Record<string, unknown> {
+  if (buffer.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return { format: "png", width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) { offset += 1; continue; }
+      const marker = buffer[offset + 1];
+      const length = buffer.readUInt16BE(offset + 2);
+      if (marker >= 0xc0 && marker <= 0xc3) return { format: "jpeg", width: buffer.readUInt16BE(offset + 7), height: buffer.readUInt16BE(offset + 5) };
+      offset += 2 + length;
+    }
+    return { format: "jpeg", width: null, height: null };
+  }
+  if (buffer.slice(0, 6).toString("ascii") === "GIF87a" || buffer.slice(0, 6).toString("ascii") === "GIF89a") {
+    return { format: "gif", width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+  }
+  return { format: "unknown", width: null, height: null };
+}
+
+function analyzeRows(rows: string[][]): string {
+  const headers = rows[0] ?? [];
+  const data = rows.slice(1);
+  const lines = [`Rows: ${data.length}`, `Columns: ${headers.length}`, ""];
+  for (let col = 0; col < headers.length; col += 1) {
+    const values = data.map(row => row[col] ?? "");
+    const missing = values.filter(value => value.trim() === "").length;
+    const nums = values.map(Number).filter(Number.isFinite);
+    lines.push(`Column: ${headers[col] || `column_${col + 1}`}`);
+    lines.push(`- missing: ${missing}`);
+    if (nums.length) {
+      const sum = nums.reduce((a, b) => a + b, 0);
+      lines.push(`- numeric: count=${nums.length} min=${Math.min(...nums)} max=${Math.max(...nums)} mean=${(sum / nums.length).toFixed(3)}`);
+    } else {
+      const counts = new Map<string, number>();
+      for (const value of values.filter(Boolean)) counts.set(value, (counts.get(value) ?? 0) + 1);
+      lines.push(`- top values: ${[...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([v, n]) => `${v} (${n})`).join(", ")}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function chartSvg(title: string, type: string, labels: string[], values: number[]): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const width = 800, height = 460, left = 70, bottom = 70, top = 60;
+  const max = Math.max(...values, 1);
+  const plotH = height - top - bottom;
+  const plotW = width - left - 40;
+  const points = values.map((v, i) => [left + (plotW * (i + 0.5)) / values.length, top + plotH - (v / max) * plotH]);
+  const body = type === "line"
+    ? `<polyline fill="none" stroke="#4f46e5" stroke-width="3" points="${points.map(p => p.join(",")).join(" ")}"/>${points.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="4" fill="#4f46e5"/>`).join("")}`
+    : values.map((v, i) => { const barW = plotW / values.length * 0.72; const h = (v / max) * plotH; const x = left + (plotW * i) / values.length + barW * 0.2; const y = top + plotH - h; return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="4" fill="#4f46e5"/>`; }).join("");
+  const axis = `<line x1="${left}" y1="${top}" x2="${left}" y2="${top + plotH}" stroke="#334155"/><line x1="${left}" y1="${top + plotH}" x2="${left + plotW}" y2="${top + plotH}" stroke="#334155"/>`;
+  const labelsSvg = labels.map((label, i) => `<text x="${points[i][0]}" y="${height - 28}" text-anchor="middle" font-size="12" fill="#475569">${esc(label).slice(0, 16)}</text>`).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#fff"/><text x="${left}" y="34" font-size="24" font-family="Inter,Arial" font-weight="700" fill="#172033">${esc(title)}</text>${axis}${body}${labelsSvg}</svg>`;
+}
+
+function extractCitationHints(text: string): string[] {
+  const hits = new Set<string>();
+  for (const m of text.matchAll(/https?:\/\/[^\s)\]]+/g)) hits.add(m[0].replace(/[.,;]+$/, ""));
+  for (const m of text.matchAll(/\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/gi)) hits.add(m[0]);
+  for (const line of text.split("\n")) {
+    if (/\(\d{4}\)|\bdoi\b|\bjournal\b|\bproceedings\b/i.test(line) && line.length < 300) hits.add(line.trim());
+  }
+  return [...hits].slice(0, 100);
+}
+
 function reporterHtml(title: string, subtitle: string | undefined, author: string | undefined, sections: any[], references: string[] = []): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const body = sections.map(section => {
@@ -295,6 +382,86 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
         });
       } else throw new Error(`inspect_spreadsheet supports CSV/XLSX, got ${format}`);
       return { content: [{ type: "text", text: `Spreadsheet: ${repoRelativePath(ctx.cwd, path)}\nSheets: ${sheetNames.join(", ")}\n\n${blocks.join("\n\n")}` }], details: { path: repoRelativePath(ctx.cwd, path), format, sheets: sheetNames } };
+    },
+  });
+
+  pi.registerTool({
+    name: "inspect_archive",
+    label: "Inspect Archive",
+    description: "Inspect bounded ZIP/TAR archive listings. Use instead of unzip -l or tar -tf.",
+    promptSnippet: "Inspect archive contents",
+    promptGuidelines: ["Use instead of bash unzip/tar listing commands.", "Only lists archive entries; does not extract files."],
+    parameters: Type.Object({ path: Type.String(), max_entries: Type.Optional(Type.Number()) }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const entries = inspectArchiveBuffer(await readFile(path), clamp(params.max_entries, 50, 1, 500));
+      const lines = entries.map(entry => `${entry.name} (${entry.bytes} bytes${entry.method !== undefined ? `, method ${entry.method}` : ""})`);
+      return { content: [{ type: "text", text: `Archive: ${repoRelativePath(ctx.cwd, path)}\nEntries: ${entries.length}\n${lines.join("\n")}` }], details: { path: repoRelativePath(ctx.cwd, path), entries } };
+    },
+  });
+
+  pi.registerTool({
+    name: "inspect_image_metadata",
+    label: "Inspect Image Metadata",
+    description: "Inspect basic image metadata such as format and dimensions. Use instead of file/identify/exiftool for simple checks.",
+    promptSnippet: "Inspect image metadata",
+    promptGuidelines: ["Use instead of shell image metadata commands for PNG/JPEG/GIF dimensions."],
+    parameters: Type.Object({ path: Type.String(), include_sha256: Type.Optional(Type.Boolean()) }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const buffer = await readFile(path);
+      const meta: any = { path: repoRelativePath(ctx.cwd, path), bytes: buffer.byteLength, ...imageMetadata(buffer) };
+      if (params.include_sha256) meta.sha256 = createHash("sha256").update(buffer).digest("hex");
+      return { content: [{ type: "text", text: Object.entries(meta).map(([key, value]) => `${key}: ${value}`).join("\n") }], details: meta };
+    },
+  });
+
+  pi.registerTool({
+    name: "analyze_csv",
+    label: "Analyze CSV",
+    description: "Analyze CSV columns, missing values, numeric summaries, category counts, and sample rows.",
+    promptSnippet: "Analyze CSV",
+    promptGuidelines: ["Use instead of ad-hoc pandas/python snippets for basic CSV profiling."],
+    parameters: Type.Object({ path: Type.String(), max_rows: Type.Optional(Type.Number()) }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const rows = csvRows((await readFile(path)).toString("utf8"), clamp(params.max_rows, MAX_PREVIEW_ROWS, 2, 10_000));
+      const text = `CSV analysis: ${repoRelativePath(ctx.cwd, path)}\n${analyzeRows(rows)}\n\nPreview:\n${rowsToMarkdown(rows.slice(0, 12))}`;
+      return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), rows: Math.max(0, rows.length - 1), columns: rows[0]?.length ?? 0 } };
+    },
+  });
+
+  pi.registerTool({
+    name: "create_chart",
+    label: "Create Chart",
+    description: "Create a simple SVG chart from labels and numeric values for reports/docs.",
+    promptSnippet: "Create SVG chart",
+    promptGuidelines: ["Use for repeatable report charts instead of hand-writing SVG each time."],
+    parameters: Type.Object({ path: Type.String(), title: Type.String(), chart_type: Type.Optional(stringEnum(["bar", "line"] as const)), labels: Type.Array(Type.String()), values: Type.Array(Type.Number()), create_dirs: Type.Optional(Type.Boolean()) }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const classification = classifyToolMutation("create_chart", params);
+      if (!classification.allowed) throw new Error(`create_chart blocked by safety policy: ${classification.reasons.join(", ")}`);
+      if (params.labels.length !== params.values.length) throw new Error("labels and values must have the same length");
+      const path = resolveSafePath(ctx.cwd, params.path);
+      if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
+      const svg = chartSvg(params.title, params.chart_type ?? "bar", params.labels, params.values);
+      await writeFile(path, svg, { encoding: "utf8", flag: "wx" });
+      return { content: [{ type: "text", text: `Created chart ${repoRelativePath(ctx.cwd, path)} (${params.labels.length} points)` }], details: { path: repoRelativePath(ctx.cwd, path), chart_type: params.chart_type ?? "bar", points: params.labels.length } };
+    },
+  });
+
+  pi.registerTool({
+    name: "extract_citations",
+    label: "Extract Citations",
+    description: "Extract URLs, DOIs, and citation-like reference lines from documents/text.",
+    promptSnippet: "Extract citation hints",
+    promptGuidelines: ["Use for research/report workflows before formatting references."],
+    parameters: Type.Object({ path: Type.String(), max_extract_chars: Type.Optional(Type.Number()) }),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const path = resolveSafePath(ctx.cwd, params.path);
+      const extracted = await extractDocument(path, detectFormat(path, "auto"), { maxChars: clamp(params.max_extract_chars, 30_000, 1000, MAX_EXTRACT_CHARS) });
+      const citations = extractCitationHints(extracted.text);
+      return { content: [{ type: "text", text: citations.length ? citations.map((item, i) => `${i + 1}. ${item}`).join("\n") : "No citation hints detected." }], details: { path: repoRelativePath(ctx.cwd, path), citations } };
     },
   });
 

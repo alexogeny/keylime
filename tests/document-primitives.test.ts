@@ -32,6 +32,37 @@ describe("document primitives", () => {
     expect(tables.content[0].text).toContain("| Ada | 10 |");
   });
 
+  test("inspects archives/images, analyzes csv, creates charts, and extracts citations", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "document-primitives-"));
+    const tools = registeredDocumentTools();
+    const tar = Buffer.alloc(1024);
+    tar.write("docs/readme.txt", 0, "utf8");
+    tar.write("0000644\0", 100, "ascii");
+    tar.write("0000000\0", 108, "ascii");
+    tar.write("0000000\0", 116, "ascii");
+    tar.write("00000000005\0", 124, "ascii");
+    tar.write("ustar\0", 257, "ascii");
+    await writeFile(join(cwd, "sample.tar"), tar);
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452000000020000000308060000000000000000", "hex");
+    await writeFile(join(cwd, "image.png"), png);
+    await writeFile(join(cwd, "data.csv"), "Name,Score\nAda,10\nGrace,9\n", "utf8");
+    await writeFile(join(cwd, "refs.md"), "See https://example.com/paper and doi:10.1234/ABC.DEF\nSmith (2024). Journal of Examples.\n", "utf8");
+
+    const archive = await tools.inspect_archive.execute("id", { path: "sample.tar" }, undefined, undefined, { cwd });
+    expect(archive.content[0].text).toContain("docs/readme.txt");
+    const image = await tools.inspect_image_metadata.execute("id", { path: "image.png" }, undefined, undefined, { cwd });
+    expect(image.content[0].text).toContain("width: 2");
+    expect(image.content[0].text).toContain("height: 3");
+    const analysis = await tools.analyze_csv.execute("id", { path: "data.csv" }, undefined, undefined, { cwd });
+    expect(analysis.content[0].text).toContain("mean=9.500");
+    const chart = await tools.create_chart.execute("id", { path: "chart.svg", title: "Scores", labels: ["Ada", "Grace"], values: [10, 9] }, undefined, undefined, { cwd });
+    expect(chart.content[0].text).toContain("Created chart chart.svg");
+    expect(await readFile(join(cwd, "chart.svg"), "utf8")).toContain("<svg");
+    const citations = await tools.extract_citations.execute("id", { path: "refs.md" }, undefined, undefined, { cwd });
+    expect(citations.content[0].text).toContain("https://example.com/paper");
+    expect(citations.content[0].text).toContain("10.1234/ABC.DEF");
+  });
+
   test("creates reporter-style documents and converts extracted documents", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "document-primitives-"));
     await mkdir(join(cwd, "out"));

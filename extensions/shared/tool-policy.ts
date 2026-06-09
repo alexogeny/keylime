@@ -46,6 +46,10 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "summarize_document", alwaysOn: true, domain: true, risk: "safe" },
   { name: "inspect_spreadsheet", alwaysOn: true, domain: true, risk: "safe" },
   { name: "extract_document_tables", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "inspect_archive", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "inspect_image_metadata", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "analyze_csv", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "extract_citations", alwaysOn: true, domain: true, risk: "safe" },
 
   { name: "plan_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "apply_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
@@ -61,6 +65,7 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "replace_file", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "create_reporter_document", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "convert_document", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "create_chart", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "run_checks", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "codemod_update_json", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
   { name: "codemod_add_import", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
