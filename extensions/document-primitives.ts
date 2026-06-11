@@ -1,8 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, extname } from "node:path";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, extname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { inflateRawSync } from "node:zlib";
 import { stringEnum } from "./shared/schema";
 import { repoRelativePath } from "./shared/path-policy";
@@ -11,6 +14,9 @@ import { classifyToolMutation } from "./shared/safety-policy";
 
 const MAX_EXTRACT_CHARS = 60_000;
 const MAX_PREVIEW_ROWS = 100;
+const PDF_EMPTY_TEXT_MESSAGE = "PDF text extraction found no embedded text. This may be a scanned/image PDF or use unsupported encoding.";
+
+const execFileAsync = promisify(execFile);
 
 type DocFormat = "auto" | "pdf" | "docx" | "xlsx" | "csv" | "txt" | "md" | "html";
 type ZipEntry = { name: string; method: number; compressedSize: number; localHeaderOffset: number };
@@ -38,6 +44,9 @@ function decodeXml(text: string): string {
 function stripXml(text: string): string {
   return decodeXml(text.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 }
+
+type ExtractionMethod = "embedded_text" | "ocr" | "mixed" | "none";
+type ExtractedDocument = { text: string; truncated: boolean; extraction_method?: ExtractionMethod; warnings?: string[] };
 
 function truncate(text: string, maxChars: number): { text: string; truncated: boolean } {
   if (text.length <= maxChars) return { text, truncated: false };
@@ -177,7 +186,11 @@ function rowsToMarkdown(rows: string[][]): string {
   ].join("\n");
 }
 
-function extractPdfRough(buffer: Buffer, pages?: string): string {
+function pdfPageCount(raw: string): number {
+  return Math.max(1, (raw.match(/\/Type\s*\/Page\b/g) ?? []).length);
+}
+
+function extractPdfRough(buffer: Buffer, pages?: string): { text: string; totalPages: number } {
   const raw = buffer.toString("latin1");
   const streams: string[] = [];
   for (const match of raw.matchAll(/<<(.*?)>>\s*stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
@@ -193,26 +206,85 @@ function extractPdfRough(buffer: Buffer, pages?: string): string {
     ].map(s => s.replace(/\\([nrtbf()\\])/g, (_m, c) => ({ n: "\n", r: "\r", t: "\t", b: "", f: "", "(": "(", ")": ")", "\\": "\\" }[c] ?? c)));
     if (pieces.length) streams.push(pieces.join(" "));
   }
-  const total = Math.max(1, (raw.match(/\/Type\s*\/Page\b/g) ?? []).length);
-  const selected = parsePageSpec(pages, total);
-  const joined = streams.map((s, i) => `Page-ish ${i + 1}\n${s}`).filter((_, i) => !selected || selected.has(i + 1)).join("\n\n");
-  return joined || "PDF text extraction found no embedded text. This may be a scanned/image PDF or use unsupported encoding.";
+  const totalPages = pdfPageCount(raw);
+  const selected = parsePageSpec(pages, totalPages);
+  const text = streams.map((s, i) => `Page-ish ${i + 1}\n${s}`).filter((_, i) => !selected || selected.has(i + 1)).join("\n\n");
+  return { text, totalPages };
 }
 
-async function extractDocument(path: string, format: Exclude<DocFormat, "auto">, options: { pages?: string; maxChars: number }) {
+async function ocrPdfWithExternalTools(path: string, buffer: Buffer, pages: string | undefined, totalPages: number, cacheDir: string): Promise<{ text: string; warnings: string[] }> {
+  const warnings: string[] = [];
+  const selected = parsePageSpec(pages, totalPages);
+  const pageNumbers = selected ? [...selected].sort((a, b) => a - b) : Array.from({ length: totalPages }, (_, i) => i + 1);
+  const cacheKey = createHash("sha256").update(buffer).update(`\npages=${pageNumbers.join(",")}`).digest("hex");
+  const cachePath = join(cacheDir, `${cacheKey}.txt`);
+  try {
+    const cached = await readFile(cachePath, "utf8");
+    if (cached.trim()) return { text: cached, warnings };
+  } catch { /* cache miss */ }
+
+  const tmp = await mkdtemp(join(tmpdir(), "pi-pdf-ocr-"));
+  try {
+    const pageTexts: string[] = [];
+    for (const page of pageNumbers) {
+      const prefix = join(tmp, `page-${page}`);
+      try {
+        await execFileAsync("pdftoppm", ["-r", "200", "-png", "-f", String(page), "-l", String(page), path, prefix], { timeout: 120_000, maxBuffer: 1024 * 1024 });
+        const images = (await readdir(tmp)).filter(name => name.startsWith(`page-${page}`) && name.endsWith(".png")).sort();
+        if (images.length === 0) {
+          warnings.push(`Page ${page}: pdftoppm produced no image.`);
+          continue;
+        }
+        const { stdout, stderr } = await execFileAsync("tesseract", [join(tmp, images[0]), "stdout", "--psm", "6"], { timeout: 120_000, maxBuffer: 5 * 1024 * 1024 });
+        if (stderr?.trim()) warnings.push(`Page ${page}: ${stderr.trim().split(/\r?\n/)[0]}`);
+        const pageText = stdout.trim();
+        if (pageText) pageTexts.push(`Page ${page}\n${pageText}`);
+        else warnings.push(`Page ${page}: OCR returned no text.`);
+      } catch (error: any) {
+        const code = error?.code ? ` (${error.code})` : "";
+        warnings.push(`Page ${page}: OCR failed${code}. Ensure pdftoppm/poppler and tesseract are installed.`);
+        break;
+      }
+    }
+    const text = pageTexts.join("\n\n");
+    if (text.trim()) {
+      try { await mkdir(cacheDir, { recursive: true }); await writeFile(cachePath, text, "utf8"); } catch { /* best-effort cache */ }
+    }
+    return { text, warnings };
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+}
+
+async function extractDocument(path: string, format: Exclude<DocFormat, "auto">, options: { pages?: string; maxChars: number; ocr?: boolean; cacheDir?: string }): Promise<ExtractedDocument> {
   const buffer = await readFile(path);
   if (["txt", "md", "html"].includes(format)) {
     if (isProbablyBinary(buffer)) throw new Error(`Refusing to read probable binary as ${format}`);
-    return truncate(buffer.toString("utf8"), options.maxChars);
+    return { ...truncate(buffer.toString("utf8"), options.maxChars), extraction_method: "embedded_text" };
   }
-  if (format === "csv") return truncate(rowsToMarkdown(csvRows(buffer.toString("utf8"), MAX_PREVIEW_ROWS)), options.maxChars);
-  if (format === "docx") return truncate(extractDocx(buffer), options.maxChars);
+  if (format === "csv") return { ...truncate(rowsToMarkdown(csvRows(buffer.toString("utf8"), MAX_PREVIEW_ROWS)), options.maxChars), extraction_method: "embedded_text" };
+  if (format === "docx") return { ...truncate(extractDocx(buffer), options.maxChars), extraction_method: "embedded_text" };
   if (format === "xlsx") {
     const sheets = workbookSheets(buffer);
     const text = sheets.map(sheet => `Sheet: ${sheet.name}\n${rowsToMarkdown(extractSheetRows(buffer, sheet.path, MAX_PREVIEW_ROWS))}`).join("\n\n");
-    return truncate(text, options.maxChars);
+    return { ...truncate(text, options.maxChars), extraction_method: "embedded_text" };
   }
-  if (format === "pdf") return truncate(extractPdfRough(buffer, options.pages), options.maxChars);
+  if (format === "pdf") {
+    const embedded = extractPdfRough(buffer, options.pages);
+    const warnings: string[] = [];
+    let text = embedded.text;
+    let method: ExtractionMethod = text.trim() ? "embedded_text" : "none";
+    if ((options.ocr === true || !text.trim()) && options.ocr !== false) {
+      const ocr = await ocrPdfWithExternalTools(path, buffer, options.pages, embedded.totalPages, options.cacheDir ?? join(dirname(path), ".pi", "cache", "pdf-ocr"));
+      warnings.push(...ocr.warnings);
+      if (ocr.text.trim()) {
+        method = text.trim() ? "mixed" : "ocr";
+        text = text.trim() ? `${text}\n\n${ocr.text}` : ocr.text;
+      }
+    }
+    if (!text.trim()) text = PDF_EMPTY_TEXT_MESSAGE;
+    return { ...truncate(text, options.maxChars), extraction_method: method, warnings };
+  }
   throw new Error(`Unsupported format: ${format}`);
 }
 
@@ -322,16 +394,17 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     description: "Extract bounded text from PDF, DOCX, XLSX, CSV, Markdown, HTML, or text documents. Use instead of ad-hoc PDF/Word parsing scripts.",
     promptSnippet: "Inspect document text",
     promptGuidelines: ["Use for read/summarize document workflows before answering.", "Output is bounded; request pages/max_chars to narrow large documents.", "Do not use bash/python/node snippets to parse everyday documents."],
-    parameters: Type.Object({ path: Type.String(), format: Type.Optional(stringEnum(["auto", "pdf", "docx", "xlsx", "csv", "txt", "md", "html"] as const)), pages: Type.Optional(Type.String()), max_chars: Type.Optional(Type.Number()) }),
+    parameters: Type.Object({ path: Type.String(), format: Type.Optional(stringEnum(["auto", "pdf", "docx", "xlsx", "csv", "txt", "md", "html"] as const)), pages: Type.Optional(Type.String()), max_chars: Type.Optional(Type.Number()), ocr: Type.Optional(Type.Boolean()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const path = resolveSafePath(ctx.cwd, params.path);
       const format = detectFormat(path, params.format);
       const maxChars = clamp(params.max_chars, 12_000, 500, MAX_EXTRACT_CHARS);
       const info = await stat(path);
       if (!info.isFile()) throw new Error(`Not a file: ${repoRelativePath(ctx.cwd, path)}`);
-      const extracted = await extractDocument(path, format, { pages: params.pages, maxChars });
-      const text = `Document: ${repoRelativePath(ctx.cwd, path)}\nFormat: ${format}\nBytes: ${info.size}\nTruncated: ${extracted.truncated ? "yes" : "no"}\n\n${extracted.text}`;
-      return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), format, bytes: info.size, truncated: extracted.truncated } };
+      const extracted = await extractDocument(path, format, { pages: params.pages, maxChars, ocr: params.ocr, cacheDir: join(ctx.cwd, ".pi", "cache", "pdf-ocr") });
+      const warnings = extracted.warnings?.length ? `\nWarnings:\n${extracted.warnings.map(w => `- ${w}`).join("\n")}` : "";
+      const text = `Document: ${repoRelativePath(ctx.cwd, path)}\nFormat: ${format}\nBytes: ${info.size}\nExtraction method: ${extracted.extraction_method ?? "embedded_text"}\nTruncated: ${extracted.truncated ? "yes" : "no"}${warnings}\n\n${extracted.text}`;
+      return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), format, bytes: info.size, truncated: extracted.truncated, extraction_method: extracted.extraction_method, warnings: extracted.warnings ?? [] } };
     },
   });
 
@@ -345,12 +418,13 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const path = resolveSafePath(ctx.cwd, params.path);
       const format = detectFormat(path, "auto");
-      const extracted = await extractDocument(path, format, { pages: params.pages, maxChars: clamp(params.max_extract_chars, 18_000, 1000, MAX_EXTRACT_CHARS) });
+      const extracted = await extractDocument(path, format, { pages: params.pages, maxChars: clamp(params.max_extract_chars, 18_000, 1000, MAX_EXTRACT_CHARS), cacheDir: join(ctx.cwd, ".pi", "cache", "pdf-ocr") });
       const lines = extracted.text.split(/\n+/).map(line => line.trim()).filter(line => line.length > 0);
       const headings = lines.filter(line => line.length < 90 && /^[A-Z0-9][A-Za-z0-9 .:–—-]+$/.test(line)).slice(0, 20);
       const keywords = [...new Set(extracted.text.toLowerCase().match(/\b[a-z][a-z-]{5,}\b/g) ?? [])].slice(0, 40);
-      const text = [`Summary scaffold for ${repoRelativePath(ctx.cwd, path)}`, `Purpose: ${params.purpose ?? "general"}`, `Format: ${format}`, `Truncated: ${extracted.truncated ? "yes" : "no"}`, "", "Possible headings:", ...headings.map(h => `- ${h}`), "", "Keyword hints:", keywords.join(", "), "", "Extract:", extracted.text].join("\n");
-      return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), format, headings, keywords, truncated: extracted.truncated } };
+      const warningLines = extracted.warnings?.length ? ["", "Warnings:", ...extracted.warnings.map(w => `- ${w}`)] : [];
+      const text = [`Summary scaffold for ${repoRelativePath(ctx.cwd, path)}`, `Purpose: ${params.purpose ?? "general"}`, `Format: ${format}`, `Extraction method: ${extracted.extraction_method ?? "embedded_text"}`, `Truncated: ${extracted.truncated ? "yes" : "no"}`, ...warningLines, "", "Possible headings:", ...headings.map(h => `- ${h}`), "", "Keyword hints:", keywords.join(", "), "", "Extract:", extracted.text].join("\n");
+      return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), format, headings, keywords, truncated: extracted.truncated, extraction_method: extracted.extraction_method, warnings: extracted.warnings ?? [] } };
     },
   });
 

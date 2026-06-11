@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import documentPrimitives from "../extensions/document-primitives";
 
 function registeredDocumentTools(): Record<string, any> {
@@ -82,5 +83,21 @@ describe("document primitives", () => {
     const converted = await tools.convert_document.execute("id", { input_path: "source.md", output_path: "out/source.txt", output_format: "txt" }, undefined, undefined, { cwd });
     expect(converted.content[0].text).toContain("Converted source.md -> out/source.txt");
     expect(await readFile(join(cwd, "out", "source.txt"), "utf8")).toContain("Material to convert");
+  });
+
+  test("falls back to cached OCR text for PDFs with no embedded text", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "document-primitives-"));
+    const tools = registeredDocumentTools();
+    const pdf = Buffer.from("%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >> endobj\n%%EOF\n", "utf8");
+    await writeFile(join(cwd, "scan.pdf"), pdf);
+    const cacheDir = join(cwd, ".pi", "cache", "pdf-ocr");
+    await mkdir(cacheDir, { recursive: true });
+    const cacheKey = createHash("sha256").update(pdf).update("\npages=1").digest("hex");
+    await writeFile(join(cacheDir, `${cacheKey}.txt`), "Page 1\nOCR fallback text from slide image", "utf8");
+
+    const doc = await tools.inspect_document.execute("id", { path: "scan.pdf", format: "pdf" }, undefined, undefined, { cwd });
+    expect(doc.content[0].text).toContain("Extraction method: ocr");
+    expect(doc.content[0].text).toContain("OCR fallback text from slide image");
+    expect(doc.details.extraction_method).toBe("ocr");
   });
 });
