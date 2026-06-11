@@ -137,6 +137,21 @@ Important environment flags:
 - `KEYLIME_ENABLE_TRAJECTORY=1` — enable trajectory evaluator/session entries.
 - `KEYLIME_ENABLE_ADAPTIVE_POLICY=1` — enable adaptive context policy hints.
 
+## System dependencies
+
+PDF OCR fallback in `inspect_document` also needs system binaries available on `PATH`:
+
+- `pdftoppm` from Poppler (`apt install poppler-utils`, `brew install poppler`)
+- `tesseract` (`apt install tesseract-ocr`, `brew install tesseract`)
+
+The extension package records these under `extensions/package.json` → `keylime.systemDependencies.pdfOcr`. From `extensions/`, install/verify them with:
+
+```bash
+bun run install:ocr-deps:apt   # Debian/Ubuntu
+bun run install:ocr-deps:brew  # macOS/Homebrew
+bun run check:ocr-deps
+```
+
 ## Development
 
 Run the full test suite:

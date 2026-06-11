@@ -1,6 +1,29 @@
 {
+  "scripts": {
+    "check:ocr-deps": "bun check-ocr-deps.ts",
+    "install:ocr-deps:apt": "sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr",
+    "install:ocr-deps:brew": "brew install poppler tesseract"
+  },
   "dependencies": {
     "playwright": "^1.60.0",
     "typebox": "^1.1.39"
+  },
+  "keylime": {
+    "systemDependencies": {
+      "pdfOcr": [
+        {
+          "binary": "pdftoppm",
+          "apt": "poppler-utils",
+          "brew": "poppler",
+          "purpose": "Render PDF pages to images for OCR fallback"
+        },
+        {
+          "binary": "tesseract",
+          "apt": "tesseract-ocr",
+          "brew": "tesseract",
+          "purpose": "OCR rendered PDF page images"
+        }
+      ]
+    }
   }
 }

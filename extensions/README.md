@@ -40,3 +40,12 @@ Defaults are conservative: research follows provider-key detection, auto-fetch i
 `git-tools.ts` provides read-only git inspection tools: `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint`. Commits should happen only through checkpointing.
 
 `run_checks` is always available, but custom commands are restricted in coding mode to prevent inline runtime or shell-string file mutation bypasses.
+
+## System dependencies
+
+PDF OCR fallback in `document-primitives.ts` uses two external binaries when embedded PDF text is empty or when `inspect_document` is called with `ocr: true`:
+
+- `pdftoppm` from Poppler (`apt install poppler-utils`, `brew install poppler`)
+- `tesseract` (`apt install tesseract-ocr`, `brew install tesseract`)
+
+These are recorded in `package.json` under `keylime.systemDependencies.pdfOcr`. From this `extensions/` directory, use `bun run install:ocr-deps:apt` or `bun run install:ocr-deps:brew`, then validate the local environment with `bun run check:ocr-deps`.
