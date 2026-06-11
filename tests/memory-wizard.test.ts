@@ -158,6 +158,30 @@ describe("structured profile facts", () => {
     });
   });
 
+  test("supports structured genetic variation fields", () => {
+    const drafts = buildProfileFactDrafts({
+      drd4_vntr: "7R",
+      slc6a4_5httlpr: "L/S",
+      maoa_uvntr: "4R",
+      trpc2_variant: "custom rsID note",
+      apoe_genotype: "ε3/ε4",
+      cyp2d6_phenotype: "normal / extensive",
+    });
+
+    expect(drafts.map(draft => draft.content)).toEqual([
+      "User's DRD4 VNTR genotype is 7R.",
+      "User's 5-HTTLPR / SLC6A4 genotype is L/S.",
+      "User's MAOA-uVNTR genotype is 4R.",
+      "User's TRPC2 genetic note is custom rsID note.",
+      "User's APOE genotype is ε3/ε4.",
+      "User's CYP2D6 metabolizer status is normal / extensive.",
+    ]);
+    expect(drafts.every(draft => draft.subcategory === "genetics")).toBe(true);
+    expect(drafts.every(draft => draft.sensitivity === "context_gated")).toBe(true);
+    expect(drafts[0].tags).toEqual(expect.arrayContaining(["genetics", "genotype", "DRD4"]));
+    expect(sectionCompleteness({ drd4_vntr: "7R" }, "genetics")).toBeGreaterThan(0);
+  });
+
   test("supports structured select fields for gender and coffee preferences", () => {
     const drafts = buildProfileFactDrafts({
       gender: "nonbinary",

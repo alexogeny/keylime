@@ -81,7 +81,7 @@ export type {
 export type { ProfileFactField, ProfileFactFieldKind, ProfileFactSection, ProfileFactValues, ProfilePatch, ProfilePatchValue } from "./profile-facts.js";
 
 export const PROFILE_FACT_SECTIONS = [
-  "identity", "body", "appearance", "health", "athlete", "mental", "life", "contact", "work", "preferences",
+  "identity", "body", "appearance", "health", "genetics", "athlete", "mental", "life", "contact", "work", "preferences",
 ] as const;
 export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
   // Identity / demographics
@@ -132,6 +132,25 @@ export const PROFILE_FACT_FIELDS: ProfileFactField[] = [
   { id: "hrv", label: "HRV", section: "health", kind: "number", placeholder: "65", tags: ["profile", "health", "athlete", "hrv", "recovery"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true, unit: "ms", contentLabel: "HRV" },
   { id: "blood_pressure", label: "Blood pressure", section: "health", kind: "text", placeholder: "120/80", tags: ["profile", "health", "blood-pressure"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
   { id: "sleep_baseline", label: "Sleep baseline", section: "health", kind: "text", placeholder: "7.5h, 23:30-07:00", tags: ["profile", "health", "sleep", "recovery"], sensitivity: "context_gated", measured: true, includeMeasurementTime: true },
+
+  // Genetics / genotype notes
+  { id: "drd4_vntr", label: "DRD4 VNTR", section: "genetics", kind: "select", options: ["", "2R", "3R", "4R", "5R", "6R", "7R", "8R", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "DRD4", "dopamine"], sensitivity: "context_gated", contentLabel: "DRD4 VNTR genotype" },
+  { id: "slc6a4_5httlpr", label: "5-HTTLPR / SLC6A4", section: "genetics", kind: "select", options: ["", "L/L", "L/S", "S/S", "LA/LA", "LA/LG", "LA/S", "LG/LG", "LG/S", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "5-HTTLPR", "SLC6A4", "serotonin"], sensitivity: "context_gated", contentLabel: "5-HTTLPR / SLC6A4 genotype" },
+  { id: "maoa_uvntr", label: "MAOA-uVNTR", section: "genetics", kind: "select", options: ["", "2R", "3R", "3.5R", "4R", "5R", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "MAOA"], sensitivity: "context_gated", contentLabel: "MAOA-uVNTR genotype" },
+  { id: "trpc2_variant", label: "TRPC2 variant", section: "genetics", kind: "text", placeholder: "variant / rsID / note", tags: ["profile", "genetics", "genotype", "TRPC2"], sensitivity: "context_gated", contentLabel: "TRPC2 genetic note" },
+  { id: "comt_rs4680", label: "COMT rs4680 (Val158Met)", section: "genetics", kind: "select", options: ["", "Val/Val (G/G)", "Val/Met (G/A)", "Met/Met (A/A)", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "COMT", "rs4680", "dopamine"], sensitivity: "context_gated", contentLabel: "COMT rs4680 genotype" },
+  { id: "bdnf_rs6265", label: "BDNF rs6265 (Val66Met)", section: "genetics", kind: "select", options: ["", "Val/Val (G/G)", "Val/Met (G/A)", "Met/Met (A/A)", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "BDNF", "rs6265"], sensitivity: "context_gated", contentLabel: "BDNF rs6265 genotype" },
+  { id: "mthfr_c677t", label: "MTHFR C677T / rs1801133", section: "genetics", kind: "select", options: ["", "C/C", "C/T", "T/T", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "MTHFR", "rs1801133", "methylation"], sensitivity: "context_gated", contentLabel: "MTHFR C677T genotype" },
+  { id: "mthfr_a1298c", label: "MTHFR A1298C / rs1801131", section: "genetics", kind: "select", options: ["", "A/A", "A/C", "C/C", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "MTHFR", "rs1801131", "methylation"], sensitivity: "context_gated", contentLabel: "MTHFR A1298C genotype" },
+  { id: "apoe_genotype", label: "APOE genotype", section: "genetics", kind: "select", options: ["", "ε2/ε2", "ε2/ε3", "ε2/ε4", "ε3/ε3", "ε3/ε4", "ε4/ε4", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "APOE"], sensitivity: "context_gated", contentLabel: "APOE genotype" },
+  { id: "cyp1a2_rs762551", label: "CYP1A2 rs762551", section: "genetics", kind: "select", options: ["", "A/A", "A/C", "C/C", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "CYP1A2", "rs762551", "caffeine"], sensitivity: "context_gated", contentLabel: "CYP1A2 rs762551 genotype" },
+  { id: "cyp2d6_phenotype", label: "CYP2D6 metabolizer", section: "genetics", kind: "select", options: ["", "poor", "intermediate", "normal / extensive", "rapid", "ultrarapid", "other / custom", "unknown"], tags: ["profile", "genetics", "pharmacogenomics", "CYP2D6"], sensitivity: "context_gated", contentLabel: "CYP2D6 metabolizer status" },
+  { id: "cyp2c19_phenotype", label: "CYP2C19 metabolizer", section: "genetics", kind: "select", options: ["", "poor", "intermediate", "normal / extensive", "rapid", "ultrarapid", "other / custom", "unknown"], tags: ["profile", "genetics", "pharmacogenomics", "CYP2C19"], sensitivity: "context_gated", contentLabel: "CYP2C19 metabolizer status" },
+  { id: "actn3_rs1815739", label: "ACTN3 rs1815739", section: "genetics", kind: "select", options: ["", "C/C", "C/T", "T/T", "R/R", "R/X", "X/X", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "ACTN3", "rs1815739", "athlete"], sensitivity: "context_gated", contentLabel: "ACTN3 rs1815739 genotype" },
+  { id: "ace_indel", label: "ACE I/D", section: "genetics", kind: "select", options: ["", "I/I", "I/D", "D/D", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "ACE", "athlete"], sensitivity: "context_gated", contentLabel: "ACE I/D genotype" },
+  { id: "lct_rs4988235", label: "LCT rs4988235", section: "genetics", kind: "select", options: ["", "C/C", "C/T", "T/T", "other / custom", "unknown"], tags: ["profile", "genetics", "genotype", "LCT", "rs4988235", "lactose"], sensitivity: "context_gated", contentLabel: "LCT rs4988235 genotype" },
+  { id: "hla_b", label: "HLA-B risk alleles", section: "genetics", kind: "text", placeholder: "e.g. HLA-B*57:01, HLA-B*15:02, or none known", tags: ["profile", "genetics", "genotype", "HLA", "pharmacogenomics"], sensitivity: "context_gated", contentLabel: "HLA-B genetic note" },
+  { id: "other_genetic_variants", label: "Other genetic variants", section: "genetics", kind: "text", placeholder: "gene, rsID, genotype, and source", tags: ["profile", "genetics", "genotype"], sensitivity: "context_gated", contentLabel: "other genetic variants" },
 
   // Athlete profile / performance metrics
   { id: "primary_sports", label: "Primary sports", section: "athlete", kind: "text", placeholder: "running, cycling", tags: ["profile", "athlete", "sport"], sensitivity: "general" },

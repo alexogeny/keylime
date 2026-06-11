@@ -1,7 +1,7 @@
 import { PINNED_PROFILE_TAGS, type MemoryWizardSensitivity } from "./types.js";
 import type { MemoryWizardDraft } from "./freeform.js";
 
-export type ProfileFactSection = "identity" | "body" | "appearance" | "health" | "athlete" | "mental" | "life" | "contact" | "work" | "preferences";
+export type ProfileFactSection = "identity" | "body" | "appearance" | "health" | "genetics" | "athlete" | "mental" | "life" | "contact" | "work" | "preferences";
 export type ProfileFactFieldKind = "text" | "date" | "datetime" | "select" | "number";
 
 export type ProfileFactField = {
