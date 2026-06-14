@@ -127,3 +127,11 @@ test("routes generic bulk edit requests to coding tools", () => {
   expect(route.primaryIntent).toBe("coding");
   expect(route.capabilityGroups).toContain("coding");
 });
+
+test("routes Linux sysadmin requests to Linux tools", () => {
+  const route = classifyIntent("ubuntu systemd service logs apt install and sudo review");
+
+  expect(route.primaryIntent).toBe("linux_ops");
+  expect(route.capabilityGroups).toContain("linux");
+  expect(route.capabilityGroups).toContain("safety");
+});

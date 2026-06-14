@@ -46,6 +46,7 @@ export const INTENT_REGISTRY: IntentRegistryEntry[] = [
   { id: "python_engineering", targetIntent: "python_engineering", aliases: ["python_engineering", "python"], seedPrompt: "python optimize performance typing pytest" },
   { id: "rust_systems", targetIntent: "rust_systems", aliases: ["rust_systems", "rust"], seedPrompt: "rust systems ownership lifetime cargo clippy" },
   { id: "rust_shell_emulator", targetIntent: "rust_shell_emulator", aliases: ["rust_shell_emulator", "shell_emulator"], seedPrompt: "rust shell terminal emulator pty ansi parser" },
+  { id: "linux_ops", targetIntent: "linux_ops", aliases: ["linux_ops", "linux", "sysadmin"], seedPrompt: "linux ubuntu debian arch cachy systemd apt pacman sudo logs services" },
   { id: "ui_design", targetIntent: "ui_design", aliases: ["ui_design", "ui", "ux"], seedPrompt: "ui ux design component accessibility screen" },
   { id: "chat", targetIntent: "chat", aliases: ["chat", "talk"], seedPrompt: "general chat answer normally no tools" },
 ];
@@ -98,6 +99,14 @@ export const INTENT_PROFILES: IntentProfileDefinition[] = [
     capabilityGroups: ["core", "repo", "coding", "project", "safety"],
     skills: ["rust-systems", "rust-codemod"],
     minScore: 4,
+  },
+  {
+    id: "linux_ops",
+    phrases: ["linux system", "ubuntu server", "debian package", "arch package", "cachy package", "systemd service", "journal logs", "apt install", "pacman install", "sudo password", "disk full", "network diagnostics", "linux permissions", "kill process"],
+    keywords: ["linux", "ubuntu", "debian", "arch", "cachy", "systemd", "journalctl", "service", "services", "apt", "apt-get", "pacman", "paru", "yay", "sudo", "kernel", "lsblk", "mount", "ports", "firewall", "chmod", "chown", "process", "disk", "logs", "sysadmin"],
+    capabilityGroups: ["readonly", "linux", "safety"],
+    skills: ["agentic-programming"],
+    minScore: 3,
   },
   {
     id: "ui_design",
