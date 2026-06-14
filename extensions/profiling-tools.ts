@@ -26,6 +26,11 @@ function safeArgs(args: string[] = []): string[] {
   }
   return args;
 }
+function safePythonExecutable(input: string = "python3"): string {
+  if (input === "python" || input === "python3") return input;
+  if (input === ".venv/bin/python" || input === "venv/bin/python") return input;
+  throw new Error(`Unsafe Python executable: ${input}`);
+}
 async function ensureProfileDir(cwd: string, lang: Lang): Promise<string> {
   const dir = path.join(cwd, ".pi", "profiles", lang);
   await mkdir(dir, { recursive: true });
@@ -41,7 +46,7 @@ async function runPlan(plan: ProfilePlan, timeoutMs: number) {
 }
 
 export function buildPythonProfilePlan(params: any, cwd: string): ProfilePlan {
-  const python = params.python ?? "python3";
+  const python = safePythonExecutable(params.python);
   const sort = params.sort ?? "cumtime";
   const args = safeArgs(params.args ?? []);
   const output = params.output ? safeRel(params.output, "output") : undefined;

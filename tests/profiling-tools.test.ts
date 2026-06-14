@@ -35,10 +35,13 @@ describe("profiling tools", () => {
     });
   });
 
-  test("rejects unsafe profile paths", () => {
+  test("rejects unsafe profile paths and arbitrary Python executables", () => {
     expect(() => buildPythonProfilePlan({ mode: "script", path: "../slow.py" }, "/repo")).toThrow("Unsafe script");
     expect(() => buildTypescriptProfilePlan({ runtime: "bun", mode: "file", path: "/tmp/slow.ts" }, "/repo")).toThrow("Unsafe file");
     expect(() => buildRustProfilePlan({ mode: "run", bin: "../server" }, "/repo")).toThrow("Unsafe bin");
+    expect(() => buildPythonProfilePlan({ mode: "script", path: "slow.py", python: "node" }, "/repo")).toThrow("Unsafe Python executable");
+    expect(() => buildPythonProfilePlan({ mode: "script", path: "slow.py", python: "/usr/bin/python3" }, "/repo")).toThrow("Unsafe Python executable");
+    expect(buildPythonProfilePlan({ mode: "script", path: "slow.py", python: ".venv/bin/python" }, "/repo")).toMatchObject({ command: ".venv/bin/python" });
   });
 
   test("routes profiling intent and classifies profile runs as guarded execution", () => {

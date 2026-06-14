@@ -151,4 +151,10 @@ describe("central mutation classification", () => {
     expect(patch.writePaths).toEqual(["/etc/hosts"]);
     expect(classifyToolMutation("safe_delete", { path: "/tmp/old" })).toMatchObject({ mutates: true, category: "file_replace" });
   });
+
+  test("classifies archive output paths for checkpoint/protected-path policy", () => {
+    const archive = classifyToolMutation("archive_path", { path: "/tmp/source", output: "/etc/archive.tgz" });
+    expect(archive.category).toBe("protected_path");
+    expect(archive.writePaths).toEqual(["/tmp/source", "/etc/archive.tgz"]);
+  });
 });

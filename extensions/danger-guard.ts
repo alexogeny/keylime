@@ -171,6 +171,12 @@ export default function (pi: ExtensionAPI) {
         `Writing to this path may be sensitive.\n\nReasons: ${classification.reasons.join(", ")}\n\nProceed?`
       );
       if (!ok) return { block: true, reason: `danger-guard blocked write to protected path: ${label}` };
+    } else if (classification.requiresConfirmation && !isToolCallEventType("bash", event)) {
+      const ok = await ctx.ui.confirm(
+        `⛔ High-risk tool: ${event.toolName}`,
+        `This tool is classified as ${classification.severity}: ${classification.reasons.join(", ") || "may have significant side effects"}.\n\nProceed?`
+      );
+      if (!ok) return { block: true, reason: `danger-guard blocked high-risk tool: ${event.toolName}` };
     }
 
     // ── Bash: pattern matching ──────────────────────────────────────────────

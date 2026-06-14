@@ -50,6 +50,18 @@ describe("test runner defaults", () => {
     expect(runChecksCommandBlockReason("cargo", ["test"])).toBeNull();
   });
 
+  test("run_checks rejects blocked custom commands even outside coding mode", async () => {
+    setCurrentRoute(classifyIntent("hello"));
+    const tools: Record<string, any> = {};
+    const { default: testRunnerExtension } = await import("../extensions/test-runner");
+    testRunnerExtension({ registerTool: (tool: any) => { tools[tool.name] = tool; } } as any);
+
+    await expect(tools.run_checks.execute("id", {
+      command: "sudo",
+      args: ["rm", "file.ts"],
+    }, undefined, undefined, { cwd: process.cwd() })).rejects.toThrow("run_checks blocked custom command");
+  });
+
   test("run_checks rejects blocked custom commands when coding is active", async () => {
     const { default: testRunnerExtension } = await import("../extensions/test-runner");
     const tools: Record<string, any> = {};

@@ -43,6 +43,14 @@ describe("shared tool policy", () => {
     expect(capabilityToolMap().coding).toContain("list_tool_results");
   });
 
+  test("profiling tools are routed and risk-classified", () => {
+    const map = capabilityToolMap();
+    expect(map.profiling).toEqual(expect.arrayContaining(["inspect_profiler_availability", "plan_python_profile", "run_python_profile", "plan_rust_profile", "run_rust_profile"]));
+    expect(toolPolicyFor("plan_python_profile")).toMatchObject({ group: "profiling", domain: true, risk: "safe" });
+    expect(toolPolicyFor("run_python_profile")).toMatchObject({ group: "profiling", domain: true, risk: "guarded" });
+    expect(knownToolNames()).toContain("inspect_profile_artifact");
+  });
+
   test("stateful memory timeline tool is domain-routed, not preserved as an unknown tool", () => {
     expect(toolPolicyFor("remember_timeline")).toMatchObject({ group: "memory", domain: true, risk: "stateful" });
     expect(domainToolNames()).toContain("remember_timeline");

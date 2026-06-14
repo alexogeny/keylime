@@ -417,13 +417,8 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
     if ((event as any).isError || (event as any).details?.skipped === true) return;
     const input = (event as any).input ?? {};
     const resultWritePaths = writePathsForToolResult(event as any);
-    if (event.toolName === "finish_file_write") {
+    if (event.toolName !== "apply_code_replacements" && resultWritePaths.length > 0) {
       if (resultWritePaths.some(path => isIndexedSourcePath(path))) markRepoIndexDirty();
-      return;
-    }
-
-    if (["write", "edit", "create_file"].includes(event.toolName)) {
-      if (isIndexedSourcePath(input.path ?? "")) markRepoIndexDirty();
       return;
     }
 

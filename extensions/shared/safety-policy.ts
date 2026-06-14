@@ -320,7 +320,8 @@ export function shouldAutoCheckpointTurn(score: number, lastCheckpointAt: number
 }
 
 export function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory", "delete_file", "replace_file", "create_reporter_document", "create_chart", "backup_system_file", "apply_system_file_patch", "safe_delete", "archive_path", "apply_permissions_change"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory", "delete_file", "replace_file", "create_reporter_document", "create_chart", "backup_system_file", "apply_system_file_patch", "safe_delete", "apply_permissions_change"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (toolName === "archive_path") return [input?.path, input?.output].filter((path): path is string => typeof path === "string");
   if (["move_file", "copy_file"].includes(toolName)) return [input?.from_path, input?.to_path].filter((path): path is string => typeof path === "string");
   if (toolName === "restore_system_file_backup") return [input?.backup, input?.destination].filter((path): path is string => typeof path === "string");
   if (toolName === "convert_document") return typeof input?.output_path === "string" ? [input.output_path] : [];

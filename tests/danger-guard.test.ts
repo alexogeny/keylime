@@ -205,6 +205,28 @@ describe("danger guard coding-mode hard enforcement", () => {
     expect(confirmCalls).toBe(0);
   });
 
+  test("extension prompts for any high-risk guarded tool classification", async () => {
+    setCurrentRoute(classifyIntent("profile this bottleneck"));
+    const handlers: Record<string, any> = {};
+    let confirmCalls = 0;
+    dangerGuardExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerCommand: () => {},
+    } as any);
+
+    const result = await handlers.tool_call(
+      { toolName: "run_python_profile", input: { mode: "script", path: "slow.py" } },
+      {
+        ui: { confirm: async () => { confirmCalls += 1; return false; } },
+        sessionManager: { getEntries: () => [] },
+      },
+    );
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("high-risk tool");
+    expect(confirmCalls).toBe(1);
+  });
+
   test("extension checks protected paths for create_directory", async () => {
     setCurrentRoute(classifyIntent("hello"));
     const handlers: Record<string, any> = {};

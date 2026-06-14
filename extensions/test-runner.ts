@@ -57,9 +57,9 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
       timeout_ms: Type.Optional(Type.Number({ description: "Timeout ms" })),
     }),
     async execute(_id, params, _signal, onUpdate, ctx) {
-      if (params.command && isCapabilityActive("coding")) {
+      if (params.command) {
         const blocked = runChecksCommandBlockReason(params.command, params.args ?? []);
-        if (blocked) throw new Error(`run_checks blocked custom command in coding mode: ${blocked}`);
+        if (blocked) throw new Error(`run_checks blocked custom command: ${blocked}`);
       }
 
       const commands = params.command

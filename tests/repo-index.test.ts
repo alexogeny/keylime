@@ -174,6 +174,21 @@ describe("code_search file_glob handling", () => {
     expect(isRepoIndexDirty()).toBe(true);
   });
 
+  test("repo index invalidates for all source mutation result paths", async () => {
+    const handlers = await registeredRepoIndexHandlers();
+
+    for (const event of [
+      { toolName: "replace_file", input: { path: "src/a.ts" } },
+      { toolName: "delete_file", input: { path: "src/a.ts" } },
+      { toolName: "copy_file", input: { from_path: "src/a.ts", to_path: "src/b.ts" } },
+      { toolName: "move_file", input: { from_path: "src/a.ts", to_path: "src/b.ts" } },
+    ]) {
+      markRepoIndexCleanForTest();
+      await handlers.tool_result(event);
+      expect(isRepoIndexDirty()).toBe(true);
+    }
+  });
+
   test("create_file ignores non-source files for repo index invalidation", async () => {
     const handlers = await registeredRepoIndexHandlers();
     markRepoIndexCleanForTest();
