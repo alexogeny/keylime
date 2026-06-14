@@ -16,6 +16,18 @@ describe("browser web UI extension", () => {
     expect(html).toContain("Memories");
     expect(html).toContain("Tool Calls / Results");
     expect(html).toContain("Profile");
+    expect(html).toContain("Deep Research");
+    expect(html).toContain("https://cdn.jsdelivr.net/npm/@picocss/pico");
+    expect(html).toContain("Profile & Settings");
+    expect(html).not.toContain('data-tab="theme"');
+    expect(html).toContain("localStorage.getItem('keylime.token')");
+  });
+
+  test("rendered browser script parses", () => {
+    const html = renderWebUiHtml();
+    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+    expect(() => new Function(script!)).not.toThrow();
   });
 
   test("profile sanitizer keeps first-class profile settings bounded", () => {
@@ -48,5 +60,22 @@ describe("browser web UI extension", () => {
 
     const allowed = await handleWebUiRequest(req("/api/health", { headers: { Authorization: "Bearer secret" } }), state);
     expect(allowed.status).toBe(200);
+  });
+
+  test("research API returns searchable topic index shape", async () => {
+    const state = webUiStateForTests({ cwd: process.cwd() });
+    const response = await handleWebUiRequest(req("/api/research?q=llm"), state);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toHaveProperty("entries");
+    expect(body).toHaveProperty("stats");
+  });
+
+  test("chat POST delegates through state sender", async () => {
+    const sent: string[] = [];
+    const state = webUiStateForTests({ cwd: process.cwd(), sendUserMessage: (text: string) => sent.push(text) });
+    const response = await handleWebUiRequest(req("/api/chat", { method: "POST", body: JSON.stringify({ message: "hello pi" }) }), state);
+    expect(response.status).toBe(200);
+    expect(sent).toEqual(["hello pi"]);
   });
 });
