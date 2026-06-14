@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import controlPlaneApi, { handleControlPlaneRequest, runtimeState } from "../extensions/control-plane-api";
+import controlPlaneApi, { handleControlPlaneRequest, runtimeState, startControlPlaneServer, stopControlPlaneServer } from "../extensions/control-plane-api";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 function req(path: string, init: RequestInit = {}) {
@@ -16,7 +16,23 @@ describe("control-plane API extension", () => {
     controlPlaneApi(harness.pi);
     expect(Object.keys(harness.commands)).not.toContain("web-ui");
     expect(Object.keys(harness.commands)).not.toContain("web-ui-stop");
+    expect(Object.keys(harness.commands)).toEqual(expect.arrayContaining(["keylime", "keylime-stop"]));
     expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining(["model_select", "thinking_level_select", "turn_start", "turn_end", "tool_call"]));
+  });
+
+  test("serves branded graphite UI and API from keylime server", async () => {
+    const harness = mockPiFixture();
+    const ctx = { cwd: process.cwd(), sessionManager: { getEntries: () => [] }, ui: { notify: () => {} } } as any;
+    const url = await startControlPlaneServer(harness.pi, ctx, 0);
+    try {
+      const html = await fetch(`${url}ui/keylime.dc.html`);
+      expect(html.status).toBe(200);
+      expect(await html.text()).toContain("KEYLIME");
+      const api = await fetch(`${url}api/system`);
+      expect(api.status).toBe(200);
+    } finally {
+      await stopControlPlaneServer();
+    }
   });
 
   test("system and status endpoints expose normalized control-plane shape", async () => {

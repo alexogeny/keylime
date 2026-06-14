@@ -6,6 +6,8 @@ describe("graphite control-plane UI", () => {
   test("main shell loads API client and wires live state hooks", async () => {
     const html = await text("ui/keylime.dc.html");
     expect(html).toContain("./keylime-api.js");
+    expect(html).toContain("./shared.css");
+    expect(html).toContain("./shared-components.js");
     expect(html).toContain("loadApi()");
     expect(html).toContain("KeylimeAPI.loadAll");
     expect(html).toContain("/api/chat/threads/current/messages");
@@ -13,6 +15,11 @@ describe("graphite control-plane UI", () => {
     for (const view of ["Dashboard.dc.html", "ChatView.dc.html", "Research.dc.html", "MemoryBrowser.dc.html", "GraphView.dc.html", "FilesView.dc.html", "ToolsView.dc.html", "ApprovalsView.dc.html", "RunsView.dc.html", "SettingsView.dc.html"]) {
       expect(html).toContain(`src="./${view}"`);
     }
+  });
+
+  test("shared UI assets expose reusable frame/style primitives", async () => {
+    expect(await text("ui/shared.css")).toContain(".kl-frame");
+    expect(await text("ui/shared-components.js")).toContain("KeylimeComponents");
   });
 
   test("API client targets contract endpoints", async () => {
@@ -28,6 +35,8 @@ describe("graphite control-plane UI", () => {
       const html = await text(path);
       expect(html).toContain("<x-dc>");
       expect(html).toContain("./keylime-api.js");
+      expect(html).toContain("./shared.css");
+      expect(html).toContain("./shared-components.js");
     }
   });
 });

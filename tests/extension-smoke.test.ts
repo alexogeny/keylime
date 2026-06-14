@@ -47,6 +47,8 @@ describe("extension registration smoke", () => {
       "intent-status",
       "danger-rules",
       "checkpoint",
+      "keylime",
+      "keylime-stop",
     ]));
     expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining([
       "tool_result",

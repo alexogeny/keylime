@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="./shared.css">
 <script src="./support.js"></script>
 <script src="./keylime-api.js"></script>
+<script src="./shared-components.js"></script>
 </head>
 <body>
 <x-dc>
@@ -116,16 +118,16 @@
 
     <!-- CONTENT -->
     <main style="min-height: 0; overflow: hidden; display: flex; flex-direction: column; position: relative;">
-      <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}"><iframe title="Dashboard" src="./Dashboard.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isChat }}"><iframe title="Chat" src="./ChatView.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isResearch }}"><iframe title="Research" src="./Research.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isMemories }}"><iframe title="Memories" src="./MemoryBrowser.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isGraph }}"><iframe title="Knowledge Graph" src="./GraphView.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isFiles }}"><iframe title="Files" src="./FilesView.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isTools }}"><iframe title="Tools" src="./ToolsView.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isApprovals }}"><iframe title="Approvals" src="./ApprovalsView.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isRuns }}"><iframe title="Runs" src="./RunsView.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
-      <sc-if value="{{ isSettings }}"><iframe title="Settings" src="./SettingsView.dc.html" style="border:0;width:100%;height:100%;background:#131210;"></iframe></sc-if>
+      <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}"><iframe title="Dashboard" src="./Dashboard.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isChat }}"><iframe title="Chat" src="./ChatView.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isResearch }}"><iframe title="Research" src="./Research.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isMemories }}"><iframe title="Memories" src="./MemoryBrowser.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isGraph }}"><iframe title="Knowledge Graph" src="./GraphView.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isFiles }}"><iframe title="Files" src="./FilesView.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isTools }}"><iframe title="Tools" src="./ToolsView.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isApprovals }}"><iframe title="Approvals" src="./ApprovalsView.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isRuns }}"><iframe title="Runs" src="./RunsView.dc.html" class="kl-frame"></iframe></sc-if>
+      <sc-if value="{{ isSettings }}"><iframe title="Settings" src="./SettingsView.dc.html" class="kl-frame"></iframe></sc-if>
     </main>
   </div>
 
