@@ -6,6 +6,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
 import { extractMainContent, summarizeText, type SummaryResult } from "./shared/content-distill";
 
 type FetchOutcome =
@@ -24,7 +27,7 @@ type FetchClassification =
   | "soft_error"
   | "timeout";
 
-type FetchPolicy = "none" | "retry_only" | "alt_headers" | "browser";
+type FetchPolicy = "none" | "retry_only" | "alt_headers" | "browser" | "browser_first";
 
 type FetchResult = {
   outcome: FetchOutcome;
@@ -70,17 +73,59 @@ type BrowserFallbackResult = {
 };
 
 const BROWSER_UAS = [
-  // Current mainstream desktop browser UA profiles (compatibility-focused defaults)
+  // Chromium-compatible desktop UA profiles. Keep these coherent with the Playwright Chromium browser engine.
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (X11; Linux x86_64; rv:138.0) Gecko/20100101 Firefox/138.0",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
 ];
 
-function pickUserAgent(url: string): string {
+type BrowserProfile = {
+  engine: "chromium";
+  userAgent: string;
+  locale: string;
+  timezoneId: string;
+  viewport: { width: number; height: number };
+  deviceScaleFactor: number;
+  colorScheme: "light" | "dark" | "no-preference";
+  reducedMotion: "reduce" | "no-preference";
+};
+
+function stableHash(input: string): number {
   let hash = 0;
-  for (let i = 0; i < url.length; i++) hash = ((hash << 5) - hash + url.charCodeAt(i)) | 0;
-  return BROWSER_UAS[Math.abs(hash) % BROWSER_UAS.length];
+  for (let i = 0; i < input.length; i++) hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+}
+
+function pickUserAgent(url: string): string {
+  return BROWSER_UAS[stableHash(url) % BROWSER_UAS.length];
+}
+
+function browserProfileForUrl(url: string): BrowserProfile {
+  const hash = stableHash(url);
+  return {
+    engine: "chromium",
+    userAgent: pickUserAgent(url),
+    locale: "en-AU",
+    timezoneId: "Australia/Brisbane",
+    viewport: hash % 2 === 0 ? { width: 1365, height: 900 } : { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme: "light",
+    reducedMotion: "no-preference",
+  };
+}
+
+function browserStateDirForUrl(url: string): string {
+  let host = "unknown-host";
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/[^a-z0-9.-]+/g, "-").replace(/^-+|-+$/g, "") || host;
+  } catch {}
+  const base = process.env.KEYLIME_BROWSER_STATE_DIR ?? join(homedir(), ".pi", "browser-state");
+  return join(base, host);
+}
+
+function browserSettleMs(): number {
+  const raw = Number(process.env.KEYLIME_BROWSER_SETTLE_MS ?? "6000");
+  return Number.isFinite(raw) ? Math.max(500, Math.min(raw, 15000)) : 6000;
 }
 
 function decodeHtmlEntities(input: string): string {
@@ -303,10 +348,7 @@ async function downloadPage(url: string, timeoutMs: number, policy: FetchPolicy,
 
   if (policy === "alt_headers" && attempt > 1) {
     headers["Accept-Language"] = "en-AU,en-US;q=0.9,en;q=0.8";
-    headers["Sec-CH-UA"] = '"Chromium";v="136", "Not.A/Brand";v="24"';
-    headers["Sec-CH-UA-Mobile"] = "?0";
-    headers["Sec-CH-UA-Platform"] = '"Linux"';
-    reasonCodes.push("alt_headers_attempt");
+    reasonCodes.push("alt_headers_attempt", "no_synthetic_client_hints");
   }
 
   try {
@@ -358,12 +400,15 @@ async function downloadPage(url: string, timeoutMs: number, policy: FetchPolicy,
 
 async function browserFallbackFetch(url: string, timeoutMs: number, maxChars: number): Promise<BrowserFallbackResult> {
   const started = Date.now();
-  let browser: any;
+  let context: any;
+  const profile = browserProfileForUrl(url);
+  const stateDir = browserStateDirForUrl(url);
+  const reasonCodes = ["browser_engine_chromium", "coherent_browser_profile", "persistent_context"];
 
   try {
-    let firefox: any;
+    let chromium: any;
     try {
-      ({ firefox } = await import("playwright"));
+      ({ chromium } = await import("playwright"));
     } catch {
       return {
         ok: false,
@@ -377,11 +422,18 @@ async function browserFallbackFetch(url: string, timeoutMs: number, maxChars: nu
       };
     }
 
-    browser = await firefox.launch({ headless: true });
-    const context = await browser.newContext({
-      userAgent: pickUserAgent(url),
-      locale: "en-AU",
-      timezoneId: "Australia/Brisbane",
+    await mkdir(stateDir, { recursive: true });
+    const channel = process.env.KEYLIME_BROWSER_CHANNEL || undefined;
+    context = await chromium.launchPersistentContext(stateDir, {
+      headless: process.env.KEYLIME_BROWSER_HEADLESS !== "0",
+      channel,
+      userAgent: profile.userAgent,
+      locale: profile.locale,
+      timezoneId: profile.timezoneId,
+      viewport: profile.viewport,
+      deviceScaleFactor: profile.deviceScaleFactor,
+      colorScheme: profile.colorScheme,
+      reducedMotion: profile.reducedMotion,
       extraHTTPHeaders: {
         "Accept-Language": "en-AU,en-US;q=0.9,en;q=0.8",
         "DNT": "1",
@@ -389,21 +441,38 @@ async function browserFallbackFetch(url: string, timeoutMs: number, maxChars: nu
     });
 
     const page = await context.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
-    await page.waitForTimeout(1200);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: Math.max(timeoutMs, 12000) });
+    await page.waitForSelector("main, article, [role=main], body", { timeout: Math.min(browserSettleMs(), 8000) }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: Math.min(browserSettleMs(), 5000) }).catch(() => undefined);
+    await page.evaluate(() => window.scrollBy(0, Math.min(window.innerHeight * 0.8, 900))).catch(() => undefined);
+    await page.waitForTimeout(Math.min(browserSettleMs(), 6000));
+
+    let html = await page.content();
+    let challenge = detectChallenge(html, new Headers());
+    if (challenge) {
+      const deadline = Date.now() + browserSettleMs();
+      while (Date.now() < deadline) {
+        await page.waitForTimeout(750);
+        html = await page.content();
+        const nextChallenge = detectChallenge(html, new Headers());
+        const text = htmlToText(html, 1600);
+        if (!nextChallenge && text.length > 250) {
+          challenge = null;
+          reasonCodes.push("challenge_settled_after_wait");
+          break;
+        }
+        challenge = nextChallenge;
+      }
+    }
 
     const finalUrl = page.url();
-    const html = await page.content();
     const normalized = deobfuscateHtml(html);
     const normalizedHtml = normalized.html;
     const title = (await page.title()).slice(0, 120);
-    const challenge = detectChallenge(html, new Headers());
-
     const content = htmlToText(normalizedHtml, maxChars);
     const links = extractLinks(normalizedHtml, finalUrl);
 
     await context.close();
-    await browser.close();
 
     if (challenge) {
       return {
@@ -412,7 +481,7 @@ async function browserFallbackFetch(url: string, timeoutMs: number, maxChars: nu
         content: htmlToText(normalizedHtml, Math.min(maxChars, 1200)),
         links,
         finalUrl,
-        reasonCodes: ["browser_fallback_challenge_detected"],
+        reasonCodes: [...reasonCodes, "browser_fallback_challenge_detected"],
         reason: challenge,
         challenge,
         timingsMs: Date.now() - started,
@@ -425,18 +494,18 @@ async function browserFallbackFetch(url: string, timeoutMs: number, maxChars: nu
       content,
       links,
       finalUrl,
-      reasonCodes: ["browser_fallback_success"],
+      reasonCodes: [...reasonCodes, "browser_fallback_success"],
       timingsMs: Date.now() - started,
     };
   } catch (err: any) {
-    try { if (browser) await browser.close(); } catch {}
+    try { await context?.close?.(); } catch {}
     return {
       ok: false,
       title: "",
       content: "",
       links: [],
       finalUrl: url,
-      reasonCodes: ["browser_fallback_failed"],
+      reasonCodes: [...reasonCodes, "browser_fallback_failed"],
       reason: err?.message ?? "browser_fallback_failed",
       timingsMs: Date.now() - started,
     };
@@ -449,9 +518,46 @@ async function fetchPage(
   maxChars = 3000,
   policy: FetchPolicy = "retry_only"
 ): Promise<FetchResult> {
-  const maxAttempts = policy === "none" ? 1 : 2;
+  const maxAttempts = policy === "none" || policy === "browser_first" ? 1 : 2;
   const started = Date.now();
-  const allowBrowserFallback = policy === "browser";
+  const allowBrowserFallback = policy === "browser" || policy === "browser_first";
+
+  if (policy === "browser_first") {
+    const bf = await browserFallbackFetch(url, Math.max(timeoutMs, 12000), maxChars);
+    if (bf.ok) {
+      const quality = scoreContentQuality(bf.title, bf.content, bf.content);
+      return {
+        outcome: "ok",
+        classification: "ok_content",
+        title: bf.title,
+        content: bf.content,
+        links: bf.links,
+        url: bf.finalUrl,
+        fetchedAt: new Date().toISOString(),
+        reasonCodes: ["browser_first", ...bf.reasonCodes],
+        timingsMs: { total: Date.now() - started, download: 0, extract: bf.timingsMs },
+        redirectCount: bf.finalUrl === url ? 0 : 1,
+        contentLength: bf.content.length,
+        confidence: quality,
+      };
+    }
+    const outcome: FetchOutcome = bf.challenge ? "challenge_detected" : "network_error";
+    return {
+      outcome,
+      classification: classifyFromOutcome(outcome),
+      title: bf.title,
+      content: bf.content,
+      links: bf.links,
+      url: bf.finalUrl,
+      fetchedAt: new Date().toISOString(),
+      reason: bf.reason,
+      reasonCodes: ["browser_first", ...bf.reasonCodes],
+      timingsMs: { total: Date.now() - started, download: 0, extract: bf.timingsMs },
+      redirectCount: bf.finalUrl === url ? 0 : 1,
+      contentLength: bf.content.length,
+      confidence: { score: bf.challenge ? 0.1 : 0, reasons: [bf.challenge ? "challenge_page" : "browser_first_failed"] },
+    };
+  }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const dl = await downloadPage(url, timeoutMs, policy, attempt);
@@ -677,6 +783,9 @@ export const __testables = {
   extractSearchResultUrls,
   pickUserAgent,
   BROWSER_UAS,
+  browserProfileForUrl,
+  browserStateDirForUrl,
+  browserSettleMs,
   browserFallbackFetch,
   decodeCloudflareEmailHex,
   deobfuscateHtml,
@@ -706,6 +815,7 @@ export default function (pi: ExtensionAPI) {
         Type.Literal("retry_only"),
         Type.Literal("alt_headers"),
         Type.Literal("browser"),
+        Type.Literal("browser_first"),
       ], { description: "Fallback policy" })),
     }),
     async execute(_toolCallId, params, _signal, onUpdate) {

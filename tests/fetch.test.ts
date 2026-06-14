@@ -98,10 +98,30 @@ describe("fetch parser and classifier helpers", () => {
     expect(full.text).toContain("The page starts with a broad introduction");
   });
 
-  test("user agent selection is deterministic and skip rules ignore low-value urls", () => {
-    expect(__testables.pickUserAgent("https://example.com/a")).toBe(__testables.pickUserAgent("https://example.com/a"));
-    expect(__testables.BROWSER_UAS).toContain(__testables.pickUserAgent("https://example.com/a"));
+  test("user agent and browser profile selection stay coherent", () => {
+    const ua = __testables.pickUserAgent("https://example.com/a");
+    expect(ua).toBe(__testables.pickUserAgent("https://example.com/a"));
+    expect(__testables.BROWSER_UAS).toContain(ua);
+    expect(ua).toContain("Chrome/");
+    expect(ua).not.toContain("Firefox/");
+    expect(ua).not.toContain("Safari/605.1.15");
 
+    const profile = __testables.browserProfileForUrl("https://docs.example.com/path");
+    expect(profile.engine).toBe("chromium");
+    expect(profile.userAgent).toContain("Chrome/");
+    expect(profile.locale).toBe("en-AU");
+    expect(profile.timezoneId).toBe("Australia/Brisbane");
+  });
+
+  test("browser state path is stable and safely scoped per host", () => {
+    const path = __testables.browserStateDirForUrl("https://Sub.Example.com:443/a?b=c");
+    expect(path).toContain("browser-state");
+    expect(path).toContain("sub.example.com");
+    expect(path).not.toContain("?");
+    expect(path).not.toContain(":443");
+  });
+
+  test("user agent skip rules ignore low-value urls", () => {
     expect(__testables.shouldSkip("https://example.com/file.pdf")).toBe(true);
     expect(__testables.shouldSkip("https://example.com/docs")).toBe(false);
   });

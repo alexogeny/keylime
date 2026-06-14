@@ -27,6 +27,85 @@ import {
   saveSearchIndex,
 } from "./shared/web-search-store";
 import type { SearchEntry } from "./shared/web-search-types";
+import { summarizeText } from "./shared/content-distill";
+
+// ─── Deterministic search distillation ───────────────────────────────────────
+
+const SEARCH_STOP_TAGS = new Set([
+  "how", "what", "why", "when", "where", "who", "with", "from", "into", "about", "best", "latest", "current",
+  "the", "and", "for", "to", "of", "in", "on", "a", "an", "is", "are", "can", "does", "do", "make", "making",
+]);
+
+function keywordTags(text: string, max = 8): string[] {
+  const counts = new Map<string, number>();
+  for (const raw of text.toLowerCase().match(/[a-z][a-z0-9+#.-]{2,}/g) ?? []) {
+    const tag = raw.replace(/^\.+|\.+$/g, "");
+    if (!tag || SEARCH_STOP_TAGS.has(tag) || /^\d+$/.test(tag)) continue;
+    counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([tag]) => tag);
+}
+
+function inferCategories(text: string): string[] {
+  const lower = text.toLowerCase();
+  const categories = new Set<string>(["research"]);
+  if (/\b(api|code|typescript|javascript|python|playwright|browser|cloudflare|software|tool|web|fetch|search|llm|ai)\b/.test(lower)) categories.add("technology");
+  if (/\b(paper|study|benchmark|evaluation|arxiv|doi|research)\b/.test(lower)) categories.add("research");
+  if (/\b(tutorial|guide|docs|documentation|how to)\b/.test(lower)) categories.add("tutorial");
+  if (/\b(product|pricing|release|launch|company|vendor)\b/.test(lower)) categories.add("product");
+  if (/\b(health|biology|physics|chemistry|science|clinical)\b/.test(lower)) categories.add("science");
+  return [...categories].sort();
+}
+
+function cleanSentence(text: string): string {
+  return text.replace(/\s+/g, " ").trim().replace(/[\s.]+$/, ".");
+}
+
+function autoDistillSearchEntry(entry: SearchEntry): NonNullable<SearchEntry["distilled"]> {
+  const sourceText = [
+    entry.raw.answerBox,
+    entry.raw.knowledgeGraph?.title,
+    entry.raw.knowledgeGraph?.description,
+    ...entry.raw.results.flatMap(r => [r.title, r.snippet]),
+  ].filter(Boolean).join(". ");
+
+  const summary = summarizeText(sourceText, { query: entry.query, maxSentences: 3, maxChars: 900 });
+  const keyFacts = [
+    entry.raw.answerBox,
+    entry.raw.knowledgeGraph?.description,
+    ...entry.raw.results.slice(0, 6).map(r => r.snippet),
+  ]
+    .filter((s): s is string => Boolean(s && s.trim().length > 20))
+    .map(cleanSentence)
+    .filter((s, i, all) => all.indexOf(s) === i)
+    .slice(0, 6);
+
+  const sources = entry.raw.results.slice(0, 8).map((r, i) => ({
+    title: r.title || r.url,
+    url: r.url,
+    relevance: i < 2 ? "high" as const : i < 5 ? "medium" as const : "low" as const,
+  }));
+
+  const tags = keywordTags([entry.query, sourceText].join(" "));
+  const categories = inferCategories([entry.query, sourceText].join(" "));
+
+  return {
+    summary: summary.text || keyFacts[0] || `Search results for ${entry.query}`,
+    keyFacts,
+    tags,
+    categories,
+    sources,
+  };
+}
+
+export const __testables = {
+  autoDistillSearchEntry,
+  keywordTags,
+  inferCategories,
+};
 
 // ─── Config (env vars with fallback to config.json) ──────────────────────────
 
@@ -176,17 +255,19 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         timestamp: Date.now(),
         raw,
       };
+      entry.distilled = autoDistillSearchEntry(entry);
 
       await saveSearchEntry(entry);
 
-      // Stub in the index (will be enriched by save_search_knowledge)
+      // Persist deterministic baseline knowledge immediately; save_search_knowledge can refine it later.
       const index = await loadSearchIndex();
       index.entries.push({
         id:         entry.id,
         query:      entry.query,
         timestamp:  entry.timestamp,
-        tags:       [],
-        categories: [],
+        tags:       entry.distilled.tags,
+        categories: entry.distilled.categories,
+        summary:    entry.distilled.summary,
         provider,
       });
       await saveSearchIndex(index);
@@ -197,6 +278,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         `query:     "${params.query}"`,
         `provider:  ${provider}`,
         `results:   ${raw.results.length}`,
+        `saved:     deterministic baseline knowledge (${entry.distilled.keyFacts.length} facts, ${entry.distilled.sources.length} sources)`,
         ``,
       ];
 
@@ -218,7 +300,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 
       lines.push(
         `───`,
-        `Review the results above, then call:`,
+        `Deterministic baseline knowledge was already saved for recall. To improve it, call:`,
         `  save_search_knowledge(search_id="${entry.id}", summary=..., key_facts=[...], tags=[...], categories=[...], sources=[...])`,
       );
 
