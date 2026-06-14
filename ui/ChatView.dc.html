@@ -35,8 +35,8 @@
     <div style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #141210;">
       <span style="width: 7px; height: 7px; border-radius: 50%; background: #b3c46e; animation: klpulse 1.4s ease-in-out infinite;"></span>
       <div style="flex: 1;">
-        <div style="font-size: 13.5px; color: #d8d3c7;">Small-model fine-tuning for agentic tool use</div>
-        <div style="font-size: 11px; color: #6a655c;">11 messages · 3 tools · 1 research note · started 14:02</div>
+        <div style="font-size: 13.5px; color: #d8d3c7;">Current thread</div>
+        <div style="font-size: 11px; color: #6a655c;">Live messages · tools · research · files</div>
       </div>
       <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 4px 10px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⌖ pinned 2</button>
       <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 4px 10px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⎘ branch</button>
@@ -175,59 +175,14 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  state = { expandedTools: { t1: true } };
+  state = { expandedTools: {}, threads: [], messages: [], composer: '' };
+  componentDidMount(){ this.refresh(); this._es = KeylimeAPI.stream?.(() => this.refresh()); }
+  componentWillUnmount(){ this._es?.close?.(); }
+  async refresh(){ const [threads, chat] = await Promise.all([KeylimeAPI.get('/api/chat/threads').catch(()=>({items:[]})), KeylimeAPI.get('/api/chat/threads/current').catch(()=>({messages:[]}))]); this.setState({ threads: threads.items || threads.threads || [], messages: (chat.messages || []).map(KeylimeAPI.mapMessage) }); }
   toggleTool(id) { this.setState(s => ({ expandedTools: { ...s.expandedTools, [id]: !s.expandedTools[id] } })); }
-
-  threadData() {
-    const threads = [
-      { id: 'th1', title: 'Small-model fine-tuning for tool use', preview: 'assembled cited brief · 3 sources', time: 'now', dot: '#b3c46e', active: true },
-      { id: 'th2', title: 'Refactor auth middleware', preview: 'patch pending review · 4 files', time: '2h', dot: '#c9a86a', active: false },
-      { id: 'th3', title: 'Q3 competitor landscape', preview: 'research note · 11 entities', time: '1d', dot: '#9a93b4', active: false },
-      { id: 'th4', title: 'Migrate vector store to local', preview: 'done · 0 errors', time: '2d', dot: '#6a655c', active: false },
-      { id: 'th5', title: 'Onboarding copy review', preview: 'idle', time: '4d', dot: '#6a655c', active: false },
-    ];
-    return threads.map(t => ({ ...t, go: () => {}, bg: t.active ? '#1b1815' : 'transparent', bar: t.active ? '#b3c46e' : 'transparent', fg: t.active ? '#e3ddd0' : '#b6b0a4' }));
-  }
-
-  messageData() {
-    const E = this.state.expandedTools;
-    const raw = [
-      { id: 's1', role: 'system', text: 'Session resumed · web-research workspace · 3 days of context loaded' },
-      { id: 'u1', role: 'user', time: '14:02', text: 'Pull together the current state of small-model fine-tuning for agentic tool use. I want a short, cited brief — under 400 words.' },
-      { id: 'a1', role: 'agent', time: '14:02', html: 'Planning a four-step pass:<br>1 · scoped web search across recent literature<br>2 · extract and dedupe claims<br>3 · cross-check against memory + prior notes<br>4 · assemble a cited brief under your length preference.' },
-      { id: 'mem1', role: 'memory', text: 'You prefer briefs under 400 words with inline citations.', source: 'preference · 96%' },
-      { id: 't1', role: 'tool', name: 'web.search', status: 'ok', duration: '2.4s', tokens: '1.2k', tokensIn: '180', tokensOut: '1,040', cost: '$0.004', model: 'sonnet-4.6',
-        input: 'query: "small language model fine-tuning tool use agents 2025"\ntop_k: 8\nrecency: 12mo',
-        output: '8 results · 6 unique domains\n[1] arxiv.org/2503.xxxxx — "Toolformer-style SFT on 3B models"\n[2] arxiv.org/2504.xxxxx — "RL from tool feedback"\n[3] blog.allenai.org — "Tulu tool-use distillation"\n…' },
-      { id: 't2', role: 'tool', name: 'memory.query', status: 'ok', duration: '0.3s', tokens: '320', tokensIn: '64', tokensOut: '256', cost: '$0.001', model: 'haiku-4',
-        input: 'entities: ["fine-tuning","tool-use"]\nscope: workspace',
-        output: '2 related notes, 1 preference, 1 prior brief (Q1) recalled.' },
-      { id: 'res1', role: 'research', text: 'Created note — “Small-model fine-tuning for tool use” · 3 sources, 7 claims' },
-      { id: 'err1', role: 'error', text: 'web.fetch rate-limited (429) on arxiv.org', retry: 'retrying in 1.2s — attempt 2 of 3' },
-      { id: 'file1', role: 'file', op: 'write', path: 'research/small-model-tooluse.md', added: '142', removed: '0' },
-      { id: 'appr1', role: 'approval', text: 'keylime wants to write 3 files to the workspace and run the test suite.' },
-      { id: 'a2', role: 'agent', time: '14:05', html: '<b style="color:#cdc8bc">Brief — Small-model fine-tuning for agentic tool use</b><br>Recent work converges on three levers. Supervised fine-tuning on synthetic tool-call traces closes most of the gap to frontier models on schema adherence <span style="color:#9a93b4">[1]</span>. RL from execution feedback adds robustness on multi-step plans <span style="color:#9a93b4">[2]</span>. Distillation from a stronger teacher remains the most cost-effective path under 7B <span style="color:#9a93b4">[3]</span>.<br><br>Saved to your library with citations. Want the full report or just the sources?' },
-    ];
-    return raw.map(m => ({
-      ...m,
-      isSystem: m.role === 'system', isUser: m.role === 'user', isAgent: m.role === 'agent',
-      isTool: m.role === 'tool', isMemory: m.role === 'memory', isResearch: m.role === 'research',
-      isFile: m.role === 'file', isError: m.role === 'error', isApproval: m.role === 'approval',
-      expanded: !!E[m.id], caret: E[m.id] ? 90 : 0,
-      toggle: () => this.toggleTool(m.id),
-      statusBg: m.status === 'ok' ? 'rgba(130,169,140,0.14)' : 'rgba(197,137,122,0.14)',
-      statusFg: m.status === 'ok' ? '#82a98c' : '#c5897a',
-    }));
-  }
-
-  renderVals() {
-    return {
-      threads: this.threadData(),
-      messages: this.messageData(),
-      goResearch: () => this.props.onNavigate && this.props.onNavigate('research'),
-      openPatch: () => this.props.onOpenPatch && this.props.onOpenPatch(),
-    };
-  }
+  threadData(){ return (this.state.threads || []).map((t,i)=>({ id:t.id, title:t.title || 'Untitled', preview:t.preview || '', time:KeylimeAPI.rel(t.time || t.updatedAt), dot:t.state==='running'?'#b3c46e':'#6a655c', active:i===0, go:()=>{}, bg:i===0?'#1b1815':'transparent', bar:i===0?'#b3c46e':'transparent', fg:i===0?'#e3ddd0':'#b6b0a4' })); }
+  messageData(){ const E=this.state.expandedTools; return (this.state.messages || []).map(m=>({ ...m, expanded:!!E[m.id], caret:E[m.id]?90:0, toggle:()=>this.toggleTool(m.id), toolBg:'rgba(127,166,176,0.08)', toolBorder:'rgba(127,166,176,0.22)', toolFg:'#7fa6b0', statusFg:m.status==='ok'?'#82a98c':'#c5897a' })); }
+  renderVals() { return { threads:this.threadData(), messages:this.messageData(), goResearch:()=>this.props.onNavigate&&this.props.onNavigate('research'), openPatch:()=>this.props.onOpenPatch&&this.props.onOpenPatch() }; }
 }
 </script>
 </body>

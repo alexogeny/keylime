@@ -93,40 +93,17 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  state = { selectedResearch: 'r1' };
+  state = { selectedResearch: null, items: [], detail: null };
+  componentDidMount(){ this.refresh(); this._es = KeylimeAPI.stream?.((t)=>{ if(t==='research.created') this.refresh(); }); }
+  componentWillUnmount(){ this._es?.close?.(); }
+  async refresh(){ const d = await KeylimeAPI.get('/api/research').catch(()=>({items:[]})); const items = d.items || d.entries || []; const selectedResearch = this.state.selectedResearch || items[0]?.id; let detail = selectedResearch ? await KeylimeAPI.get('/api/research/'+encodeURIComponent(selectedResearch)).catch(()=>null) : null; this.setState({ items, selectedResearch, detail }); }
+  async select(id){ this.setState({ selectedResearch:id }); const detail = await KeylimeAPI.get('/api/research/'+encodeURIComponent(id)).catch(()=>null); this.setState({ detail }); }
   renderVals() {
-    const notes = [
-      { id: 'r1', title: 'Small-model fine-tuning for tool use', tags: ['ml', 'agents', 'fine-tuning'], sources: 3, claims: 7, conf: 'high', recency: '2m ago', backlinks: 4 },
-      { id: 'r2', title: 'RL from execution feedback', tags: ['ml', 'rl'], sources: 5, claims: 9, conf: 'high', recency: '2m ago', backlinks: 2 },
-      { id: 'r3', title: 'Distillation under 7B parameters', tags: ['ml', 'efficiency'], sources: 4, claims: 6, conf: 'medium', recency: '14m ago', backlinks: 3 },
-      { id: 'r4', title: 'Q3 competitor landscape', tags: ['market', 'strategy'], sources: 11, claims: 18, conf: 'medium', recency: '1d ago', backlinks: 6 },
-      { id: 'r5', title: 'Vector store local migration notes', tags: ['infra', 'eng'], sources: 2, claims: 4, conf: 'high', recency: '2d ago', backlinks: 1 },
-      { id: 'r6', title: 'Schema adherence benchmarks', tags: ['ml', 'eval'], sources: 6, claims: 12, conf: 'low', recency: '3d ago', backlinks: 2 },
-    ];
-    const details = {
-      r1: {
-        body: 'Recent work converges on three levers for closing the gap between small (1–7B) models and frontier systems on agentic tool use.<br><br><b>Supervised fine-tuning</b> on synthetic tool-call traces closes most of the gap on schema adherence and argument validity. Models trained on 50–100k verified traces reach 90%+ valid-call rates [1].<br><br><b>RL from execution feedback</b> adds robustness on multi-step plans, where SFT alone tends to compound errors. Reward shaping on successful tool returns is the dominant signal [2].<br><br><b>Distillation</b> from a stronger teacher remains the most cost-effective path under 7B, trading a small accuracy loss for a 6–10× inference cost reduction [3].',
-        sources: [
-          { n: '1', title: 'Toolformer-style SFT on 3B models', host: 'arxiv.org/2503', conf: 'high' },
-          { n: '2', title: 'RL from tool feedback', host: 'arxiv.org/2504', conf: 'high' },
-          { n: '3', title: 'Tulu tool-use distillation', host: 'blog.allenai.org', conf: 'medium' },
-        ],
-        related: ['RL from execution feedback', 'Distillation under 7B parameters', 'Schema adherence benchmarks'],
-      },
-    };
     const sel = this.state.selectedResearch;
-    const detail = details[sel] || details.r1;
-    const selNote = notes.find(n => n.id === sel) || notes[0];
-    return {
-      list: notes.map(n => ({
-        ...n,
-        select: () => this.setState({ selectedResearch: n.id }),
-        bg: n.id === sel ? '#1f1c18' : '#161412',
-        bar: n.id === sel ? '#9a93b4' : 'transparent',
-        confFg: n.conf === 'high' ? '#82a98c' : (n.conf === 'medium' ? '#c9a86a' : '#c5897a'),
-      })),
-      detail, selNote,
-    };
+    const notes = this.state.items || [];
+    const selected = notes.find(n=>n.id===sel) || notes[0] || {};
+    const detail = this.state.detail || selected;
+    return { list: notes.map(n => ({ ...n, tags:n.tags||[], sources:n.sources||n.sourceCount||0, claims:n.claims?.length||0, conf:n.confidence ? Math.round(n.confidence*100)+'%' : '', recency:KeylimeAPI.rel(n.recency||n.updatedAt||n.createdAt), backlinks:n.backlinks?.length||0, select:()=>this.select(n.id), bg:n.id===sel?'#1f1c18':'#161412', bar:n.id===sel?'#9a93b4':'transparent', confFg:'#82a98c' })), detail:{ body:detail.body || detail.summary || '', sources:detail.sources || [], related:detail.relatedTopics || detail.related || [] }, selNote:selected };
   }
 }
 </script>

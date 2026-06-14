@@ -76,36 +76,11 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  state = { selectedNode: 'n_jordan' };
-  renderVals() {
-    const nodes = [
-      { id: 'n_jordan', name: 'Jordan', type: 'person', conns: 14 },
-      { id: 'n_mlplat', name: 'ML Platform', type: 'project', conns: 11 },
-      { id: 'n_core', name: 'keylime-core', type: 'repo', conns: 9 },
-      { id: 'n_maya', name: 'Maya Chen', type: 'person', conns: 6 },
-      { id: 'n_ft', name: 'Fine-tuning brief', type: 'research', conns: 5 },
-      { id: 'n_auth', name: 'Auth refactor', type: 'task', conns: 4 },
-      { id: 'n_acme', name: 'Acme Research', type: 'company', conns: 3 },
-    ];
-    const typeColor = { person: '#bda07a', project: '#82a98c', repo: '#7fa6b0', research: '#9a93b4', task: '#c9a86a', company: '#c5897a', system: '#9c968a' };
-    const adjacency = {
-      n_jordan: {
-        memories: ['Preferred name: Jordan', 'Role: Staff engineer', 'Brief length preference'],
-        chats: ['Small-model fine-tuning', 'Refactor auth middleware'],
-        research: ['Fine-tuning brief', 'Q3 competitor landscape'],
-        files: ['research/small-model-tooluse.md'],
-        people: ['Maya Chen (manager)'],
-      },
-    };
-    const sel = this.state.selectedNode;
-    const selNode = nodes.find(n => n.id === sel) || nodes[0];
-    const adj = adjacency[sel] || adjacency.n_jordan;
-    return {
-      nodes: nodes.map(n => ({ ...n, select: () => this.setState({ selectedNode: n.id }), c: typeColor[n.type], bg: n.id === sel ? '#1f1c18' : 'transparent', bar: n.id === sel ? typeColor[n.type] : 'transparent' })),
-      selNode: { ...selNode, c: typeColor[selNode.type] },
-      adjMem: adj.memories, adjChats: adj.chats, adjRes: adj.research, adjFiles: adj.files, adjPeople: adj.people,
-    };
-  }
+  state = { selected: null, graph: { nodes: [], edges: [] }, detail: {} };
+  componentDidMount(){ this.refresh(); }
+  async refresh(){ const graph = await KeylimeAPI.get('/api/graph').catch(()=>({nodes:[],edges:[]})); const selected = this.state.selected || graph.nodes?.[0]?.id; const detail = selected ? await KeylimeAPI.get('/api/graph/nodes/'+encodeURIComponent(selected)).catch(()=>({})) : {}; this.setState({ graph, selected, detail }); }
+  async select(id){ this.setState({selected:id}); const detail = await KeylimeAPI.get('/api/graph/nodes/'+encodeURIComponent(id)).catch(()=>({})); this.setState({detail}); }
+  renderVals(){ const typeColor={person:'#bda07a',project:'#82a98c',workspace:'#7fa6b0',file:'#7fa6b0',research_topic:'#9a93b4',memory:'#bda07a',task:'#c9a86a',company:'#c5897a'}; const nodes=this.state.graph.nodes||[]; const sel=this.state.selected; return { nodes:nodes.map(n=>({ ...n, select:()=>this.select(n.id), c:typeColor[n.type]||'#9c968a', bg:n.id===sel?'#1f1c18':'#161412', bar:n.id===sel?(typeColor[n.type]||'#9c968a'):'transparent' })), selNode:nodes.find(n=>n.id===sel)||nodes[0]||{}, adjacency:this.state.detail||{} }; }
 }
 </script>
 </body>

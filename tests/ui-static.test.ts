@@ -30,6 +30,15 @@ describe("graphite control-plane UI", () => {
     expect(js).toContain("EventSource");
   });
 
+  test("split panes are live-data first, not Claude dummy-data first", async () => {
+    for (const path of ["ui/keylime.dc.html", "ui/Dashboard.dc.html", "ui/ChatView.dc.html", "ui/Research.dc.html", "ui/MemoryBrowser.dc.html", "ui/ToolsView.dc.html", "ui/ApprovalsView.dc.html", "ui/FilesView.dc.html", "ui/GraphView.dc.html"]) {
+      const html = await text(path);
+      expect(html).not.toContain("Small-model fine-tuning");
+      expect(html).not.toContain("Maya Chen");
+      expect(html).not.toContain("Q3 competitor landscape");
+    }
+  });
+
   test("split view files exist for remaining major panes", async () => {
     for (const path of ["ui/RunsView.dc.html", "ui/SettingsView.dc.html", "ui/ChatView.dc.html", "ui/Research.dc.html", "ui/MemoryBrowser.dc.html", "ui/ToolsView.dc.html", "ui/ApprovalsView.dc.html", "ui/FilesView.dc.html", "ui/GraphView.dc.html"]) {
       const html = await text(path);

@@ -76,34 +76,11 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  state = { tab: 'pending', selected: 'ap1' };
-  renderVals() {
-    const pending = [
-      { id: 'ap1', type: 'patch', title: 'Write 3 files to workspace', scope: 'src/auth/*.ts', risk: 'medium', time: '2m ago', origin: 'Refactor auth middleware', detail: 'Apply the auth middleware patch: 3 files, +83 −12. Tests pass, lint clean.', c: '#c9a86a', riskFg: '#c9a86a' },
-    ];
-    const history = [
-      { id: 'ap2', type: 'command', title: 'Run npm test -- auth', scope: 'shell.exec', risk: 'low', time: '11:19', origin: 'Refactor auth middleware', detail: 'Execute the auth test suite.', decision: 'approved', c: '#7fa6b0', riskFg: '#82a98c' },
-      { id: 'ap3', type: 'memory write', title: 'Store preference: briefs < 400 words', scope: 'memory.write', risk: 'low', time: '14:02', origin: 'Small-model fine-tuning', detail: 'Persist a stated length preference to memory.', decision: 'approved', c: '#bda07a', riskFg: '#82a98c' },
-      { id: 'ap4', type: 'network', title: 'POST results to webhook', scope: 'network.post', risk: 'high', time: 'Yesterday', origin: 'Q3 competitor landscape', detail: 'Send the generated report to an external webhook.', decision: 'rejected', c: '#c5897a', riskFg: '#c5897a' },
-      { id: 'ap5', type: 'file write', title: 'Overwrite vector store config', scope: 'infra/relay.toml', risk: 'medium', time: '2d', origin: 'Migrate vector store', detail: 'Replace the relay configuration file.', decision: 'approved', c: '#82a98c', riskFg: '#c9a86a' },
-    ];
-    const typeIcon = { patch: '⧉', command: '›_', 'memory write': '◈', network: '↗', 'file write': '✎', 'tool call': '⛁', 'model switch': '⛁' };
-    const tab = this.state.tab;
-    const list = tab === 'pending' ? pending : history;
-    const sel = this.state.selected;
-    const selAp = [...pending, ...history].find(a => a.id === sel) || pending[0];
-    return {
-      isPending: tab === 'pending', isHistory: tab === 'history',
-      pendingTabBg: tab === 'pending' ? '#1f1c18' : 'transparent', pendingTabBar: tab === 'pending' ? '#c9a86a' : 'transparent', pendingTabFg: tab === 'pending' ? '#e3ddd0' : '#9c968a',
-      historyTabBg: tab === 'history' ? '#1f1c18' : 'transparent', historyTabBar: tab === 'history' ? '#c9a86a' : 'transparent', historyTabFg: tab === 'history' ? '#e3ddd0' : '#9c968a',
-      selectPending: () => this.setState({ tab: 'pending', selected: 'ap1' }),
-      selectHistory: () => this.setState({ tab: 'history', selected: 'ap2' }),
-      list: list.map(a => ({ ...a, icon: typeIcon[a.type] || '•', select: () => this.setState({ selected: a.id }), bg: a.id === sel ? '#1f1c18' : '#161412', bar: a.id === sel ? a.c : 'transparent', decided: !!a.decision, decisionFg: a.decision === 'approved' ? '#82a98c' : '#c5897a' })),
-      selAp: { ...selAp, icon: typeIcon[selAp.type] || '•', decided: !!selAp.decision, decisionFg: selAp.decision === 'approved' ? '#82a98c' : '#c5897a' },
-      openChat: () => this.props.onNavigate && this.props.onNavigate('chat'),
-      openPatch: () => this.props.onOpenPatch && this.props.onOpenPatch(),
-    };
-  }
+  state = { tab: 'pending', selected: null, pending: [], history: [] };
+  componentDidMount(){ this.refresh(); this._es = KeylimeAPI.stream?.((t)=>{ if(t==='approval.requested') this.refresh(); }); }
+  componentWillUnmount(){ this._es?.close?.(); }
+  async refresh(){ const d=await KeylimeAPI.get('/api/approvals').catch(()=>({pending:[],history:[],items:[]})); const pending=d.pending||[]; const history=d.history||[]; this.setState({ pending, history, selected:this.state.selected||pending[0]?.id||history[0]?.id }); }
+  renderVals() { const typeIcon={patch:'⧉',command:'›_','memory write':'◈',network:'↗','file write':'✎','tool call':'⛁','model switch':'⛁'}; const risk={high:'#c5897a',medium:'#c9a86a',low:'#82a98c'}; const tab=this.state.tab; const list=tab==='pending'?this.state.pending:this.state.history; const all=[...this.state.pending,...this.state.history]; const sel=this.state.selected; const selAp=all.find(a=>a.id===sel)||all[0]||{}; const decorate=a=>({...a,icon:typeIcon[a.type]||'•',c:risk[a.risk]||'#c9a86a',riskFg:risk[a.risk]||'#c9a86a',select:()=>this.setState({selected:a.id}),bg:a.id===sel?'#1f1c18':'#161412',bar:a.id===sel?(risk[a.risk]||'#c9a86a'):'transparent',decided:!!a.decision,decisionFg:a.decision==='approved'?'#82a98c':'#c5897a'}); return { isPending:tab==='pending', isHistory:tab==='history', pendingTabBg:tab==='pending'?'#1f1c18':'transparent', pendingTabBar:tab==='pending'?'#c9a86a':'transparent', pendingTabFg:tab==='pending'?'#e3ddd0':'#9c968a', historyTabBg:tab==='history'?'#1f1c18':'transparent', historyTabBar:tab==='history'?'#c9a86a':'transparent', historyTabFg:tab==='history'?'#e3ddd0':'#9c968a', selectPending:()=>this.setState({tab:'pending',selected:this.state.pending[0]?.id}), selectHistory:()=>this.setState({tab:'history',selected:this.state.history[0]?.id}), list:list.map(decorate), selAp:decorate(selAp) }; }
 }
 </script>
 </body>

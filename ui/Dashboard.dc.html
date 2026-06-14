@@ -104,44 +104,16 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  dashboardData() {
-    return {
-      stats: [
-        { label: 'Active runs', value: '1', sub: 'researching', c: '#b3c46e' },
-        { label: 'Pending approvals', value: '1', sub: '1 patch waiting', c: '#c9a86a' },
-        { label: 'Memories', value: '24', sub: '+3 today', c: '#bda07a' },
-        { label: 'Research notes', value: '12', sub: '+2 today', c: '#9a93b4' },
-        { label: 'Today spend', value: '$0.34', sub: 'of $20.00 cap', c: '#82a98c' },
-        { label: 'Tools active', value: '3', sub: '2 ask-gated', c: '#7fa6b0' },
-      ],
-      threads: [
-        { title: 'Small-model fine-tuning for tool use', meta: 'researching · 11 msgs', dot: '#b3c46e', time: 'now' },
-        { title: 'Refactor auth middleware', meta: 'patch pending · 4 files', dot: '#c9a86a', time: '2h' },
-        { title: 'Q3 competitor landscape', meta: 'done · 11 entities', dot: '#6a655c', time: '1d' },
-      ],
-      activity: [
-        { text: 'web.search returned 8 results', label: 'tool', c: '#7fa6b0', time: '14:03' },
-        { text: 'research note created · 3 sources', label: 'research', c: '#9a93b4', time: '14:04' },
-        { text: 'wrote research/small-model-tooluse.md', label: 'file', c: '#82a98c', time: '14:04' },
-        { text: 'approval requested · write 3 files', label: 'approval', c: '#c9a86a', time: '14:05' },
-      ],
-      research: [
-        { title: 'Small-model fine-tuning for tool use', tags: 'ml · agents', time: '2m' },
-        { title: 'RL from execution feedback', tags: 'ml · rl', time: '2m' },
-        { title: 'Distillation under 7B', tags: 'efficiency', time: '14m' },
-      ],
-    };
-  }
+  state = { data: { stats: [], threads: [], activity: [], research: [] } };
+  componentDidMount(){ this.refresh(); this._es = KeylimeAPI.stream?.(() => this.refresh()); }
+  componentWillUnmount(){ this._es?.close?.(); }
+  async refresh(){ const data = await KeylimeAPI.get('/api/screens/dashboard').catch(() => ({ stats: [], threads: [], activity: [], research: [] })); this.setState({ data }); }
   renderVals() {
     const nav = this.props.onNavigate || (() => {});
     return {
-      ...this.dashboardData(),
-      openChat: () => nav('chat'),
-      goRuns: () => nav('runs'),
-      goResearch: () => nav('research'),
-      goApprovals: () => nav('approvals'),
-      openPatch: () => this.props.onOpenPatch && this.props.onOpenPatch(),
-      openPalette: () => this.props.onOpenPalette && this.props.onOpenPalette(),
+      stats: this.state.data.stats || [], threads: this.state.data.threads || [], activity: this.state.data.activity || [], research: this.state.data.research || [],
+      openChat: () => nav('chat'), goRuns: () => nav('runs'), goResearch: () => nav('research'), goApprovals: () => nav('approvals'),
+      openPatch: () => this.props.onOpenPatch && this.props.onOpenPatch(), openPalette: () => this.props.onOpenPalette && this.props.onOpenPalette(),
     };
   }
 }

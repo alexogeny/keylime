@@ -74,35 +74,10 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  state = { selectedTool: 'tc1' };
-  renderVals() {
-    const catalog = [
-      { name: 'web.search', mode: 'auto', calls: 41, desc: 'Query the web for recent sources', c: '#82a98c' },
-      { name: 'web.fetch', mode: 'auto', calls: 28, desc: 'Fetch and extract a page', c: '#82a98c' },
-      { name: 'file.read', mode: 'auto', calls: 96, desc: 'Read workspace files into context', c: '#82a98c' },
-      { name: 'file.write', mode: 'ask', calls: 12, desc: 'Write or modify workspace files', c: '#c9a86a' },
-      { name: 'shell.exec', mode: 'ask', calls: 7, desc: 'Run a shell command', c: '#c9a86a' },
-      { name: 'memory.query', mode: 'auto', calls: 54, desc: 'Recall structured memory', c: '#82a98c' },
-      { name: 'network.post', mode: 'blocked', calls: 0, desc: 'Outbound POST requests', c: '#c5897a' },
-    ];
-    const history = [
-      { id: 'tc1', name: 'web.search', status: 'ok', thread: 'Small-model fine-tuning', time: '14:03', dur: '2.4s', tokens: '1.2k', cost: '$0.004', model: 'sonnet-4.6', input: 'query: "small language model fine-tuning tool use agents 2025"\ntop_k: 8\nrecency: 12mo', output: '8 results · 6 unique domains\n[1] arxiv.org/2503 — Toolformer-style SFT on 3B\n[2] arxiv.org/2504 — RL from tool feedback\n[3] blog.allenai.org — Tulu distillation' },
-      { id: 'tc2', name: 'memory.query', status: 'ok', thread: 'Small-model fine-tuning', time: '14:02', dur: '0.3s', tokens: '320', cost: '$0.001', model: 'haiku-4', input: 'entities: ["fine-tuning","tool-use"]\nscope: workspace', output: '2 related notes, 1 preference, 1 prior brief recalled' },
-      { id: 'tc3', name: 'web.fetch', status: 'retry', thread: 'Small-model fine-tuning', time: '14:03', dur: '1.9s', tokens: '880', cost: '$0.003', model: 'sonnet-4.6', input: 'url: arxiv.org/2503.xxxxx', output: '429 rate-limited → retried → 200 OK on attempt 2' },
-      { id: 'tc4', name: 'file.write', status: 'ok', thread: 'Small-model fine-tuning', time: '14:04', dur: '0.1s', tokens: '0', cost: '$0.000', model: '—', input: 'path: research/small-model-tooluse.md\nbytes: 4,210', output: 'wrote 142 lines · awaiting approval' },
-      { id: 'tc5', name: 'shell.exec', status: 'ok', thread: 'Refactor auth middleware', time: '11:19', dur: '4.2s', tokens: '0', cost: '$0.000', model: '—', input: 'cmd: npm test -- auth', output: '14 passing · 0 failing · 4.1s' },
-      { id: 'tc6', name: 'file.read', status: 'ok', thread: 'Refactor auth middleware', time: '11:17', dur: '0.1s', tokens: '1.4k', cost: '$0.000', model: '—', input: 'path: src/auth/middleware.ts', output: 'read 86 lines into context' },
-    ];
-    const sc = { ok: '#82a98c', retry: '#c9a86a', error: '#c5897a' };
-    const mc = { auto: '#82a98c', ask: '#c9a86a', blocked: '#c5897a' };
-    const sel = this.state.selectedTool;
-    const selCall = history.find(h => h.id === sel) || history[0];
-    return {
-      catalog: catalog.map(t => ({ ...t, modeFg: mc[t.mode] })),
-      history: history.map(h => ({ ...h, select: () => this.setState({ selectedTool: h.id }), statusFg: sc[h.status], bg: h.id === sel ? '#1f1c18' : 'transparent', bar: h.id === sel ? sc[h.status] : 'transparent' })),
-      selCall: { ...selCall, statusFg: sc[selCall.status] },
-    };
-  }
+  state = { selectedTool: null, catalog: [], history: [] };
+  componentDidMount(){ this.refresh(); }
+  async refresh(){ const [tools,calls] = await Promise.all([KeylimeAPI.get('/api/tools').catch(()=>({items:[]})), KeylimeAPI.get('/api/tool-calls').catch(()=>({items:[]}))]); const history=calls.items||calls.calls||[]; this.setState({ catalog:tools.items||tools.tools||[], history, selectedTool:this.state.selectedTool||history[0]?.id }); }
+  renderVals() { const sc={success:'#82a98c',ok:'#82a98c',retry:'#c9a86a',error:'#c5897a'}; const mc={auto:'#82a98c',ask:'#c9a86a',blocked:'#c5897a'}; const sel=this.state.selectedTool; const selCall=(this.state.history||[]).find(h=>h.id===sel)||(this.state.history||[])[0]||{}; return { catalog:(this.state.catalog||[]).map(t=>({...t,c:mc[t.mode]||'#9c968a'})), history:(this.state.history||[]).map(h=>({...h,dur:h.duration||h.durationMs,time:KeylimeAPI.rel(h.time||h.startedAt),select:()=>this.setState({selectedTool:h.id}),statusFg:sc[h.status]||'#9c968a',bg:h.id===sel?'#1f1c18':'#161412',bar:h.id===sel?(sc[h.status]||'#9c968a'):'transparent'})), selCall:{...selCall,statusFg:sc[selCall.status]||'#9c968a'} }; }
 }
 </script>
 </body>

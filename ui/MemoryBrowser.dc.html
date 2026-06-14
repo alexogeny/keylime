@@ -149,64 +149,14 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
-  state = { tab: 'profile' };
+  state = { tab: 'profile', data: {} };
+  componentDidMount(){ this.refresh(); this._es = KeylimeAPI.stream?.((t)=>{ if(t==='memory.updated') this.refresh(); }); }
+  componentWillUnmount(){ this._es?.close?.(); }
+  async refresh(){ const data = await KeylimeAPI.get('/api/memory').catch(()=>({})); this.setState({ data }); }
   renderVals() {
-    const tabs = [
-      { id: 'profile', label: 'Profile' },
-      { id: 'timeline', label: 'Timeline' },
-      { id: 'entities', label: 'Entities' },
-      { id: 'relationships', label: 'Relationships' },
-      { id: 'projects', label: 'Projects' },
-      { id: 'prefs', label: 'Preferences' },
-    ];
-    const relationships = [
-      { subj: 'Jordan', rel: 'reports to', obj: 'Maya Chen', conf: '94%' },
-      { subj: 'Jordan', rel: 'owns', obj: 'ML Platform', conf: '99%' },
-      { subj: 'Jordan', rel: 'maintains', obj: 'keylime-core', conf: '97%' },
-      { subj: 'ML Platform', rel: 'depends on', obj: 'Local Relay', conf: '88%' },
-      { subj: 'Acme Research', rel: 'competes with', obj: 'ML Platform', conf: '72%' },
-      { subj: 'Maya Chen', rel: 'leads', obj: 'Platform org', conf: '90%' },
-    ];
-    const projects = [
-      { name: 'ML Platform', role: 'owner', facts: 12, status: 'active', note: 'Fine-tuning + serving infra. Q3 focus on tool-use evals.', c: '#82a98c' },
-      { name: 'keylime-core', role: 'maintainer', facts: 8, status: 'active', note: 'The harness itself. Auth refactor in review.', c: '#7fa6b0' },
-      { name: 'Vector store migration', role: 'lead', facts: 5, status: 'done', note: 'Moved to local relay, 0 errors.', c: '#6a655c' },
-    ];
-    const profile = [
-      { k: 'Preferred name', v: 'Jordan', conf: '100%', src: 'stated', priv: 'normal' },
-      { k: 'Role', v: 'Staff engineer, ML platform', conf: '94%', src: 'inferred · 4 chats', priv: 'normal' },
-      { k: 'Timezone', v: 'America/New_York (UTC−4)', conf: '99%', src: 'observed', priv: 'normal' },
-      { k: 'Writing tone', v: 'Terse, technical, no preamble', conf: '88%', src: 'inferred', priv: 'normal' },
-      { k: 'Brief length', v: 'Under 400 words, inline citations', conf: '96%', src: 'stated', priv: 'normal' },
-      { k: 'Home address', v: '•••••••• (hidden)', conf: '100%', src: 'stated', priv: 'sensitive' },
-    ];
-    const timeline = [
-      { t: 'Today 14:05', text: 'Generated brief on small-model fine-tuning', tag: 'research', c: '#9a93b4' },
-      { t: 'Today 11:20', text: 'Approved auth middleware refactor (4 files)', tag: 'patch', c: '#82a98c' },
-      { t: 'Yesterday', text: 'Set default model to sonnet-4.6 for this workspace', tag: 'config', c: '#7fa6b0' },
-      { t: '3 days ago', text: 'Migrated vector store to local relay', tag: 'infra', c: '#bda07a' },
-      { t: 'Last week', text: 'Started Q3 competitor landscape thread', tag: 'research', c: '#9a93b4' },
-    ];
-    const entities = [
-      { name: 'Maya Chen', type: 'person', rel: 'manager', facts: 4, fresh: '2d', c: '#bda07a' },
-      { name: 'ML Platform', type: 'project', rel: 'owner', facts: 12, fresh: '4h', c: '#82a98c' },
-      { name: 'keylime-core', type: 'repo', rel: 'maintainer', facts: 8, fresh: '1h', c: '#7fa6b0' },
-      { name: 'Acme Research', type: 'company', rel: 'competitor', facts: 6, fresh: '1d', c: '#9a93b4' },
-      { name: 'Local Relay', type: 'system', rel: 'infra', facts: 5, fresh: '3d', c: '#c9a86a' },
-    ];
-    const prefs = [
-      { k: 'Code style', v: 'Functional, early returns, no comments unless asked', freq: 'used 31×' },
-      { k: 'Citations', v: 'Always inline, numbered', freq: 'used 12×' },
-      { k: 'Approvals', v: 'Require approval for any file write outside /tmp', freq: 'enforced' },
-      { k: 'Models', v: 'Prefer local for sensitive workspaces', freq: 'used 8×' },
-    ];
-    const tab = this.state.tab;
-    return {
-      tabs: tabs.map(t => ({ ...t, select: () => this.setState({ tab: t.id }), bg: tab === t.id ? '#1f1c18' : 'transparent', fg: tab === t.id ? '#e3ddd0' : '#9c968a', bar: tab === t.id ? '#bda07a' : 'transparent' })),
-      profile: profile.map(p => ({ ...p, isSensitive: p.priv === 'sensitive' })), timeline, entities, prefs, relationships, projects,
-      isProfile: tab === 'profile', isTimeline: tab === 'timeline', isEntities: tab === 'entities',
-      isRelationships: tab === 'relationships', isProjects: tab === 'projects', isPrefs: tab === 'prefs',
-    };
+    const tabs = ['profile','timeline','entities','relationships','projects','prefs'].map(id=>({ id, label:id==='prefs'?'Preferences':id[0].toUpperCase()+id.slice(1) }));
+    const d = this.state.data || {};
+    return { tabs: tabs.map(t=>({ ...t, select:()=>this.setState({tab:t.id}), active:this.state.tab===t.id, bg:this.state.tab===t.id?'#1f1c18':'transparent', fg:this.state.tab===t.id?'#e3ddd0':'#9c968a', bar:this.state.tab===t.id?'#bda07a':'transparent' })), profile:(d.profile||[]).map(p=>({ key:p.k, val:p.v, conf:p.confidence||'', source:p.source||'', priv:p.privacy||'', isSensitive:p.privacy==='sensitive' })), timeline:d.timeline||[], entities:d.entities||[], relationships:d.relationships||[], projects:d.projects||[], prefs:d.preferences||[], isProfile:this.state.tab==='profile', isTimeline:this.state.tab==='timeline', isEntities:this.state.tab==='entities', isRelationships:this.state.tab==='relationships', isProjects:this.state.tab==='projects', isPrefs:this.state.tab==='prefs' };
   }
 }
 </script>
