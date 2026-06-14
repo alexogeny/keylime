@@ -751,14 +751,18 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use instead of bash stat/file/wc/sha commands.",
       "Returns metadata only; use inspect_lines or inspect_text_matches for content.",
+      "Set allow_outside_cwd=true only for explicit read-only inspection outside cwd.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
       path: Type.String({ description: "File or directory path" }),
       include_sha256: Type.Optional(Type.Boolean({ description: "Include SHA-256 for files" })),
+      allow_outside_cwd: Type.Optional(Type.Boolean({ description: "Allow read-only inspection outside cwd when explicitly requested" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = params.allow_outside_cwd
+        ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
+        : resolveSafePath(ctx.cwd, params.path);
       const rel = repoRelativePath(ctx.cwd, path);
       const info = await stat(path);
       const details: any = {

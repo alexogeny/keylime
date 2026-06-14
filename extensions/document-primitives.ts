@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -393,10 +393,12 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     label: "Inspect Document",
     description: "Extract bounded text from PDF, DOCX, XLSX, CSV, Markdown, HTML, or text documents. Use instead of ad-hoc PDF/Word parsing scripts.",
     promptSnippet: "Inspect document text",
-    promptGuidelines: ["Use for read/summarize document workflows before answering.", "Output is bounded; request pages/max_chars to narrow large documents.", "Do not use bash/python/node snippets to parse everyday documents."],
-    parameters: Type.Object({ path: Type.String(), format: Type.Optional(stringEnum(["auto", "pdf", "docx", "xlsx", "csv", "txt", "md", "html"] as const)), pages: Type.Optional(Type.String()), max_chars: Type.Optional(Type.Number()), ocr: Type.Optional(Type.Boolean()) }),
+    promptGuidelines: ["Use for read/summarize document workflows before answering.", "Output is bounded; request pages/max_chars to narrow large documents.", "Do not use bash/python/node snippets to parse everyday documents.", "Set allow_outside_cwd=true only for explicit read-only inspection outside cwd."],
+    parameters: Type.Object({ path: Type.String(), format: Type.Optional(stringEnum(["auto", "pdf", "docx", "xlsx", "csv", "txt", "md", "html"] as const)), pages: Type.Optional(Type.String()), max_chars: Type.Optional(Type.Number()), ocr: Type.Optional(Type.Boolean()), allow_outside_cwd: Type.Optional(Type.Boolean({ description: "Allow read-only inspection outside cwd when explicitly requested" })) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = params.allow_outside_cwd
+        ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
+        : resolveSafePath(ctx.cwd, params.path);
       const format = detectFormat(path, params.format);
       const maxChars = clamp(params.max_chars, 12_000, 500, MAX_EXTRACT_CHARS);
       const info = await stat(path);

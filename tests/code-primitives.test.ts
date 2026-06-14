@@ -267,6 +267,27 @@ describe("code primitive extension tools", () => {
     expect(result.details.path).toBe("../outside.json");
   });
 
+  test("inspect_file_metadata can explicitly inspect read-only paths outside cwd", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    const cwd = join(parent, "repo");
+    await mkdir(cwd);
+    const outside = join(parent, "outside.txt");
+    await writeFile(outside, "outside\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.inspect_file_metadata.execute("id", { path: outside }, undefined, undefined, { cwd })).rejects.toThrow("outside cwd");
+
+    const result = await tools.inspect_file_metadata.execute("id", {
+      path: outside,
+      include_sha256: true,
+      allow_outside_cwd: true,
+    }, undefined, undefined, { cwd });
+
+    expect(result.content[0].text).toContain("path: ../outside.txt");
+    expect(result.content[0].text).toContain("line_count: 1");
+    expect(result.details.sha256).toBe(createHash("sha256").update("outside\n").digest("hex"));
+  });
+
   test("inspect_text_matches and inspect_code_structure can explicitly inspect outside cwd", async () => {
     const parent = await mkdtemp(join(tmpdir(), "code-primitives-"));
     const cwd = join(parent, "repo");

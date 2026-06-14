@@ -64,6 +64,27 @@ describe("document primitives", () => {
     expect(citations.content[0].text).toContain("10.1234/ABC.DEF");
   });
 
+  test("inspect_document can explicitly inspect read-only documents outside cwd", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "document-primitives-"));
+    const cwd = join(parent, "repo");
+    await mkdir(cwd);
+    const outside = join(parent, "outside.md");
+    await writeFile(outside, "# Outside\n\nReadable from docs.\n", "utf8");
+    const tools = registeredDocumentTools();
+
+    await expect(tools.inspect_document.execute("id", { path: outside }, undefined, undefined, { cwd })).rejects.toThrow("outside cwd");
+
+    const doc = await tools.inspect_document.execute("id", {
+      path: outside,
+      max_chars: 1000,
+      allow_outside_cwd: true,
+    }, undefined, undefined, { cwd });
+
+    expect(doc.content[0].text).toContain("Document: ../outside.md");
+    expect(doc.content[0].text).toContain("Readable from docs.");
+    expect(doc.details.path).toBe("../outside.md");
+  });
+
   test("creates reporter-style documents and converts extracted documents", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "document-primitives-"));
     await mkdir(join(cwd, "out"));

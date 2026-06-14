@@ -273,7 +273,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
       }
 
       // Step 4 — Synthesise
-      plan.push(
+      plan.push(...[
         `## Step 4 — Synthesise`,
         `Write a comprehensive answer that:`,
         `  • Integrates all sources (memory recall + fresh searches)`,
@@ -282,7 +282,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
         `  • Cites key sources inline (title + URL)`,
         depth === "deep" ? `  • Includes an executive summary at the top` : "",
         `  • Flags information likely to change quickly`,
-      ).filter(s => s !== "");
+      ].filter(s => s !== ""));
 
       return {
         content: [{ type: "text", text: plan.join("\n") }],
