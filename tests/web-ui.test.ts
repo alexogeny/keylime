@@ -1,99 +1,73 @@
 import { describe, expect, test } from "bun:test";
-import webUi, { handleWebUiRequest, renderWebUiHtml, sanitizeProfile, webUiStateForTests } from "../extensions/web-ui";
+import controlPlaneApi, { handleControlPlaneRequest, runtimeState } from "../extensions/control-plane-api";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 function req(path: string, init: RequestInit = {}) {
   return new Request(`http://127.0.0.1${path}`, init);
 }
 
-describe("browser web UI extension", () => {
-  test("registers web-ui commands and serves a modern shell", () => {
+async function body(response: Response) {
+  return response.json() as Promise<any>;
+}
+
+describe("control-plane API extension", () => {
+  test("registers adaptive lifecycle handlers without web-ui commands", () => {
     const harness = mockPiFixture();
-    webUi(harness.pi);
-    expect(Object.keys(harness.commands)).toEqual(expect.arrayContaining(["web-ui", "web-ui-stop"]));
-    const html = renderWebUiHtml();
-    expect(html).toContain("Keylime Browser UI");
-    expect(html).toContain("Memory");
-    expect(html).toContain("Tools");
-    expect(html).toContain("Profile");
-    expect(html).toContain("Research");
-    expect(html).toContain("Models & Pi");
-    expect(html).toContain("https://cdn.jsdelivr.net/npm/@picocss/pico");
-    expect(html).not.toContain(">Structured Memory<");
-    expect(html).toContain("type=\"file\"");
-    expect(html).toContain("chatLog");
-    expect(html).not.toContain('data-tab="theme"');
-    expect(html).not.toContain("Avatar data URL");
-    expect(html).toContain("localStorage.getItem('keylime.token')");
+    controlPlaneApi(harness.pi);
+    expect(Object.keys(harness.commands)).not.toContain("web-ui");
+    expect(Object.keys(harness.commands)).not.toContain("web-ui-stop");
+    expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining(["model_select", "thinking_level_select", "turn_start", "turn_end", "tool_call"]));
   });
 
-  test("rendered browser script parses", () => {
-    const html = renderWebUiHtml();
-    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
-    expect(script).toBeTruthy();
-    expect(() => new Function(script!)).not.toThrow();
+  test("system and status endpoints expose normalized control-plane shape", async () => {
+    const state = { cwd: process.cwd(), runtime: { agentState: "idle", model: { id: "claude-test", provider: "anthropic" } } } as any;
+    const system = await handleControlPlaneRequest(req("/api/system"), state);
+    expect(system.status).toBe(200);
+    const s = await body(system);
+    expect(s.ok).toBe(true);
+    expect(s.data.capabilities.chat).toBe(true);
+    expect(s.data.capabilities.structuredMemory).toBe(true);
+
+    const status = await body(await handleControlPlaneRequest(req("/api/status"), state));
+    expect(status.data.workspace.path).toBe(process.cwd());
+    expect(status.data.model).toMatchObject({ id: "claude-test", provider: "anthropic" });
   });
 
-  test("profile sanitizer keeps first-class profile settings bounded", () => {
-    const profile = sanitizeProfile({
-      nickname: "Andie",
-      avatarDataUrl: "data:image/png;base64,abc",
-      theme: "aurora",
-      customInstructions: "x".repeat(20_000),
-    });
-    expect(profile.nickname).toBe("Andie");
-    expect(profile.avatarDataUrl).toBe("data:image/png;base64,abc");
-    expect(profile.theme).toBe("aurora");
-    expect(profile.customInstructions.length).toBeLessThanOrEqual(8000);
+  test("chat endpoint normalizes current session entries and sends messages", async () => {
+    const sent: any[] = [];
+    const state = {
+      cwd: process.cwd(),
+      getEntries: () => [{ id: "u1", role: "user", content: "hello" }, { id: "a1", role: "assistant", content: "hi" }],
+      sendUserMessage: (text: string, options: any) => sent.push({ text, options }),
+      runtime: runtimeState,
+    } as any;
+    const thread = await body(await handleControlPlaneRequest(req("/api/chat/threads/current"), state));
+    expect(thread.data.messages.map((m: any) => m.content)).toEqual(["hello", "hi"]);
+
+    const posted = await handleControlPlaneRequest(req("/api/chat/threads/current/messages", { method: "POST", body: JSON.stringify({ content: "do the thing", mode: "followUp" }) }), state);
+    expect(posted.status).toBe(202);
+    expect(sent).toEqual([{ text: "do the thing", options: { deliverAs: "followUp" } }]);
   });
 
-  test("HTTP handler exposes health and blocks unsafe methods", async () => {
-    const state = webUiStateForTests({ cwd: process.cwd() });
-    const health = await handleWebUiRequest(req("/api/health"), state);
-    expect(health.status).toBe(200);
-    expect(await health.json()).toMatchObject({ ok: true });
+  test("screen bundles provide prototype-friendly data", async () => {
+    const state = { cwd: process.cwd(), getEntries: () => [], runtime: runtimeState } as any;
+    const dashboard = await body(await handleControlPlaneRequest(req("/api/screens/dashboard"), state));
+    expect(dashboard.ok).toBe(true);
+    expect(dashboard.data).toHaveProperty("status");
+    expect(dashboard.data).toHaveProperty("threads");
+    expect(dashboard.data).toHaveProperty("activity");
 
-    const blocked = await handleWebUiRequest(req("/api/profile", { method: "DELETE" }), state);
-    expect(blocked.status).toBe(405);
+    const memory = await body(await handleControlPlaneRequest(req("/api/screens/memory"), state));
+    expect(memory.data).toHaveProperty("profile");
+    expect(memory.data).toHaveProperty("timelines");
+    expect(memory.data).toHaveProperty("entities");
   });
 
-  test("HTTP handler requires bearer token when configured", async () => {
-    const state = webUiStateForTests({ cwd: process.cwd(), token: "secret" });
-    const denied = await handleWebUiRequest(req("/api/health"), state);
+  test("auth protects every API route when configured", async () => {
+    const state = { cwd: process.cwd(), token: "secret", runtime: runtimeState } as any;
+    const denied = await handleControlPlaneRequest(req("/api/system"), state);
     expect(denied.status).toBe(401);
-
-    const allowed = await handleWebUiRequest(req("/api/health", { headers: { Authorization: "Bearer secret" } }), state);
+    const allowed = await handleControlPlaneRequest(req("/api/system", { headers: { authorization: "Bearer secret" } }), state);
     expect(allowed.status).toBe(200);
-  });
-
-  test("research API returns searchable topic index shape", async () => {
-    const state = webUiStateForTests({ cwd: process.cwd() });
-    const response = await handleWebUiRequest(req("/api/research?q=llm"), state);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body).toHaveProperty("entries");
-    expect(body).toHaveProperty("stats");
-  });
-
-  test("chat POST delegates through state sender and persists browser thread history", async () => {
-    const sent: string[] = [];
-    const state = webUiStateForTests({ cwd: process.cwd(), sendUserMessage: (text: string) => sent.push(text), dataDir: await Bun.file('/tmp').exists() ? `/tmp/keylime-web-ui-test-${Date.now()}` : undefined });
-    const response = await handleWebUiRequest(req("/api/chat", { method: "POST", body: JSON.stringify({ message: "hello pi about memory ui" }) }), state);
-    expect(response.status).toBe(200);
-    expect(sent).toEqual(["hello pi about memory ui"]);
-    const threads = await handleWebUiRequest(req("/api/chat-threads"), state);
-    const body = await threads.json();
-    expect(body.threads[0].topics).toContain("memory");
-    expect(body.threads[0].messages[0].content).toBe("hello pi about memory ui");
-  });
-
-  test("structured memory endpoint separates profile, timeline, and other memories", async () => {
-    const state = webUiStateForTests({ cwd: process.cwd() });
-    const response = await handleWebUiRequest(req("/api/memory-profile"), state);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body).toHaveProperty("profile");
-    expect(body).toHaveProperty("timeline");
-    expect(body).toHaveProperty("memories");
   });
 });
