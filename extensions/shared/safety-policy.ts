@@ -31,6 +31,7 @@ export interface MutationClassification {
 
 function normalizeWritePathForPolicy(path: string): string {
   let normalized = toPosixPath(path);
+  const absolute = normalized.startsWith("/");
   normalized = normalized.replace(/^\.\/+/, "");
   const parts: string[] = [];
   for (const part of normalized.split("/")) {
@@ -38,7 +39,7 @@ function normalizeWritePathForPolicy(path: string): string {
     if (part === "..") parts.pop();
     else parts.push(part);
   }
-  return parts.join("/");
+  return `${absolute ? "/" : ""}${parts.join("/")}`;
 }
 
 export const PROTECTED_WRITE_PATHS = [
@@ -60,6 +61,48 @@ const UNSAFE_BASH_FALLBACK_COMMANDS = new Set([
   "vi", "vim", "nvim", "nano", "emacs", "ed", "ex", "tee", "touch", "mkdir", "rm", "cp", "mv", "chmod", "chown", "ln", "install", "truncate", "dd",
 ]);
 
+const COMMAND_WRAPPER_NAMES = new Set(["sudo", "doas", "pkexec", "command"]);
+
+function shellSegments(command: string): string[] {
+  return command.split(/&&|\|\||[;|]/).map(segment => segment.trim()).filter(Boolean);
+}
+
+function tokenizeShellSegment(segment: string): string[] {
+  return segment.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map(token => token.replace(/^['"]|['"]$/g, "")) ?? [];
+}
+
+function unwrapCommandTokens(tokens: string[]): string[] {
+  let rest = [...tokens];
+  if (rest[0] === "env") {
+    rest = rest.slice(1);
+    while (rest[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(rest[0])) rest.shift();
+  } else {
+    while (rest[0] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(rest[0])) rest.shift();
+  }
+
+  while (rest.length > 0) {
+    const base = rest[0]!.split("/").pop() ?? rest[0]!;
+    if (!COMMAND_WRAPPER_NAMES.has(base)) break;
+    rest = rest.slice(1);
+    while (rest[0]?.startsWith("-")) {
+      const option = rest.shift();
+      if (option === "-p" || option === "--prompt" || option === "-u" || option === "--user" || option === "-g" || option === "--group") rest.shift();
+    }
+  }
+  return rest;
+}
+
+function effectiveCommandSegment(segment: string): string {
+  return unwrapCommandTokens(tokenizeShellSegment(segment)).join(" ");
+}
+
+function effectiveBaseAndArgs(command: string, args: string[] = []): { base: string; args: string[]; reconstructed: string } {
+  const tokens = unwrapCommandTokens([command, ...args]);
+  const base = tokens[0]?.split("/").pop() ?? "";
+  const rest = tokens.slice(1);
+  return { base, args: rest, reconstructed: [base, ...rest].join(" ") };
+}
+
 const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /(?:^|\s)cat\b[\s\S]*(?:^|[^<])>\s*[^\s&|;]+/im, label: "cat redirecting output to a file" },
   { pattern: /<<-?\s*['"]?\w+['"]?/m, label: "heredoc shell input" },
@@ -79,17 +122,20 @@ const CODING_MODE_BASH_MUTATION_PATTERNS: Array<{ pattern: RegExp; label: string
 ];
 
 export function classifyBashMutation(command: string): BashMutationHit | null {
-  for (const { pattern, label } of CODING_MODE_BASH_MUTATION_PATTERNS) {
-    if (pattern.test(command)) return { label };
+  const candidates = [command, ...shellSegments(command).map(effectiveCommandSegment).filter(Boolean)];
+  for (const candidate of candidates) {
+    for (const { pattern, label } of CODING_MODE_BASH_MUTATION_PATTERNS) {
+      pattern.lastIndex = 0;
+      if (pattern.test(candidate)) return { label };
+    }
   }
   return null;
 }
 
 export function classifyBashNativeRepoInspection(command: string): BashMutationHit | null {
-  const segments = command.split(/&&|\|\||[;|]/).map(segment => segment.trim()).filter(Boolean);
-  for (const segment of segments) {
-    const withoutEnv = segment.replace(/^(?:env\s+)?(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+)\s+)*/, "");
-    const base = withoutEnv.match(/^([^\s|;&]+)/)?.[1]?.split("/").pop();
+  for (const segment of shellSegments(command)) {
+    const effective = effectiveCommandSegment(segment);
+    const base = effective.match(/^([^\s|;&]+)/)?.[1]?.split("/").pop();
     if (base && NATIVE_REPO_INSPECTION_COMMANDS.has(base)) return { label: `${base} repository inspection; use list_files/inspect_text_matches/inspect_lines instead. If a safe tool cannot inspect the needed read-only path, ask the user to update Keylime rather than falling back to shell inspection.` };
     if (base && UNSAFE_BASH_FALLBACK_COMMANDS.has(base)) return { label: `${base} shell fallback; use exposed Keylime tools such as run_checks, fetch_url, git_status/git_diff, or file primitives instead.` };
   }
@@ -97,7 +143,8 @@ export function classifyBashNativeRepoInspection(command: string): BashMutationH
 }
 
 export function looksSideEffectfulBash(command: string): boolean {
-  return classifyBashMutation(command) !== null || /(^|\s)(npm|pnpm|yarn|bun|python|python3|pip|pytest|cargo|make)(\s|$)/.test(command);
+  const effective = shellSegments(command).map(effectiveCommandSegment).join("; ");
+  return classifyBashMutation(command) !== null || /(^|\s)(npm|pnpm|yarn|bun|python|python3|pip|pytest|cargo|make)(\s|$)/.test(effective || command);
 }
 
 const MUTATING_CHECK_ARGS = new Set(["--write", "--fix", "--fix-type", "--updateSnapshot", "-u"]);
@@ -105,17 +152,16 @@ const MUTATING_CHECK_SUBCOMMANDS = new Set(["fmt", "format", "install", "update"
 
 export function runChecksCommandBlockReason(command: string, args: string[] = []): string | null {
   if (/\s/.test(command)) return "shell-style custom command strings can bypass coding file-mutation policy; pass command and args separately";
-  const base = command.split("/").pop() ?? command;
-  const reconstructed = [base, ...args].join(" ");
+  const { base, args: effectiveArgs, reconstructed } = effectiveBaseAndArgs(command, args);
   const mutation = classifyBashMutation(reconstructed);
   if (mutation) return `${mutation.label} can bypass coding file-mutation policy`;
-  if (["sh", "bash", "zsh", "fish"].includes(base) && (args.includes("-c") || args.includes("-lc"))) return `${base} command strings can bypass coding file-mutation policy`;
-  if (["python", "python3", "node", "bun", "perl", "ruby"].includes(base) && args.some(arg => arg === "-c" || arg === "-e")) return `${base} inline execution can bypass coding file-mutation policy`;
-  if (base === "deno" && args.includes("eval")) return "deno eval can bypass coding file-mutation policy";
-  if (base === "git" && GIT_MUTATION_SUBCOMMANDS.has(args[0] ?? "")) return "raw git mutation command can bypass checkpoint policy";
+  if (["sh", "bash", "zsh", "fish"].includes(base) && (effectiveArgs.includes("-c") || effectiveArgs.includes("-lc"))) return `${base} command strings can bypass coding file-mutation policy`;
+  if (["python", "python3", "node", "bun", "perl", "ruby"].includes(base) && effectiveArgs.some(arg => arg === "-c" || arg === "-e")) return `${base} inline execution can bypass coding file-mutation policy`;
+  if (base === "deno" && effectiveArgs.includes("eval")) return "deno eval can bypass coding file-mutation policy";
+  if (base === "git" && GIT_MUTATION_SUBCOMMANDS.has(effectiveArgs[0] ?? "")) return "raw git mutation command can bypass checkpoint policy";
   if (FILE_MUTATION_COMMANDS.has(base)) return "file mutation command can bypass coding file-mutation policy";
-  const firstCommandArg = args.find(arg => !arg.startsWith("-")) ?? "";
-  if (args.some(arg => MUTATING_CHECK_ARGS.has(arg) || arg.startsWith("--fix=") || arg.startsWith("--write="))) return "mutating check option can bypass verification-only policy";
+  const firstCommandArg = effectiveArgs.find(arg => !arg.startsWith("-")) ?? "";
+  if (effectiveArgs.some(arg => MUTATING_CHECK_ARGS.has(arg) || arg.startsWith("--fix=") || arg.startsWith("--write="))) return "mutating check option can bypass verification-only policy";
   if (MUTATING_CHECK_SUBCOMMANDS.has(firstCommandArg)) return "mutating check subcommand can bypass verification-only policy";
   if (base === "cargo" && firstCommandArg === "fmt") return "cargo fmt can mutate repository files; use formatting tools explicitly, not run_checks";
   return null;
@@ -140,6 +186,12 @@ function bashCategory(label: string): MutationCategory {
   if (/inline|command string|eval|runtime/i.test(label)) return "runtime_eval";
   return "shell_mutation";
 }
+
+const LINUX_SYSTEM_MUTATION_TOOLS = new Set([
+  "apt_install", "pacman_install", "systemd_restart", "systemd_enable", "systemd_disable",
+  "backup_system_file", "restore_system_file_backup", "apply_system_file_patch",
+  "safe_delete", "archive_path", "apply_permissions_change", "kill_process",
+]);
 
 export function classifyToolMutation(toolName: string, input: any): MutationClassification {
   const writePaths = writePathsForTool(toolName, input);
@@ -194,6 +246,11 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
       reasons.push(paths.size > 1 ? "replacement spans multiple files" : "targeted file replacement");
     }
     matchedPolicies.push("mutation.file-replacement");
+  } else if (LINUX_SYSTEM_MUTATION_TOOLS.has(toolName)) {
+    score = ["apt_install", "pacman_install", "systemd_restart", "systemd_enable", "systemd_disable", "kill_process"].includes(toolName) ? 8 : 3;
+    category = writePaths.length > 0 ? "file_replace" : "shell_mutation";
+    reasons.push(`${toolName} mutates the local Linux system`);
+    matchedPolicies.push("mutation.linux-system");
   }
 
   const protectedPath = writePaths.some(path => {
@@ -257,8 +314,9 @@ export function shouldAutoCheckpointTurn(score: number, lastCheckpointAt: number
 }
 
 export function writePathsForTool(toolName: string, input: any): string[] {
-  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory", "delete_file", "replace_file", "create_reporter_document", "create_chart"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
+  if (["write", "edit", "create_file", "begin_file_write", "finish_file_write", "create_directory", "delete_file", "replace_file", "create_reporter_document", "create_chart", "backup_system_file", "apply_system_file_patch", "safe_delete", "archive_path", "apply_permissions_change"].includes(toolName)) return typeof input?.path === "string" ? [input.path] : [];
   if (["move_file", "copy_file"].includes(toolName)) return [input?.from_path, input?.to_path].filter((path): path is string => typeof path === "string");
+  if (toolName === "restore_system_file_backup") return [input?.backup, input?.destination].filter((path): path is string => typeof path === "string");
   if (toolName === "convert_document") return typeof input?.output_path === "string" ? [input.output_path] : [];
   if (toolName !== "apply_code_replacements" || input?.dry_run === true) return [];
 

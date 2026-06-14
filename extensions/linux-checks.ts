@@ -23,7 +23,7 @@ const CHECKS: Record<string, { command: string; args: string[]; optional?: boole
 };
 
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({ name: "run_system_check", label: "Run System Check", description: "Run a predefined bounded Linux health check suite.", promptGuidelines: ["Report exactly which checks were run.", "Use predefined suites rather than shell strings.", "Output is compact and actionable."], parameters: Type.Object({ suite: Type.Optional(Type.Union([Type.Literal("health"), Type.Literal("packages"), Type.Literal("network"), Type.Literal("gpu")])) }), async execute(params: any) {
+  pi.registerTool({ name: "run_system_check", label: "Run System Check", description: "Run a predefined bounded Linux health check suite.", promptGuidelines: ["Report exactly which checks were run.", "Use predefined suites rather than shell strings.", "Output is compact and actionable."], parameters: Type.Object({ suite: Type.Optional(Type.Union([Type.Literal("health"), Type.Literal("packages"), Type.Literal("network"), Type.Literal("gpu")])) }), async execute(_id: string, params: any) {
     const suite = params.suite ?? "health"; const checks = CHECKS[suite]; const parts: string[] = [];
     for (const check of checks) {
       if (check.optional && !(await commandAvailable(check.command))) continue;

@@ -67,4 +67,18 @@ describe("linux operations tools", () => {
     expect(spec.args).toEqual(["-S", "-p", "", "apt-get", "install", "foo"]);
     expect(spec.stdin).toBe("secret\n");
   });
+
+  test("package tools reject option-like package names before spawning package managers", async () => {
+    const { tools } = registerAll();
+    await expect(tools.apt_plan_install.execute("id", { packages: ["--danger"] })).rejects.toThrow("Invalid package name");
+    await expect(tools.pacman_plan_install.execute("id", { packages: ["-Syu"] })).rejects.toThrow("Invalid package name");
+  });
+
+  test("config validation is preset-based rather than arbitrary command execution", () => {
+    const { tools } = registerAll();
+    const schema = JSON.stringify(tools.validate_config.parameters);
+    expect(schema).toContain("validator");
+    expect(schema).not.toContain("command");
+    expect(schema).not.toContain("args");
+  });
 });

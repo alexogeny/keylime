@@ -133,4 +133,22 @@ describe("central mutation classification", () => {
     expect(c.category).toBe("protected_path");
     expect(c.writePaths).toContain(".env");
   });
+
+  test("unwraps sudo/env command wrappers before safety classification", () => {
+    expect(runChecksCommandBlockReason("sudo", ["rm", "file"])).toContain("file mutation command");
+    expect(runChecksCommandBlockReason("env", ["FOO=1", "rm", "file"])).toContain("file mutation command");
+    expect(runChecksCommandBlockReason("sudo", ["bash", "-lc", "rm file"])).toContain("command strings");
+    expect(runChecksCommandBlockReason("sudo", ["python", "-c", "open('x','w').write('y')"])).toContain("inline execution");
+    expect(runChecksCommandBlockReason("sudo", ["git", "reset", "--hard"])).toContain("raw git mutation");
+    expect(classifyToolMutation("bash", { command: "sudo rm file" })).toMatchObject({ mutates: true, category: "shell_mutation" });
+    expect(classifyBashNativeRepoInspection("sudo cat package.json")?.label).toContain("cat repository inspection");
+  });
+
+  test("classifies Linux system mutation tools centrally", () => {
+    expect(classifyToolMutation("apt_install", { packages: ["curl"] })).toMatchObject({ mutates: true, score: 8, checkpointScore: "major" });
+    const patch = classifyToolMutation("apply_system_file_patch", { path: "/etc/hosts" });
+    expect(patch.category).toBe("protected_path");
+    expect(patch.writePaths).toEqual(["/etc/hosts"]);
+    expect(classifyToolMutation("safe_delete", { path: "/tmp/old" })).toMatchObject({ mutates: true, category: "file_replace" });
+  });
 });
