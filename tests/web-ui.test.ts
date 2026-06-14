@@ -70,4 +70,47 @@ describe("control-plane API extension", () => {
     const allowed = await handleControlPlaneRequest(req("/api/system", { headers: { authorization: "Bearer secret" } }), state);
     expect(allowed.status).toBe(200);
   });
+
+  test("mutation surfaces exist and fail explicitly when backend adapters are missing", async () => {
+    const state = { cwd: process.cwd(), runtime: runtimeState } as any;
+    const paths = [
+      ["/api/approvals/a1/approve", "POST"],
+      ["/api/approvals/a1/files/src%2Fapp.ts/approve", "POST"],
+      ["/api/patches/p1/hunks/h1/approve", "POST"],
+      ["/api/memory/m1", "PATCH"],
+      ["/api/memory/m1/exclude", "POST"],
+      ["/api/chat/threads", "POST"],
+      ["/api/chat/messages/m1/pin", "POST"],
+      ["/api/chat/interrupt", "POST"],
+      ["/api/tools/code_search/invoke", "POST"],
+      ["/api/tools/code_search/permission", "PATCH"],
+      ["/api/runs/r1/cancel", "POST"],
+      ["/api/graph/edges", "POST"],
+      ["/api/workspace/context", "POST"],
+      ["/api/workspace/files/src%2Fapp.ts/rollback", "POST"],
+      ["/api/models/default", "PUT"],
+      ["/api/settings/privacy", "PATCH"],
+      ["/api/providers/openai/connect", "POST"],
+      ["/api/providers/openai/keys", "POST"],
+      ["/api/workspaces/select", "POST"],
+      ["/api/attachments", "POST"],
+    ] as const;
+    for (const [path, method] of paths) {
+      const response = await handleControlPlaneRequest(req(path, { method, body: method === "PATCH" || method === "POST" || method === "PUT" ? "{}" : undefined }), state);
+      const payload = await body(response);
+      expect(response.status).toBe(501);
+      expect(payload.ok).toBe(false);
+      expect(payload.error.code).toBe("BACKEND_UNSUPPORTED");
+    }
+  });
+
+  test("generic actions and provider/attachment read surfaces are present", async () => {
+    const state = { cwd: process.cwd(), runtime: runtimeState } as any;
+    const action = await body(await handleControlPlaneRequest(req("/api/actions", { method: "POST", body: JSON.stringify({ type: "custom.do" }) }), state));
+    expect(action.data.status).toBe("unsupported");
+    const providers = await body(await handleControlPlaneRequest(req("/api/providers"), state));
+    expect(providers.data.providers).toEqual([]);
+    const attachments = await body(await handleControlPlaneRequest(req("/api/attachments"), state));
+    expect(attachments.data.attachments).toEqual([]);
+  });
 });

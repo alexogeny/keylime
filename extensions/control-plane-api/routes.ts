@@ -50,6 +50,12 @@ export async function handleControlPlaneRequest(request: Request, state: Control
     if (url.pathname === "/api/approvals" && request.method === "GET") return ok({ pending: [], history: [] }, CAPABILITIES);
     if (url.pathname === "/api/patches" && request.method === "GET") return ok({ patches: [] }, CAPABILITIES);
     if (url.pathname === "/api/settings" && request.method === "GET") return ok(await settingsBundle(state), CAPABILITIES);
+    if (url.pathname === "/api/providers" && request.method === "GET") return ok({ providers: [], note: "Provider connection management requires a backend adapter." }, CAPABILITIES);
+    if (url.pathname === "/api/attachments" && request.method === "GET") return ok({ attachments: [] }, CAPABILITIES);
+    if (/^\/api\/attachments\/[^/]+$/.test(url.pathname) && request.method === "GET") return fail("NOT_FOUND", "Attachment not found", 404);
+
+    const mutation = await handleMutationRoute(request, url, state);
+    if (mutation) return mutation;
 
     const screen = url.pathname.match(/^\/api\/screens\/([^/]+)(?:\/(.+))?$/);
     if (screen && request.method === "GET") return ok(await screenBundle(state, screen[1]!, screen[2] ? decodeURIComponent(screen[2]) : undefined), CAPABILITIES);
@@ -146,6 +152,73 @@ async function screenBundle(state: ControlPlaneState, name: string, id?: string)
   if (name === "activity") return { ...(await runsBundle(state)), commands };
   if (name === "settings") return { ...(await settingsBundle(state)), commands };
   throw new Error(`unknown screen: ${name}`);
+}
+
+async function handleMutationRoute(request: Request, url: URL, state: ControlPlaneState): Promise<Response | null> {
+  if (request.method === "GET" || request.method === "OPTIONS") return null;
+  const path = url.pathname;
+  const body = await parseJson(request).catch(() => ({}));
+
+  if (path === "/api/actions" && request.method === "POST") return ok({ actionId: crypto.randomUUID(), status: "unsupported", type: body.type, target: body.target, result: null }, CAPABILITIES, 202);
+
+  if (/^\/api\/approvals\/[^/]+\/(approve|reject|request-changes)$/.test(path)) return unsupported("approval.resolve", path);
+  if (/^\/api\/approvals\/[^/]+\/files\/.+\/approve$/.test(path)) return unsupported("approval.file.approve", path);
+  if (/^\/api\/approvals\/[^/]+\/hunks\/[^/]+\/approve$/.test(path)) return unsupported("approval.hunk.approve", path);
+
+  if (/^\/api\/patches\/[^/]+\/(approve|reject|rollback|request-changes)$/.test(path)) return unsupported("patch.resolve", path);
+  if (/^\/api\/patches\/[^/]+\/files\/.+\/approve$/.test(path)) return unsupported("patch.file.approve", path);
+  if (/^\/api\/patches\/[^/]+\/hunks\/[^/]+\/approve$/.test(path)) return unsupported("patch.hunk.approve", path);
+
+  if (path === "/api/memory" && request.method === "POST") return unsupported("memory.create", path);
+  if (/^\/api\/memory\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("memory.mutate", path);
+  if (/^\/api\/memory\/[^/]+\/(pin|unpin|sensitivity|scope|exclude|include)$/.test(path)) return unsupported("memory.policy", path);
+
+  if (path === "/api/chat/threads" && request.method === "POST") return unsupported("chat.thread.create", path);
+  if (/^\/api\/chat\/threads\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("chat.thread.mutate", path);
+  if (/^\/api\/chat\/threads\/[^/]+\/(archive|branch)$/.test(path)) return unsupported("chat.thread.action", path);
+  if (/^\/api\/chat\/messages\/[^/]+\/(pin|unpin|bookmark|regenerate|edit-resend)$/.test(path) || (/^\/api\/chat\/messages\/[^/]+\/bookmark$/.test(path) && request.method === "DELETE")) return unsupported("chat.message.action", path);
+  if (path === "/api/chat/interrupt") return unsupported("chat.interrupt", path);
+
+  if (/^\/api\/tools\/[^/]+\/invoke$/.test(path)) return unsupported("tool.invoke", path);
+  if (/^\/api\/tools\/[^/]+\/permission$/.test(path) && request.method === "PATCH") return unsupported("tool.permission", path);
+
+  if (/^\/api\/runs\/[^/]+\/(cancel|retry|pause|resume|steer)$/.test(path)) return unsupported("run.control", path);
+
+  if (path === "/api/graph/nodes" && request.method === "POST") return unsupported("graph.node.create", path);
+  if (/^\/api\/graph\/nodes\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("graph.node.mutate", path);
+  if (path === "/api/graph/edges" && request.method === "POST") return unsupported("graph.edge.create", path);
+  if (/^\/api\/graph\/edges\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("graph.edge.mutate", path);
+
+  if (path === "/api/workspace/context" && ["POST", "DELETE"].includes(request.method)) return unsupported("workspace.context", path);
+  if (/^\/api\/workspace\/context\/[^/]+$/.test(path) && request.method === "DELETE") return unsupported("workspace.context.remove", path);
+  if (/^\/api\/workspace\/files\/.+\/(rollback|accept|discard)$/.test(path)) return unsupported("workspace.file.change", path);
+  if (/^\/api\/workspace\/changes\/(accept|discard)$/.test(path)) return unsupported("workspace.changes", path);
+
+  if (path === "/api/models/default" && request.method === "PUT") return unsupported("model.default", path);
+  if (path === "/api/models/fallback" && request.method === "PUT") return unsupported("model.fallback", path);
+
+  if (path === "/api/settings" && request.method === "PATCH") return unsupported("settings.patch", path);
+  if (path === "/api/profile" && request.method === "PATCH") return unsupported("profile.patch", path);
+  if (/^\/api\/settings\/(privacy|memory|theme|shortcuts|agent|cost)$/.test(path) && request.method === "PATCH") return unsupported("settings.section.patch", path);
+
+  if (/^\/api\/providers\/[^/]+\/(connect|test)$/.test(path)) return unsupported("provider.connection", path);
+  if (/^\/api\/providers\/[^/]+$/.test(path) && request.method === "DELETE") return unsupported("provider.delete", path);
+  if (/^\/api\/providers\/[^/]+\/keys$/.test(path) && request.method === "POST") return unsupported("provider.key.create", path);
+  if (/^\/api\/providers\/[^/]+\/keys\/[^/]+\/(rotate)$/.test(path)) return unsupported("provider.key.rotate", path);
+  if (/^\/api\/providers\/[^/]+\/keys\/[^/]+$/.test(path) && request.method === "DELETE") return unsupported("provider.key.delete", path);
+
+  if (path === "/api/workspaces" && request.method === "POST") return unsupported("workspace.create", path);
+  if (path === "/api/workspaces/select" && request.method === "POST") return unsupported("workspace.select", path);
+  if (/^\/api\/workspaces\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("workspace.mutate", path);
+
+  if (path === "/api/attachments" && request.method === "POST") return unsupported("attachment.upload", path);
+  if (/^\/api\/attachments\/[^/]+$/.test(path) && ["GET", "DELETE"].includes(request.method)) return unsupported("attachment.mutate", path);
+
+  return null;
+}
+
+function unsupported(action: string, path: string) {
+  return fail("BACKEND_UNSUPPORTED", `This backend does not currently support ${action}.`, 501, { action, path, requiredCapability: action.split(".")[0] });
 }
 
 function eventStream() {
