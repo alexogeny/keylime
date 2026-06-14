@@ -139,6 +139,9 @@ export default function webSearchExtension(pi: ExtensionAPI) {
         description: "Result count",
         minimum: 1, maximum: 20,
       })),
+      summarize: Type.Optional(Type.Boolean({
+        description: "Fetch top result pages and append deterministic summaries when fetch extension is active",
+      })),
     }),
 
     async execute(_id, params, signal, onUpdate) {
@@ -221,7 +224,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        details:  { searchId: entry.id, query: params.query, provider, resultCount: raw.results.length },
+        details:  { searchId: entry.id, query: params.query, provider, resultCount: raw.results.length, summarize: params.summarize === true },
       };
     },
   });

@@ -6,6 +6,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { extractMainContent, summarizeText, type SummaryResult } from "./shared/content-distill";
 
 type FetchOutcome =
   | "ok"
@@ -42,6 +43,7 @@ type FetchResult = {
   contentLength: number;
   confidence: { score: number; reasons: string[] };
   decodedEmails?: string[];
+  summary?: SummaryResult;
 };
 
 type DownloadResult = {
@@ -148,18 +150,8 @@ function deobfuscateHtml(html: string): { html: string; decodedEmails: string[] 
 }
 
 function htmlToText(html: string, maxChars = 3000): string {
-  html = html.replace(/<(script|style|nav|header|footer|aside|noscript)[^>]*>[\s\S]*?<\/\1>/gi, "");
-  html = html.replace(/<\/(p|div|section|article|h[1-6]|li|tr|blockquote)>/gi, "\n");
-  html = html.replace(/<br\s*\/?>/gi, "\n");
-  html = html.replace(/<hr\s*\/?>/gi, "\n---\n");
-  html = html.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, l, t) =>
-    "\n" + "#".repeat(Number(l)) + " " + t.replace(/<[^>]+>/g, "") + "\n"
-  );
-  html = html.replace(/<[^>]+>/g, "");
-  html = decodeHtmlEntities(html);
-  html = html.replace(/\t/g, " ").replace(/ {2,}/g, " ");
-  html = html.replace(/\n{3,}/g, "\n\n").trim();
-  return html.slice(0, maxChars);
+  const extracted = extractMainContent(html, { maxChars });
+  return extracted.text;
 }
 
 function extractTitle(html: string): string {
@@ -180,6 +172,45 @@ function extractLinks(html: string, baseUrl: string): string[] {
     } catch {}
   }
   return [...new Set(links)];
+}
+
+type FetchTextOptions = {
+  summarize?: boolean;
+  query?: string;
+  maxSummarySentences?: number;
+  maxSummaryChars?: number;
+};
+
+function formatFetchText(result: FetchResult, options: FetchTextOptions = {}): { text: string; summary?: SummaryResult } {
+  const summarize = options.summarize ?? true;
+  const summary = summarize
+    ? summarizeText(result.content, {
+      query: options.query,
+      maxSentences: options.maxSummarySentences ?? 4,
+      maxChars: options.maxSummaryChars ?? 1200,
+    })
+    : undefined;
+
+  const body = summarize && summary?.text
+    ? [
+      `## Deterministic summary (${summary.method}, ${summary.sentences.length}/${summary.candidates} sentences)`,
+      summary.text,
+      "",
+      `_Full extracted content is available in tool details; rerun with summarize:false to print it._`,
+    ].join("\n")
+    : result.content;
+
+  const text = [
+    `# ${result.title || "(no title)"}`,
+    `URL: ${result.url}`,
+    `Fetched: ${result.fetchedAt}`,
+    `Confidence: ${(result.confidence.score * 100).toFixed(0)}%`,
+    result.links.length > 0 ? `\nRelated links on same domain:\n${result.links.slice(0, 5).map(l => `- ${l}`).join("\n")}` : "",
+    "",
+    body,
+  ].filter(Boolean).join("\n");
+
+  return { text, summary };
 }
 
 const CHALLENGE_MARKERS = [
@@ -653,6 +684,7 @@ export const __testables = {
   htmlToText,
   extractTitle,
   extractLinks,
+  formatFetchText,
 };
 
 export default function (pi: ExtensionAPI) {
@@ -664,7 +696,11 @@ export default function (pi: ExtensionAPI) {
     promptGuidelines: ["Use for docs, GitHub READMEs, pasted URLs, or source pages."],
     parameters: Type.Object({
       url: Type.String({ description: "URL" }),
-      maxChars: Type.Optional(Type.Number({ description: "Max chars" })),
+      maxChars: Type.Optional(Type.Number({ description: "Max chars for full extracted content" })),
+      summarize: Type.Optional(Type.Boolean({ description: "Return deterministic extractive summary instead of full extracted text (default true)" })),
+      query: Type.Optional(Type.String({ description: "Optional query to bias sentence selection when summarizing" })),
+      maxSummarySentences: Type.Optional(Type.Number({ description: "Maximum summary sentences", minimum: 1, maximum: 12 })),
+      maxSummaryChars: Type.Optional(Type.Number({ description: "Maximum summary characters", minimum: 100, maximum: 5000 })),
       fallback: Type.Optional(Type.Union([
         Type.Literal("none"),
         Type.Literal("retry_only"),
@@ -702,26 +738,24 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const text = [
-        `# ${result.title || "(no title)"}`,
-        `URL: ${result.url}`,
-        `Fetched: ${result.fetchedAt}`,
-        `Confidence: ${(result.confidence.score * 100).toFixed(0)}%`,
-        result.links.length > 0 ? `\nRelated links on same domain:\n${result.links.slice(0, 5).map(l => `- ${l}`).join("\n")}` : "",
-        "",
-        result.content,
-      ].filter(Boolean).join("\n");
+      const formatted = formatFetchText(result, {
+        summarize: params.summarize as boolean | undefined,
+        query: params.query as string | undefined,
+        maxSummarySentences: params.maxSummarySentences as number | undefined,
+        maxSummaryChars: params.maxSummaryChars as number | undefined,
+      });
 
       return {
-        content: [{ type: "text", text }],
-        details: result,
+        content: [{ type: "text", text: formatted.text }],
+        details: { ...result, summary: formatted.summary },
       };
     },
   });
 
   pi.on("tool_result", async (event, ctx) => {
-    if (process.env.KEYLIME_AUTO_FETCH_SEARCH_RESULTS !== "1") return;
     if (event.toolName !== "web_search") return;
+    const requestedSummary = (event as any).details?.summarize === true;
+    if (!requestedSummary && process.env.KEYLIME_AUTO_FETCH_SEARCH_RESULTS !== "1") return;
 
     const resultText = event.content
       .filter((c: any) => c.type === "text")
@@ -737,6 +771,8 @@ export default function (pi: ExtensionAPI) {
 
     const sections: string[] = [];
     const matrix: string[] = [];
+    const autoFetchedSources: FetchResult[] = [];
+    const query = (event as any).details?.query as string | undefined;
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
@@ -744,8 +780,17 @@ export default function (pi: ExtensionAPI) {
         const v = r.value;
         matrix.push(`- ${urls[i]} → ${v.outcome} (${v.classification}), conf=${(v.confidence.score * 100).toFixed(0)}%`);
 
+        autoFetchedSources.push(v);
+
         if (v.outcome === "ok" && v.content.length > 150) {
-          sections.push(`### 📄 Full content: ${urls[i]}\n**${v.title || "(no title)"}**\n\n${v.content}`);
+          const summary = summarizeText(v.content, { query, maxSentences: 4, maxChars: 1200 });
+          v.summary = summary;
+          sections.push(
+            `### 📄 Source summary: ${urls[i]}\n` +
+            `**${v.title || "(no title)"}**\n\n` +
+            `${summary.text || v.content.slice(0, 1200)}\n\n` +
+            `_Method: ${summary.method}, ${summary.sentences.length}/${summary.candidates} sentences. Full fetched content is in tool details._`
+          );
         } else {
           sections.push(
             `### ⚠️ Fetch issue: ${urls[i]}\n` +
@@ -761,11 +806,12 @@ export default function (pi: ExtensionAPI) {
 
     if (sections.length === 0) return;
 
-    const injected = `\n\n---\n**Auto-fetched source content** (use this when writing save_search_knowledge):\n\n` +
+    const injected = `\n\n---\n**Auto-fetched source summaries** (use this when writing save_search_knowledge):\n\n` +
       `### Fetch summary\n${matrix.join("\n")}\n\n---\n\n${sections.join("\n\n---\n\n")}`;
 
     return {
       content: [...event.content, { type: "text", text: injected }],
+      details: { ...(event as any).details, autoFetchedSources },
     };
   });
 }

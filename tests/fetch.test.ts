@@ -66,6 +66,38 @@ describe("fetch parser and classifier helpers", () => {
     expect(urls).not.toContain("https://example.com/file.pdf");
   });
 
+  test("formatFetchText defaults to compact deterministic summaries and can print full content", () => {
+    const result = {
+      outcome: "ok",
+      classification: "ok_content",
+      title: "Search Distillation",
+      content: [
+        "The page starts with a broad introduction to search tooling.",
+        "BM25 ranks candidate sentences against the user query without requiring a language model.",
+        "Maximal marginal relevance keeps the selected summary sentences diverse and less repetitive.",
+        "Footer links and legal notes are usually low-value content.",
+      ].join(" "),
+      links: [],
+      url: "https://example.com/search-distillation",
+      fetchedAt: "2026-06-14T00:00:00.000Z",
+      reasonCodes: [],
+      timingsMs: { total: 1, download: 1, extract: 0 },
+      redirectCount: 0,
+      contentLength: 300,
+      confidence: { score: 0.9, reasons: [] },
+    } as any;
+
+    const compact = __testables.formatFetchText(result, { query: "BM25 maximal marginal relevance" });
+    expect(compact.text).toContain("Deterministic summary");
+    expect(compact.text).toContain("BM25 ranks candidate sentences");
+    expect(compact.text).toContain("Full extracted content is available in tool details");
+    expect(compact.summary?.method).toBe("bm25+mmr");
+
+    const full = __testables.formatFetchText(result, { summarize: false });
+    expect(full.text).not.toContain("Deterministic summary");
+    expect(full.text).toContain("The page starts with a broad introduction");
+  });
+
   test("user agent selection is deterministic and skip rules ignore low-value urls", () => {
     expect(__testables.pickUserAgent("https://example.com/a")).toBe(__testables.pickUserAgent("https://example.com/a"));
     expect(__testables.BROWSER_UAS).toContain(__testables.pickUserAgent("https://example.com/a"));
