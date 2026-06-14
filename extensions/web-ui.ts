@@ -6,284 +6,102 @@ import { dirname, join, normalize } from "node:path";
 import { homedir } from "node:os";
 import { getSearchStats, loadAllSearchEntries, loadSearchEntry } from "./shared/web-search-store";
 
-const DATA_DIR = join(homedir(), ".pi", "data", "keylime-web");
-const PROFILE_FILE = join(DATA_DIR, "profile.json");
+const DEFAULT_DATA_DIR = join(homedir(), ".pi", "data", "keylime-web");
 const MEMORY_FILE = join(homedir(), ".pi", "data", "user-memory", "memories.json");
 const DEFAULT_PORT = Number(process.env.KEYLIME_WEB_UI_PORT ?? 49713);
 
-export type WebProfile = {
-  nickname: string;
-  avatarDataUrl?: string;
-  theme: "aurora" | "graphite" | "rose" | "system";
-  customInstructions: string;
-};
+type Theme = "void" | "aurora" | "phosphor" | "rose";
+export type WebProfile = { nickname: string; avatarDataUrl?: string; theme: Theme; customInstructions: string };
+export type WebUiState = { cwd: string; token?: string; dataDir?: string; sendUserMessage?: (text: string, options?: any) => void; getEntries?: () => any[] };
+const DEFAULT_PROFILE: WebProfile = { nickname: "", theme: "void", customInstructions: "" };
 
-export type WebUiState = {
-  cwd: string;
-  token?: string;
-  sendUserMessage?: (text: string, options?: any) => void;
-  getEntries?: () => any[];
-};
-
-const DEFAULT_PROFILE: WebProfile = { nickname: "", theme: "aurora", customInstructions: "" };
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data, null, 2), { status, headers: { "content-type": "application/json; charset=utf-8" } });
-}
-function text(data: string, status = 200, contentType = "text/plain; charset=utf-8"): Response {
-  return new Response(data, { status, headers: { "content-type": contentType } });
-}
-async function readJson<T>(path: string, fallback: T): Promise<T> {
-  if (!existsSync(path)) return fallback;
-  try { return JSON.parse(await readFile(path, "utf8")) as T; } catch { return fallback; }
-}
-async function writeJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
-}
-async function findToolResultPath(cwd: string, id: string): Promise<string> {
-  if (!/^[a-zA-Z0-9._-]+$/.test(id)) throw new Error("Unsafe tool result id");
-  const base = join(cwd, ".pi", "tool-results");
-  const direct = normalize(join(base, `${id}.json`));
-  if (!direct.startsWith(base)) throw new Error("Unsafe tool result path");
-  if (existsSync(direct)) return direct;
-  const manifest = await listToolResults(cwd);
-  const hit = manifest.find((entry: any) => entry.id === id || entry.result_id === id);
-  const stored = typeof hit?.stored_at === "string" ? normalize(join(cwd, hit.stored_at)) : "";
-  if (stored && stored.startsWith(base) && existsSync(stored)) return stored;
-  throw new Error("Tool result not found");
-}
-function trimString(value: unknown, max: number): string {
-  return typeof value === "string" ? value.slice(0, max) : "";
-}
-
+function dataDir(state?: WebUiState) { return state?.dataDir ?? process.env.KEYLIME_WEB_UI_DATA_DIR ?? DEFAULT_DATA_DIR; }
+function profileFile(state?: WebUiState) { return join(dataDir(state), "profile.json"); }
+function threadsFile(state?: WebUiState) { return join(dataDir(state), "chat-threads.json"); }
+function json(data: unknown, status = 200) { return new Response(JSON.stringify(data, null, 2), { status, headers: { "content-type": "application/json; charset=utf-8" } }); }
+function html(data: string) { return new Response(data, { headers: { "content-type": "text/html; charset=utf-8" } }); }
+async function readJson<T>(path: string, fallback: T): Promise<T> { if (!existsSync(path)) return fallback; try { return JSON.parse(await readFile(path, "utf8")) as T; } catch { return fallback; } }
+async function writeJson(path: string, value: unknown) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, JSON.stringify(value, null, 2), "utf8"); }
+function trimString(value: unknown, max: number) { return typeof value === "string" ? value.slice(0, max) : ""; }
 export function sanitizeProfile(input: any): WebProfile {
-  const theme = ["aurora", "graphite", "rose", "system"].includes(input?.theme) ? input.theme : "aurora";
-  const avatar = typeof input?.avatarDataUrl === "string" && /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(input.avatarDataUrl) && input.avatarDataUrl.length < 1_500_000
-    ? input.avatarDataUrl
-    : undefined;
-  return {
-    nickname: trimString(input?.nickname, 80),
-    avatarDataUrl: avatar,
-    theme,
-    customInstructions: trimString(input?.customInstructions, 8000),
-  };
+  const theme = ["void", "aurora", "phosphor", "rose"].includes(input?.theme) ? input.theme : "void";
+  const avatarDataUrl = typeof input?.avatarDataUrl === "string" && /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(input.avatarDataUrl) && input.avatarDataUrl.length < 1_500_000 ? input.avatarDataUrl : undefined;
+  return { nickname: trimString(input?.nickname, 80), avatarDataUrl, theme, customInstructions: trimString(input?.customInstructions, 8000) };
 }
+export function webUiStateForTests(partial: Partial<WebUiState> = {}): WebUiState { return { cwd: process.cwd(), ...partial }; }
 
-export function webUiStateForTests(partial: Partial<WebUiState> = {}): WebUiState {
-  return { cwd: process.cwd(), ...partial };
+async function memoryStore() { const store = await readJson(MEMORY_FILE, { version: 1, memories: [] as any[] }); store.memories ||= []; return store; }
+async function writeMemoryStore(store: any) { await mkdir(dirname(MEMORY_FILE), { recursive: true }); await writeFile(MEMORY_FILE, JSON.stringify(store, null, 2), "utf8"); }
+function normalizeMemoryPatch(input: any) { const p: Record<string, unknown> = {}; if (typeof input.content === "string") p.content = input.content.slice(0, 20_000); if (typeof input.category === "string") p.category = input.category; if (typeof input.subcategory === "string") p.subcategory = input.subcategory.slice(0, 100); if (Array.isArray(input.tags)) p.tags = input.tags.map((t: unknown) => String(t).slice(0, 64)).slice(0, 40); if (typeof input.confidence === "number") p.confidence = Math.max(0, Math.min(1, input.confidence)); if (typeof input.sensitivity === "string") p.sensitivity = input.sensitivity; return p; }
+function structuredMemory(store: any) {
+  const profile: any[] = [], timeline: any[] = [], memories: any[] = [];
+  for (const m of store.memories ?? []) {
+    if (m.timeline?.kind === "profile.timeline") timeline.push(m);
+    else if ((m.tags ?? []).some((t: string) => ["name", "height", "weight", "measurements", "body", "dob", "birthday", "age", "profile"].includes(String(t).toLowerCase()))) profile.push(m);
+    else memories.push(m);
+  }
+  return { profile, timeline, memories, total: (store.memories ?? []).length };
 }
-
-async function listToolResults(cwd: string) {
-  return readJson(join(cwd, ".pi", "tool-results", "index.json"), [] as any[]);
-}
-async function readMemoryStore() {
-  const store = await readJson(MEMORY_FILE, { version: 1, memories: [] as any[] });
-  store.memories ||= [];
-  return store;
-}
-async function writeMemoryStore(store: any) {
-  await mkdir(dirname(MEMORY_FILE), { recursive: true });
-  await writeFile(MEMORY_FILE, JSON.stringify(store, null, 2), "utf8");
-}
-function researchMatches(entry: any, q: string): boolean {
-  if (!q) return true;
-  const haystack = [entry.id, entry.query, entry.provider, entry.summary, entry.distilled?.summary, ...(entry.tags ?? []), ...(entry.categories ?? []), ...(entry.distilled?.tags ?? []), ...(entry.distilled?.categories ?? [])].filter(Boolean).join(" ").toLowerCase();
-  return haystack.includes(q.toLowerCase());
-}
-async function researchIndex(query = "") {
-  const [entries, stats] = await Promise.all([loadAllSearchEntries(), getSearchStats()]);
-  return {
-    stats,
-    entries: entries
-      .filter(entry => researchMatches(entry, query))
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .map(entry => ({
-        id: entry.id,
-        query: entry.query,
-        provider: entry.provider,
-        timestamp: entry.timestamp,
-        tags: entry.distilled?.tags ?? [],
-        categories: entry.distilled?.categories ?? [],
-        summary: entry.distilled?.summary,
-        resultCount: entry.raw?.results?.length ?? 0,
-      })),
-  };
-}
-
-function normalizeMemoryPatch(input: any) {
-  const patch: Record<string, unknown> = {};
-  if (typeof input.content === "string") patch.content = input.content.slice(0, 20_000);
-  if (typeof input.category === "string") patch.category = input.category;
-  if (typeof input.subcategory === "string") patch.subcategory = input.subcategory.slice(0, 100);
-  if (Array.isArray(input.tags)) patch.tags = input.tags.map((t: unknown) => String(t).slice(0, 64)).slice(0, 40);
-  if (typeof input.confidence === "number") patch.confidence = Math.max(0, Math.min(1, input.confidence));
-  if (typeof input.sensitivity === "string") patch.sensitivity = input.sensitivity;
-  return patch;
-}
+function researchMatches(entry: any, q: string) { if (!q) return true; const h = [entry.id, entry.query, entry.provider, entry.summary, entry.distilled?.summary, ...(entry.tags ?? []), ...(entry.categories ?? []), ...(entry.distilled?.tags ?? []), ...(entry.distilled?.categories ?? [])].filter(Boolean).join(" ").toLowerCase(); return h.includes(q.toLowerCase()); }
+async function researchIndex(q = "") { const [entries, stats] = await Promise.all([loadAllSearchEntries(), getSearchStats()]); return { stats, entries: entries.filter(e => researchMatches(e, q)).sort((a, b) => b.timestamp - a.timestamp).map(e => ({ id: e.id, query: e.query, provider: e.provider, timestamp: e.timestamp, tags: e.distilled?.tags ?? [], categories: e.distilled?.categories ?? [], summary: e.distilled?.summary, resultCount: e.raw?.results?.length ?? 0 })) }; }
+async function listToolResults(cwd: string) { return readJson(join(cwd, ".pi", "tool-results", "index.json"), [] as any[]); }
+async function findToolResultPath(cwd: string, id: string) { if (!/^[a-zA-Z0-9._-]+$/.test(id)) throw new Error("Unsafe tool result id"); const base = join(cwd, ".pi", "tool-results"); const direct = normalize(join(base, `${id}.json`)); if (!direct.startsWith(base)) throw new Error("Unsafe tool result path"); if (existsSync(direct)) return direct; const manifest = await listToolResults(cwd); const hit = manifest.find((e: any) => e.id === id || e.result_id === id); const stored = typeof hit?.stored_at === "string" ? normalize(join(cwd, hit.stored_at)) : ""; if (stored && stored.startsWith(base) && existsSync(stored)) return stored; throw new Error("Tool result not found"); }
+function topicsFor(text: string) { const words = text.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g) ?? []; const stop = new Set(["this", "that", "with", "from", "have", "what", "when", "where", "about", "please", "would", "could", "should", "there"]); return [...new Set(words.filter(w => !stop.has(w)))].slice(0, 6); }
+async function appendChat(state: WebUiState, role: "user" | "assistant", content: string) { const store = await readJson(threadsFile(state), { version: 1, threads: [] as any[] }); let thread = store.threads[0]; if (!thread) { thread = { id: crypto.randomUUID(), title: "Current Pi session", topics: [], mainPoints: [], created_at: Date.now(), updated_at: Date.now(), messages: [] }; store.threads.unshift(thread); } const topics = topicsFor(content); thread.topics = [...new Set([...(thread.topics ?? []), ...topics])].slice(0, 16); thread.mainPoints = [content.slice(0, 160), ...(thread.mainPoints ?? [])].slice(0, 12); thread.messages.push({ id: crypto.randomUUID(), role, content, created_at: Date.now() }); thread.updated_at = Date.now(); await writeJson(threadsFile(state), store); return thread; }
 
 export async function handleWebUiRequest(request: Request, state: WebUiState): Promise<Response> {
   const url = new URL(request.url);
   if (state.token && request.headers.get("authorization") !== `Bearer ${state.token}`) return json({ error: "unauthorized" }, 401);
-
   try {
-    if (url.pathname === "/" && request.method === "GET") return text(renderWebUiHtml(), 200, "text/html; charset=utf-8");
+    if (url.pathname === "/" && request.method === "GET") return html(renderWebUiHtml());
     if (url.pathname === "/api/health" && request.method === "GET") return json({ ok: true, cwd: state.cwd, authenticated: Boolean(state.token) });
-
-    if (url.pathname === "/api/profile") {
-      if (request.method === "GET") return json(await readJson(PROFILE_FILE, DEFAULT_PROFILE));
-      if (request.method === "PUT") {
-        const profile = sanitizeProfile(await request.json());
-        await writeJson(PROFILE_FILE, profile);
-        return json(profile);
-      }
-      return json({ error: "method not allowed" }, 405);
-    }
-
-    if (url.pathname === "/api/memories") {
-      const store = await readMemoryStore();
-      if (request.method === "GET") return json(store);
-      if (request.method === "POST") {
-        const body = await request.json();
-        const now = Date.now();
-        const mem = { id: crypto.randomUUID(), tags: [], confidence: 0.8, created_at: now, updated_at: now, ...normalizeMemoryPatch(body) };
-        if (!mem.content || !mem.category) return json({ error: "content and category required" }, 400);
-        store.memories.unshift(mem);
-        await writeMemoryStore(store);
-        return json(mem, 201);
-      }
-      return json({ error: "method not allowed" }, 405);
-    }
-
-    const memoryMatch = url.pathname.match(/^\/api\/memories\/([^/]+)$/);
-    if (memoryMatch) {
-      const store = await readMemoryStore();
-      const id = decodeURIComponent(memoryMatch[1]!);
-      const index = store.memories.findIndex((m: any) => m.id === id);
-      if (index < 0) return json({ error: "not found" }, 404);
-      if (request.method === "PATCH") {
-        store.memories[index] = { ...store.memories[index], ...normalizeMemoryPatch(await request.json()), updated_at: Date.now() };
-        await writeMemoryStore(store);
-        return json(store.memories[index]);
-      }
-      if (request.method === "DELETE") {
-        const [deleted] = store.memories.splice(index, 1);
-        await writeMemoryStore(store);
-        return json({ deleted });
-      }
-      return json({ error: "method not allowed" }, 405);
-    }
-
-    if (url.pathname === "/api/research" && request.method === "GET") return json(await researchIndex(url.searchParams.get("q") ?? ""));
-    const researchMatch = url.pathname.match(/^\/api\/research\/([^/]+)$/);
-    if (researchMatch && request.method === "GET") {
-      const entry = await loadSearchEntry(decodeURIComponent(researchMatch[1]!));
-      return entry ? json(entry) : json({ error: "not found" }, 404);
-    }
-
-    if (url.pathname === "/api/tool-results" && request.method === "GET") return json(await listToolResults(state.cwd));
-    const toolMatch = url.pathname.match(/^\/api\/tool-results\/([^/]+)$/);
-    if (toolMatch && request.method === "GET") {
-      const raw = await readFile(await findToolResultPath(state.cwd, decodeURIComponent(toolMatch[1]!)), "utf8");
-      return text(raw, 200, "application/json; charset=utf-8");
-    }
-
+    if (url.pathname === "/api/profile") { if (request.method === "GET") return json(await readJson(profileFile(state), DEFAULT_PROFILE)); if (request.method === "PUT") { const p = sanitizeProfile(await request.json()); await writeJson(profileFile(state), p); return json(p); } return json({ error: "method not allowed" }, 405); }
+    if (url.pathname === "/api/memory-profile" && request.method === "GET") return json(structuredMemory(await memoryStore()));
+    if (url.pathname === "/api/memories") { const store = await memoryStore(); if (request.method === "GET") return json(store); if (request.method === "POST") { const now = Date.now(); const mem = { id: crypto.randomUUID(), tags: [], confidence: 0.8, created_at: now, updated_at: now, ...normalizeMemoryPatch(await request.json()) }; if (!mem.content || !mem.category) return json({ error: "content and category required" }, 400); store.memories.unshift(mem); await writeMemoryStore(store); return json(mem, 201); } return json({ error: "method not allowed" }, 405); }
+    const mm = url.pathname.match(/^\/api\/memories\/([^/]+)$/); if (mm) { const store = await memoryStore(); const id = decodeURIComponent(mm[1]!); const i = store.memories.findIndex((m: any) => m.id === id); if (i < 0) return json({ error: "not found" }, 404); if (request.method === "PATCH") { store.memories[i] = { ...store.memories[i], ...normalizeMemoryPatch(await request.json()), updated_at: Date.now() }; await writeMemoryStore(store); return json(store.memories[i]); } if (request.method === "DELETE") { const [deleted] = store.memories.splice(i, 1); await writeMemoryStore(store); return json({ deleted }); } return json({ error: "method not allowed" }, 405); }
+    if (url.pathname === "/api/research" && request.method === "GET") return json(await researchIndex(url.searchParams.get("q") ?? "")); const rm = url.pathname.match(/^\/api\/research\/([^/]+)$/); if (rm && request.method === "GET") { const entry = await loadSearchEntry(decodeURIComponent(rm[1]!)); return entry ? json(entry) : json({ error: "not found" }, 404); }
+    if (url.pathname === "/api/tool-results" && request.method === "GET") return json(await listToolResults(state.cwd)); const tm = url.pathname.match(/^\/api\/tool-results\/([^/]+)$/); if (tm && request.method === "GET") return new Response(await readFile(await findToolResultPath(state.cwd, decodeURIComponent(tm[1]!)), "utf8"), { headers: { "content-type": "application/json; charset=utf-8" } });
     if (url.pathname === "/api/thread" && request.method === "GET") return json({ entries: state.getEntries?.() ?? [] });
-    if (url.pathname === "/api/chat" && request.method === "POST") {
-      const body = await request.json();
-      const message = trimString(body?.message, 20_000).trim();
-      if (!message) return json({ error: "message required" }, 400);
-      state.sendUserMessage?.(message, { deliverAs: "followUp" });
-      return json({ queued: Boolean(state.sendUserMessage), message });
-    }
-
+    if (url.pathname === "/api/chat-threads" && request.method === "GET") return json(await readJson(threadsFile(state), { version: 1, threads: [] }));
+    if (url.pathname === "/api/chat" && request.method === "POST") { const message = trimString((await request.json())?.message, 20_000).trim(); if (!message) return json({ error: "message required" }, 400); state.sendUserMessage?.(message, { deliverAs: "followUp" }); const thread = await appendChat(state, "user", message); return json({ queued: Boolean(state.sendUserMessage), thread }); }
     return json({ error: "not found" }, 404);
-  } catch (error: any) {
-    return json({ error: error?.message ?? String(error) }, 500);
-  }
+  } catch (error: any) { return json({ error: error?.message ?? String(error) }, 500); }
 }
 
-async function nodeRequestToWeb(req: IncomingMessage): Promise<Request> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.from(chunk));
-  return new Request(`http://127.0.0.1${req.url ?? "/"}`, { method: req.method, headers: req.headers as any, body: chunks.length ? Buffer.concat(chunks) : undefined } as any);
-}
-async function sendResponse(res: ServerResponse, response: Response) {
-  res.statusCode = response.status;
-  response.headers.forEach((value, key) => res.setHeader(key, value));
-  res.end(Buffer.from(await response.arrayBuffer()));
-}
+async function nodeRequestToWeb(req: IncomingMessage) { const chunks: Buffer[] = []; for await (const c of req) chunks.push(Buffer.from(c)); return new Request(`http://127.0.0.1${req.url ?? "/"}`, { method: req.method, headers: req.headers as any, body: chunks.length ? Buffer.concat(chunks) : undefined } as any); }
+async function sendResponse(res: ServerResponse, response: Response) { res.statusCode = response.status; response.headers.forEach((v, k) => res.setHeader(k, v)); res.end(Buffer.from(await response.arrayBuffer())); }
+let server: Server | null = null, serverUrl = "";
+async function startServer(pi: ExtensionAPI, ctx: any, port = DEFAULT_PORT) { if (server) return serverUrl; const state: WebUiState = { cwd: ctx.cwd, token: process.env.KEYLIME_WEB_UI_TOKEN, sendUserMessage: (text, options) => (pi as any).sendUserMessage?.(text, options), getEntries: () => ctx.sessionManager?.getEntries?.() ?? [] }; server = createServer(async (req, res) => sendResponse(res, await handleWebUiRequest(await nodeRequestToWeb(req), state))); await new Promise<void>(resolve => server!.listen(port, "127.0.0.1", resolve)); const a = server.address(); serverUrl = `http://127.0.0.1:${typeof a === "object" && a ? a.port : port}/`; return serverUrl; }
+async function stopServer() { if (!server) return; await new Promise<void>(resolve => server!.close(() => resolve())); server = null; serverUrl = ""; }
 
-let server: Server | null = null;
-let serverUrl = "";
-let latestState: WebUiState | null = null;
-
-async function startServer(pi: ExtensionAPI, ctx: any, port = DEFAULT_PORT) {
-  if (server) return serverUrl;
-  latestState = {
-    cwd: ctx.cwd,
-    token: process.env.KEYLIME_WEB_UI_TOKEN,
-    sendUserMessage: (text, options) => (pi as any).sendUserMessage?.(text, options),
-    getEntries: () => ctx.sessionManager?.getEntries?.() ?? [],
-  };
-  server = createServer(async (req, res) => sendResponse(res, await handleWebUiRequest(await nodeRequestToWeb(req), latestState!)));
-  await new Promise<void>((resolve) => server!.listen(port, "127.0.0.1", resolve));
-  const address = server.address();
-  const actualPort = typeof address === "object" && address ? address.port : port;
-  serverUrl = `http://127.0.0.1:${actualPort}/`;
-  return serverUrl;
-}
-async function stopServer() {
-  if (!server) return;
-  await new Promise<void>((resolve) => server!.close(() => resolve()));
-  server = null;
-  serverUrl = "";
-}
-
-export function renderWebUiHtml(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Keylime Browser UI</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.violet.min.css"><style>
-:root{color-scheme:dark;--bg:#090a12;--panel:rgba(255,255,255,.075);--panel2:rgba(255,255,255,.11);--text:#f7f3ff;--muted:#aaa3bd;--accent:#8b5cf6;--hot:#22d3ee;--ok:#34d399;--bad:#fb7185}*{box-sizing:border-box}body{margin:0;font:14px/1.45 Inter,ui-sans-serif,system-ui;background:radial-gradient(900px at 10% 0%,#312e81 0,#090a12 45%),radial-gradient(700px at 100% 10%,#164e63 0,#090a12 38%);color:var(--text)}button,input,textarea,select{font:inherit}button{border:0;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--hot));color:white;padding:10px 14px;font-weight:700;cursor:pointer}.ghost{background:var(--panel2);color:var(--text)}.app{display:grid;grid-template-columns:270px 1fr;min-height:100vh}.side{padding:24px;border-right:1px solid #ffffff18;background:#05060bb8;backdrop-filter:blur(18px);position:sticky;top:0;height:100vh}.brand{font-size:23px;font-weight:900;letter-spacing:-.04em}.brand span{color:var(--hot)}.nav{display:grid;gap:8px;margin-top:28px}.nav button{text-align:left;background:transparent;color:var(--muted)}.nav button.active,.nav button:hover{background:var(--panel);color:var(--text)}main{padding:28px;max-width:1260px;width:100%;margin:auto}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}.card{grid-column:span 12;background:var(--panel);border:1px solid #ffffff18;border-radius:24px;padding:20px;box-shadow:0 20px 60px #0005;backdrop-filter:blur(18px)}.half{grid-column:span 6}.third{grid-column:span 4}.hero{display:flex;justify-content:space-between;gap:18px;align-items:center}.avatar{width:76px;height:76px;border-radius:26px;background:linear-gradient(135deg,var(--accent),var(--hot));object-fit:cover}.muted{color:var(--muted)}.list{display:grid;gap:10px;max-height:560px;overflow:auto}.item{padding:13px;border:1px solid #ffffff12;border-radius:16px;background:#00000024}.row{display:flex;gap:10px;align-items:center;justify-content:space-between}.pill{font-size:12px;padding:4px 8px;border-radius:999px;background:#ffffff18;color:#d8d2e8}textarea,input,select{width:100%;border:1px solid #ffffff26!important;border-radius:16px!important;background:linear-gradient(180deg,#111429dd,#070812ee)!important;color:var(--text)!important;padding:12px 14px!important;box-shadow:inset 0 1px 0 #ffffff12,0 12px 34px #0003!important;outline:0!important}textarea:focus,input:focus,select:focus{border-color:var(--hot)!important;box-shadow:0 0 0 4px color-mix(in srgb,var(--hot) 24%,transparent),inset 0 1px 0 #ffffff18!important}textarea{min-height:120px;resize:vertical}.tabs{display:none}.tabs.active{display:block}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.danger{background:linear-gradient(135deg,#e11d48,#fb7185)}pre{white-space:pre-wrap;word-break:break-word;background:#02030a;border-radius:14px;padding:14px;max-height:480px;overflow:auto}@media(max-width:850px){.app{grid-template-columns:1fr}.side{position:relative;height:auto}.half,.third{grid-column:span 12}}
-</style></head><body><div class="app"><aside class="side"><div class="brand">Keylime <span>Browser</span></div><p class="muted">Pi, but glossy. Localhost-first.</p><div class="nav"><button class="active" data-tab="chat">Chat Threads</button><button data-tab="memory">Memories & Events</button><button data-tab="research">Deep Research</button><button data-tab="tools">Tool Calls / Results</button><button data-tab="profile">Profile & Settings</button></div><p id="health" class="muted"></p><p id="err" class="muted"></p></aside><main>
-<section id="chat" class="tabs active"><div class="grid"><div class="card hero"><div><h1>Chat Threads</h1><p class="muted">Inspect the current session and queue a follow-up into Pi.</p></div><button onclick="refreshThread()">Refresh</button></div><div class="card"><textarea id="chatBox" placeholder="Send a follow-up to Pi..."></textarea><div class="toolbar"><button onclick="sendChat()">Send to Pi</button></div><div id="thread" class="list"></div></div></div></section>
-<section id="memory" class="tabs"><div class="grid"><div class="card hero"><div><h1>Memories & Events</h1><p class="muted">Browse, edit, add, and delete durable memories.</p></div><button onclick="loadMemories()">Refresh</button></div><div class="card half"><h2>Add memory</h2><input id="memContent" placeholder="Memory text"><div class="toolbar"><select id="memCategory"><option>preference</option><option>fact</option><option>event</option><option>goal</option><option>skill</option><option>context</option></select><input id="memTags" placeholder="tags, comma separated"></div><button onclick="addMemory()">Add</button></div><div class="card half"><h2>Key memory list</h2><div id="memories" class="list"></div></div></div></section>
-<section id="research" class="tabs"><div class="grid"><div class="card hero"><div><h1>Deep Research</h1><p class="muted">Searchable topic index for saved web research and distilled knowledge.</p></div><button onclick="loadResearch()">Refresh</button></div><div class="card third"><input id="researchQ" placeholder="Search topics, tags, sources..." oninput="loadResearch()"><p id="researchStats" class="muted"></p><div id="researchList" class="list"></div></div><div class="card" style="grid-column:span 8"><pre id="researchDetail">Select a research topic…</pre></div></div></section>
-<section id="tools" class="tabs"><div class="grid"><div class="card hero"><div><h1>Tool Calls / Results</h1><p class="muted">Manual inspection of compacted tool outputs.</p></div><button onclick="loadToolResults()">Refresh</button></div><div class="card third"><div id="toolResults" class="list"></div></div><div class="card" style="grid-column:span 8"><pre id="toolDetail">Select a tool result…</pre></div></div></section>
-<section id="profile" class="tabs"><div class="grid"><div class="card hero"><div><h1>Profile & Settings</h1><p class="muted">Nickname, profile picture, custom prompt instructions, and theme.</p></div><img id="avatar" class="avatar"></div><div class="card half"><label>Nickname</label><input id="nickname" placeholder="What should Pi call you?"><label>Avatar data URL</label><input id="avatarDataUrl" placeholder="data:image/png;base64,..."><label>Theme</label><select id="profileTheme" onchange="setTheme(this.value)"><option>aurora</option><option>graphite</option><option>rose</option><option>system</option></select><div class="toolbar"><button onclick="setTheme('aurora')">Aurora</button><button onclick="setTheme('graphite')">Graphite</button><button onclick="setTheme('rose')">Rose</button></div></div><div class="card half"><label>Custom prompt instructions</label><textarea id="customInstructions" placeholder="Preferences, tone, constraints, long-running project guidance..."></textarea><div class="toolbar"><button onclick="saveProfile()">Save settings</button><button class="ghost" onclick="loadProfile()">Reload</button></div></div></div></section>
+export function renderWebUiHtml(): string { return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Keylime Browser UI</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.violet.min.css"><style>
+:root{color-scheme:dark;--bg:#05060b;--panel:#0d1020cc;--panel2:#151a31e6;--text:#f7f3ff;--muted:#9ea4c7;--accent:#9d7cff;--hot:#22d3ee;--line:#ffffff1f}*{box-sizing:border-box}body{margin:0;background:radial-gradient(900px at 10% 0%,#3b1b72 0,#05060b 45%),radial-gradient(800px at 100% 0%,#065f70 0,#05060b 38%);color:var(--text);font:14px/1.45 Inter,ui-sans-serif,system-ui;overflow-x:hidden}.terminal-grid:before{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px);background-size:34px 34px;mask-image:radial-gradient(circle at 50% 0%,#000 0,#0008 45%,transparent 80%)}button,input,textarea,select{font:inherit}button{border:0;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--hot));color:white;padding:10px 14px;font-weight:800;cursor:pointer;box-shadow:0 12px 34px #0007;transition:.18s transform,.18s filter}button:hover{transform:translateY(-1px);filter:saturate(1.2)}.ghost{background:#ffffff14;color:var(--text)}.danger{background:linear-gradient(135deg,#e11d48,#fb7185)}.app{display:grid;grid-template-columns:290px 1fr;min-height:100vh}.side{padding:24px;border-right:1px solid var(--line);background:#05060bd9;backdrop-filter:blur(22px);position:sticky;top:0;height:100vh}.brand{font-size:25px;font-weight:950;letter-spacing:-.055em}.brand span{color:var(--hot);text-shadow:0 0 24px #22d3eeaa}.nav{display:grid;gap:9px;margin-top:28px}.nav button{text-align:left;background:transparent;color:var(--muted);box-shadow:none}.nav button.active,.nav button:hover{background:linear-gradient(90deg,#ffffff14,transparent);color:var(--text)}main{padding:30px;max-width:1320px;width:100%;margin:auto}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}.card{grid-column:span 12;background:linear-gradient(180deg,var(--panel),#070917cc);border:1px solid var(--line);border-radius:26px;padding:20px;box-shadow:0 24px 80px #0008;backdrop-filter:blur(20px);animation:rise .28s ease}.half{grid-column:span 6}.third{grid-column:span 4}.wide{grid-column:span 8}.hero{display:flex;justify-content:space-between;gap:18px;align-items:center}.avatar{width:84px;height:84px;border-radius:28px;background:linear-gradient(135deg,var(--accent),var(--hot));object-fit:cover}.muted{color:var(--muted)}.list{display:grid;gap:10px;max-height:590px;overflow:auto}.item{padding:14px;border:1px solid #ffffff14;border-radius:18px;background:#0000002b;cursor:pointer;transition:.16s transform,.16s border}.item:hover{transform:translateY(-1px);border-color:#22d3ee66}.row{display:flex;gap:10px;align-items:center;justify-content:space-between}.pill{font-size:12px;padding:4px 9px;border-radius:999px;background:#ffffff18;color:#d8d2e8}textarea,input,select{width:100%;border:1px solid #ffffff26!important;border-radius:16px!important;background:linear-gradient(180deg,#111429dd,#070812ee)!important;color:var(--text)!important;padding:12px 14px!important;box-shadow:inset 0 1px 0 #ffffff12,0 12px 34px #0003!important;outline:0!important}textarea:focus,input:focus,select:focus{border-color:var(--hot)!important;box-shadow:0 0 0 4px color-mix(in srgb,var(--hot) 24%,transparent),inset 0 1px 0 #ffffff18!important}textarea{min-height:120px;resize:vertical}.chat-log{height:56vh;overflow:auto;padding:16px;background:#02030a99;border:1px solid var(--line);border-radius:22px;display:flex;flex-direction:column;gap:12px}.bubble{max-width:78%;padding:13px 15px;border-radius:18px;background:#ffffff12}.bubble.user{align-self:flex-end;background:linear-gradient(135deg,#6d5dfc,#0891b2)}.composer{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:12px}.tabs{display:none}.tabs.active{display:block}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}pre{white-space:pre-wrap;word-break:break-word;background:#02030a;border-radius:14px;padding:14px;max-height:520px;overflow:auto}@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(max-width:900px){.app{grid-template-columns:1fr}.side{position:relative;height:auto}.half,.third,.wide{grid-column:span 12}.composer{grid-template-columns:1fr}}
+</style></head><body class="terminal-grid"><div class="app"><aside class="side"><div class="brand">Keylime <span>Browser</span></div><p class="muted">Neo-terminal control room for Pi.</p><div class="nav"><button class="active" data-tab="chat">Chat</button><button data-tab="memory">Structured Memory</button><button data-tab="research">Deep Research</button><button data-tab="tools">Tool Inspector</button><button data-tab="profile">Profile & Settings</button></div><p id="health" class="muted"></p><p id="err" class="muted"></p></aside><main>
+<section id="chat" class="tabs active"><div class="grid"><div class="card hero"><div><h1>Chat Interface</h1><p class="muted">Persistent browser-side threads, topics, and follow-ups into Pi.</p></div><button id="refreshThread">Refresh</button></div><div class="card wide"><div id="chatLog" class="chat-log"></div><div class="composer"><textarea id="chatBox" placeholder="Ask Pi…"></textarea><button id="sendChat">Send</button></div></div><div class="card third"><h3>Topics</h3><div id="chatTopics" class="list"></div><h3>Main points</h3><div id="chatPoints" class="list"></div></div></div></section>
+<section id="memory" class="tabs"><div class="grid"><div class="card hero"><div><h1>Structured Memory</h1><p class="muted">Profile facts, timeline events, and key memories.</p></div><button id="refreshMemory">Refresh</button></div><div class="card third"><h3>About me</h3><div id="profileMem" class="list"></div></div><div class="card third"><h3>Timeline / Events</h3><div id="timelineMem" class="list"></div></div><div class="card third"><h3>Add memory</h3><input id="memContent" placeholder="Memory text"><select id="memCategory"><option>preference</option><option>fact</option><option>event</option><option>goal</option><option>skill</option><option>context</option></select><input id="memTags" placeholder="tags, comma separated"><button id="addMemory">Add memory</button></div><div class="card"><h3>All other memories</h3><div id="memories" class="list"></div></div></div></section>
+<section id="research" class="tabs"><div class="grid"><div class="card hero"><div><h1>Deep Research</h1><p class="muted">Searchable topic index for saved web research.</p></div><button id="refreshResearch">Refresh</button></div><div class="card third"><input id="researchQ" placeholder="Search topics, tags, sources..."><p id="researchStats" class="muted"></p><div id="researchList" class="list"></div></div><div class="card wide"><pre id="researchDetail">Select a research topic…</pre></div></div></section>
+<section id="tools" class="tabs"><div class="grid"><div class="card hero"><div><h1>Tool Inspector</h1><p class="muted">Manual inspection of compacted tool calls and results.</p></div><button id="refreshTools">Refresh</button></div><div class="card third"><div id="toolResults" class="list"></div></div><div class="card wide"><pre id="toolDetail">Select a tool result…</pre></div></div></section>
+<section id="profile" class="tabs"><div class="grid"><div class="card hero"><div><h1>Profile & Settings</h1><p class="muted">Nickname, avatar upload, custom instructions, and theme.</p></div><img id="avatar" class="avatar"></div><div class="card half"><label>Nickname</label><input id="nickname" placeholder="What should Pi call you?"><label>Profile picture</label><input id="avatarFile" type="file" accept="image/*"><label>Theme</label><select id="profileTheme"><option>void</option><option>aurora</option><option>phosphor</option><option>rose</option></select><div class="toolbar"><button data-theme="void">Void</button><button data-theme="aurora">Aurora</button><button data-theme="phosphor">Phosphor</button><button data-theme="rose">Rose</button></div></div><div class="card half"><label>Custom prompt instructions</label><textarea id="customInstructions" placeholder="Preferences, tone, constraints, long-running project guidance..."></textarea><button id="saveProfile">Save settings</button></div></div></section>
 </main></div><script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 function token(){let t=localStorage.getItem('keylime.token')||''; if(!t&&location.search.includes('token=')){t=new URLSearchParams(location.search).get('token')||''; localStorage.setItem('keylime.token',t)} return t}
 async function api(p,o={}){try{const t=token(); const r=await fetch(p,{headers:{'content-type':'application/json',...(t?{authorization:'Bearer '+t}:{}),...(o.headers||{})},...o}); if(r.status===401){const nt=prompt('Keylime web token'); if(nt){localStorage.setItem('keylime.token',nt); return api(p,o)}} if(!r.ok) throw new Error(await r.text()); $('#err').textContent=''; return r.headers.get('content-type')?.includes('json')?r.json():r.text()}catch(e){$('#err').textContent='Error: '+(e.message||e); throw e}}
-$$('.nav button').forEach(b=>b.onclick=()=>{$$('.nav button').forEach(x=>x.classList.remove('active'));$$('.tabs').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#'+b.dataset.tab).classList.add('active')});
-function esc(s){return String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
-function attr(s){return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
-async function loadProfile(){const p=await api('/api/profile'); $('#nickname').value=p.nickname||''; $('#avatarDataUrl').value=p.avatarDataUrl||''; $('#customInstructions').value=p.customInstructions||''; $('#profileTheme').value=p.theme||'aurora'; $('#avatar').src=p.avatarDataUrl||''; setTheme(p.theme||'aurora')}
-async function saveProfile(){await api('/api/profile',{method:'PUT',body:JSON.stringify({nickname:$('#nickname').value,avatarDataUrl:$('#avatarDataUrl').value,customInstructions:$('#customInstructions').value,theme:$('#profileTheme').value})}); await loadProfile()}
-function setTheme(t){$('#profileTheme').value=t; const r=document.documentElement.style; if(t==='graphite'){r.setProperty('--accent','#64748b');r.setProperty('--hot','#e2e8f0')} else if(t==='rose'){r.setProperty('--accent','#e11d48');r.setProperty('--hot','#f9a8d4')} else {r.setProperty('--accent','#8b5cf6');r.setProperty('--hot','#22d3ee')}}
-async function loadMemories(){const s=await api('/api/memories'); $('#memories').innerHTML=(s.memories||[]).map(m=>'<div class=item><div class=row><b>'+esc(m.category)+'</b><span class=pill>'+esc((m.tags||[]).join(', '))+'</span></div><p>'+esc(m.content)+'</p><div class=toolbar><button class=ghost data-edit="'+attr(m.id)+'">Edit</button><button class=danger data-del="'+attr(m.id)+'">Delete</button></div></div>').join('')||'<p class=muted>No memories yet.</p>'; $('#memories [data-edit]').forEach(b=>b.onclick=()=>editMem(b.dataset.edit)); $('#memories [data-del]').forEach(b=>b.onclick=()=>delMem(b.dataset.del))}
-async function addMemory(){await api('/api/memories',{method:'POST',body:JSON.stringify({content:$('#memContent').value,category:$('#memCategory').value,tags:$('#memTags').value.split(',').map(x=>x.trim()).filter(Boolean)})}); $('#memContent').value=''; await loadMemories()}
-async function editMem(id){const content=prompt('Update memory content'); if(content) {await api('/api/memories/'+id,{method:'PATCH',body:JSON.stringify({content})}); await loadMemories()}}
-async function delMem(id){if(confirm('Delete memory?')){await api('/api/memories/'+id,{method:'DELETE'}); await loadMemories()}}
-async function loadResearch(){const q=encodeURIComponent($('#researchQ')?.value||''); const data=await api('/api/research?q='+q); $('#researchStats').textContent=(data.stats?.total||0)+' searches · '+(data.stats?.withKnowledge||0)+' distilled'; $('#researchList').innerHTML=(data.entries||[]).map(r=>'<div class=item data-research="'+attr(r.id)+'"><b>'+esc(r.query)+'</b><p class=muted>'+new Date(r.timestamp).toLocaleString()+' · '+esc((r.tags||[]).join(', '))+'</p><p>'+esc(r.summary||'No distillation yet')+'</p></div>').join('')||'<p class=muted>No research topics found.</p>'; $('#researchList [data-research]').forEach(x=>x.onclick=()=>showResearch(x.dataset.research))}
+function esc(s){return String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))} function attr(s){return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+function card(m){return '<div class=item data-id="'+attr(m.id)+'"><div class=row><b>'+esc(m.category||m.timeline?.subkind||'memory')+'</b><span class=pill>'+esc((m.tags||[]).join(', '))+'</span></div><p>'+esc(m.content||m.timeline?.label||m.timeline?.notes||'')+'</p></div>'}
+function setTheme(t){$('#profileTheme').value=t; const r=document.documentElement.style; const themes={void:['#9d7cff','#22d3ee'],aurora:['#8b5cf6','#34d399'],phosphor:['#84cc16','#22d3ee'],rose:['#e11d48','#f9a8d4']}; const [a,h]=themes[t]||themes.void; r.setProperty('--accent',a); r.setProperty('--hot',h)}
+async function loadProfile(){const p=await api('/api/profile'); $('#nickname').value=p.nickname||''; $('#customInstructions').value=p.customInstructions||''; $('#profileTheme').value=p.theme||'void'; $('#avatar').src=p.avatarDataUrl||''; setTheme(p.theme||'void')}
+async function saveProfile(){await api('/api/profile',{method:'PUT',body:JSON.stringify({nickname:$('#nickname').value,avatarDataUrl:$('#avatar').src||'',customInstructions:$('#customInstructions').value,theme:$('#profileTheme').value})}); await loadProfile()}
+async function loadMemory(){const s=await api('/api/memory-profile'); $('#profileMem').innerHTML=(s.profile||[]).map(card).join('')||'<p class=muted>No profile memories.</p>'; $('#timelineMem').innerHTML=(s.timeline||[]).map(card).join('')||'<p class=muted>No timeline events.</p>'; $('#memories').innerHTML=(s.memories||[]).map(card).join('')||'<p class=muted>No other memories.</p>'}
+async function addMemory(){await api('/api/memories',{method:'POST',body:JSON.stringify({content:$('#memContent').value,category:$('#memCategory').value,tags:$('#memTags').value.split(',').map(x=>x.trim()).filter(Boolean)})}); $('#memContent').value=''; await loadMemory()}
+async function loadResearch(){const data=await api('/api/research?q='+encodeURIComponent($('#researchQ').value||'')); $('#researchStats').textContent=(data.stats?.total||0)+' searches · '+(data.stats?.withKnowledge||0)+' distilled'; $('#researchList').innerHTML=(data.entries||[]).map(r=>'<div class=item data-research="'+attr(r.id)+'"><b>'+esc(r.query)+'</b><p class=muted>'+new Date(r.timestamp).toLocaleString()+' · '+esc((r.tags||[]).join(', '))+'</p><p>'+esc(r.summary||'No distillation yet')+'</p></div>').join('')||'<p class=muted>No research topics found.</p>'; $$('#researchList [data-research]').forEach(x=>x.onclick=()=>showResearch(x.dataset.research))}
 async function showResearch(id){$('#researchDetail').textContent=JSON.stringify(await api('/api/research/'+id),null,2)}
-async function loadToolResults(){const rs=await api('/api/tool-results'); $('#toolResults').innerHTML=(rs||[]).map(r=>'<div class=item data-tool="'+attr(r.id||r.result_id)+'"><b>'+esc(r.toolName||r.tool||'tool')+'</b><p class=muted>'+esc(r.createdAt||r.stored_at||'')+'</p></div>').join('')||'<p class=muted>No compacted tool results.</p>'; $('#toolResults [data-tool]').forEach(x=>x.onclick=()=>showTool(x.dataset.tool))}
+async function loadTools(){const rs=await api('/api/tool-results'); $('#toolResults').innerHTML=(rs||[]).map(r=>'<div class=item data-tool="'+attr(r.id||r.result_id)+'"><b>'+esc(r.toolName||r.tool||'tool')+'</b><p class=muted>'+esc(r.createdAt||r.stored_at||'')+'</p></div>').join('')||'<p class=muted>No compacted tool results.</p>'; $$('#toolResults [data-tool]').forEach(x=>x.onclick=()=>showTool(x.dataset.tool))}
 async function showTool(id){$('#toolDetail').textContent=JSON.stringify(await api('/api/tool-results/'+id),null,2)}
-async function refreshThread(){const t=await api('/api/thread'); $('#thread').innerHTML=(t.entries||[]).slice(-80).map(e=>'<div class=item><b>'+esc(e.type||e.role||'entry')+'</b><pre>'+esc(JSON.stringify(e,null,2))+'</pre></div>').join('')||'<p class=muted>No session entries exposed yet.</p>'}
-async function sendChat(){await api('/api/chat',{method:'POST',body:JSON.stringify({message:$('#chatBox').value})}); $('#chatBox').value=''; await refreshThread()}
-api('/api/health').then(h=>$('#health').textContent='Connected: '+h.cwd).catch(e=>$('#health').textContent='Disconnected'); loadProfile(); loadMemories(); loadResearch(); loadToolResults(); refreshThread();
-</script></body></html>`;
-}
+async function loadChat(){const t=await api('/api/chat-threads'); const th=(t.threads||[])[0]||{messages:[],topics:[],mainPoints:[]}; $('#chatLog').innerHTML=th.messages.map(m=>'<div class="bubble '+esc(m.role)+'">'+esc(m.content)+'</div>').join('')||'<p class=muted>No browser chat history yet.</p>'; $('#chatTopics').innerHTML=(th.topics||[]).map(x=>'<span class=pill>'+esc(x)+'</span>').join(''); $('#chatPoints').innerHTML=(th.mainPoints||[]).map(x=>'<div class=item>'+esc(x)+'</div>').join('')}
+async function sendChat(){const msg=$('#chatBox').value.trim(); if(!msg)return; await api('/api/chat',{method:'POST',body:JSON.stringify({message:msg})}); $('#chatBox').value=''; await loadChat()}
+$$('.nav button').forEach(b=>b.onclick=()=>{$$('.nav button').forEach(x=>x.classList.remove('active'));$$('.tabs').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#'+b.dataset.tab).classList.add('active')});
+$('#sendChat').onclick=sendChat; $('#refreshThread').onclick=loadChat; $('#refreshMemory').onclick=loadMemory; $('#addMemory').onclick=addMemory; $('#refreshResearch').onclick=loadResearch; $('#researchQ').oninput=loadResearch; $('#refreshTools').onclick=loadTools; $('#saveProfile').onclick=saveProfile; $('#profileTheme').onchange=e=>setTheme(e.target.value); $$('[data-theme]').forEach(b=>b.onclick=()=>setTheme(b.dataset.theme)); $('#avatarFile').onchange=e=>{const f=e.target.files?.[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{$('#avatar').src=String(r.result)}; r.readAsDataURL(f)};
+api('/api/health').then(h=>$('#health').textContent='Connected: '+h.cwd).catch(()=>$('#health').textContent='Disconnected'); loadProfile(); loadMemory(); loadResearch(); loadTools(); loadChat();
+</script></body></html>`; }
 
-export default function webUiExtension(pi: ExtensionAPI) {
-  pi.registerCommand("web-ui", {
-    description: "Start the local Keylime browser UI",
-    handler: async (args, ctx) => {
-      const port = Number(args?.trim() || DEFAULT_PORT);
-      const url = await startServer(pi, ctx, port);
-      ctx.ui.notify(`Keylime browser UI: ${url}${process.env.KEYLIME_WEB_UI_TOKEN ? " (token required)" : ""}`, "info");
-    },
-  });
-  pi.registerCommand("web-ui-stop", {
-    description: "Stop the local Keylime browser UI",
-    handler: async (_args, ctx) => { await stopServer(); ctx.ui.notify("Keylime browser UI stopped", "info"); },
-  });
-}
+export default function webUiExtension(pi: ExtensionAPI) { pi.registerCommand("web-ui", { description: "Start the local Keylime browser UI", handler: async (args, ctx) => { const url = await startServer(pi, ctx, Number(args?.trim() || DEFAULT_PORT)); ctx.ui.notify(`Keylime browser UI: ${url}${process.env.KEYLIME_WEB_UI_TOKEN ? " (token required)" : ""}`, "info"); } }); pi.registerCommand("web-ui-stop", { description: "Stop the local Keylime browser UI", handler: async (_args, ctx) => { await stopServer(); ctx.ui.notify("Keylime browser UI stopped", "info"); } }); }

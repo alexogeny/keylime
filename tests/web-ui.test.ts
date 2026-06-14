@@ -13,13 +13,18 @@ describe("browser web UI extension", () => {
     expect(Object.keys(harness.commands)).toEqual(expect.arrayContaining(["web-ui", "web-ui-stop"]));
     const html = renderWebUiHtml();
     expect(html).toContain("Keylime Browser UI");
-    expect(html).toContain("Memories");
-    expect(html).toContain("Tool Calls / Results");
+    expect(html).toContain("Structured Memory");
+    expect(html).toContain("Tool Inspector");
     expect(html).toContain("Profile");
     expect(html).toContain("Deep Research");
     expect(html).toContain("https://cdn.jsdelivr.net/npm/@picocss/pico");
     expect(html).toContain("Profile & Settings");
+    expect(html).toContain("Structured Memory");
+    expect(html).toContain("terminal-grid");
+    expect(html).toContain("type=\"file\"");
+    expect(html).toContain("chat-log");
     expect(html).not.toContain('data-tab="theme"');
+    expect(html).not.toContain("Avatar data URL");
     expect(html).toContain("localStorage.getItem('keylime.token')");
   });
 
@@ -71,11 +76,25 @@ describe("browser web UI extension", () => {
     expect(body).toHaveProperty("stats");
   });
 
-  test("chat POST delegates through state sender", async () => {
+  test("chat POST delegates through state sender and persists browser thread history", async () => {
     const sent: string[] = [];
-    const state = webUiStateForTests({ cwd: process.cwd(), sendUserMessage: (text: string) => sent.push(text) });
-    const response = await handleWebUiRequest(req("/api/chat", { method: "POST", body: JSON.stringify({ message: "hello pi" }) }), state);
+    const state = webUiStateForTests({ cwd: process.cwd(), sendUserMessage: (text: string) => sent.push(text), dataDir: await Bun.file('/tmp').exists() ? `/tmp/keylime-web-ui-test-${Date.now()}` : undefined });
+    const response = await handleWebUiRequest(req("/api/chat", { method: "POST", body: JSON.stringify({ message: "hello pi about memory ui" }) }), state);
     expect(response.status).toBe(200);
-    expect(sent).toEqual(["hello pi"]);
+    expect(sent).toEqual(["hello pi about memory ui"]);
+    const threads = await handleWebUiRequest(req("/api/chat-threads"), state);
+    const body = await threads.json();
+    expect(body.threads[0].topics).toContain("memory");
+    expect(body.threads[0].messages[0].content).toBe("hello pi about memory ui");
+  });
+
+  test("structured memory endpoint separates profile, timeline, and other memories", async () => {
+    const state = webUiStateForTests({ cwd: process.cwd() });
+    const response = await handleWebUiRequest(req("/api/memory-profile"), state);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toHaveProperty("profile");
+    expect(body).toHaveProperty("timeline");
+    expect(body).toHaveProperty("memories");
   });
 });
