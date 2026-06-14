@@ -16,6 +16,7 @@ export type ControlPlaneState = {
   getEntries?: () => any[];
   getCommands?: () => any[];
   runtime?: RuntimeState;
+  memoryFile?: string;
 };
 
 export type RuntimeState = {

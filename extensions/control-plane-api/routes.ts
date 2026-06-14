@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { ok, fail, parseJson } from "./envelope";
 import { CAPABILITIES, buildGraph, inferAgentState, normalizeMessages, normalizeModel, normalizeResearchDetail, normalizeResearchSummary, normalizeToolCall, splitMemory } from "./normalizers";
-import { DEFAULT_DATA_DIR, listWorkspaceFiles, readJson, readMemoryStore, readResearchEntry, readResearchIndex, readToolResult, readToolResultIndex } from "./stores";
+import { DEFAULT_DATA_DIR, listWorkspaceFiles, readJson, readMemoryStore, readResearchEntry, readResearchIndex, readToolResult, readToolResultIndex, writeJson, writeMemoryStore } from "./stores";
 import type { ControlPlaneState, ScreenCommand, SystemCapabilityMap } from "./types";
 
 const systemCaps: SystemCapabilityMap = { chat: true, streaming: false, memory: true, structuredMemory: true, research: true, files: true, patches: false, modelSwitching: false, approvals: false, toolInspection: true, costTracking: false, runTracing: true, knowledgeGraph: true };
@@ -36,7 +36,7 @@ export async function handleControlPlaneRequest(request: Request, state: Control
     const graphNode = url.pathname.match(/^\/api\/graph\/nodes\/(.+)$/);
     if (graphNode && request.method === "GET") return ok(await graphNodeBundle(state, decodeURIComponent(graphNode[1]!)), CAPABILITIES);
 
-    if (url.pathname === "/api/workspaces" && request.method === "GET") return ok({ active: state.cwd, workspaces: [{ id: state.cwd, name: state.cwd.split("/").pop() || state.cwd, path: state.cwd, active: true }] }, CAPABILITIES);
+    if (url.pathname === "/api/workspaces" && request.method === "GET") { const saved = await controlRead(state, "workspaces", [] as any[]); const base = { id: state.cwd, name: state.cwd.split("/").pop() || state.cwd, path: state.cwd, active: !saved.some((w: any) => w.active) }; return ok({ active: saved.find((w: any) => w.active)?.id ?? state.cwd, workspaces: [base, ...saved] }, CAPABILITIES); }
     if (url.pathname === "/api/workspace" && request.method === "GET") return ok(await workspaceBundle(state), CAPABILITIES);
     if (url.pathname === "/api/workspace/files" && request.method === "GET") return ok({ root: state.cwd, tree: await listWorkspaceFiles(state.cwd) }, CAPABILITIES);
 
@@ -45,13 +45,13 @@ export async function handleControlPlaneRequest(request: Request, state: Control
     const toolCall = url.pathname.match(/^\/api\/tool-calls\/([^/]+)$/);
     if (toolCall && request.method === "GET") { const raw = await readToolResult(state.cwd, decodeURIComponent(toolCall[1]!)); return ok({ call: normalizeToolCall(raw), input: raw.input ?? raw.args ?? raw.parameters, output: raw.output ?? raw.result, raw }, CAPABILITIES); }
 
-    if (url.pathname === "/api/models" && request.method === "GET") return ok(modelsBundle(state), CAPABILITIES);
-    if (url.pathname === "/api/models/select" && request.method === "POST") return fail("MODEL_SWITCH_INTERACTIVE_ONLY", "This backend only exposes model switching through the interactive harness unless a compatible adapter implements it.", 409);
-    if (url.pathname === "/api/approvals" && request.method === "GET") return ok({ pending: [], history: [] }, CAPABILITIES);
-    if (url.pathname === "/api/patches" && request.method === "GET") return ok({ patches: [] }, CAPABILITIES);
+    if (url.pathname === "/api/models" && request.method === "GET") return ok(await modelsBundle(state), CAPABILITIES);
+    if (url.pathname === "/api/models/select" && request.method === "POST") return ok(await selectModel(state, await parseJson(request)), CAPABILITIES);
+    if (url.pathname === "/api/approvals" && request.method === "GET") { const approvals = await controlRead(state, "approvals", [] as any[]); return ok({ pending: approvals.filter((a: any) => a.status === "pending"), history: approvals.filter((a: any) => a.status !== "pending") }, CAPABILITIES); }
+    if (url.pathname === "/api/patches" && request.method === "GET") return ok({ patches: await controlRead(state, "patches", [] as any[]) }, CAPABILITIES);
     if (url.pathname === "/api/settings" && request.method === "GET") return ok(await settingsBundle(state), CAPABILITIES);
-    if (url.pathname === "/api/providers" && request.method === "GET") return ok({ providers: [], note: "Provider connection management requires a backend adapter." }, CAPABILITIES);
-    if (url.pathname === "/api/attachments" && request.method === "GET") return ok({ attachments: [] }, CAPABILITIES);
+    if (url.pathname === "/api/providers" && request.method === "GET") return ok({ providers: await controlRead(state, "providers", [] as any[]) }, CAPABILITIES);
+    if (url.pathname === "/api/attachments" && request.method === "GET") return ok({ attachments: await controlRead(state, "attachments", [] as any[]) }, CAPABILITIES);
     if (/^\/api\/attachments\/[^/]+$/.test(url.pathname) && request.method === "GET") return fail("NOT_FOUND", "Attachment not found", 404);
 
     const mutation = await handleMutationRoute(request, url, state);
@@ -132,13 +132,15 @@ async function workspaceBundle(state: ControlPlaneState) {
   return { workspace: { id: state.cwd, name: state.cwd.split("/").pop() || state.cwd, path: state.cwd, active: true }, instructions: [], activeContext: [], recentFiles: files.filter(f => f.kind === "file").slice(0, 20), modifiedFiles: [], generatedFiles: [], attachedFiles: [], projectMemory: (await memoryBundle()).projects };
 }
 
-function modelsBundle(state: ControlPlaneState) {
-  return { current: normalizeModel(state.runtime?.model), models: state.runtime?.model ? [normalizeModel(state.runtime.model)].filter(Boolean) : [], providers: [], fallbackChain: [], defaults: {}, switchability: { supported: false, reason: "Pi model switching is interactive-only unless a backend adapter implements direct selection." } };
+async function modelsBundle(state: ControlPlaneState) {
+  const saved = await controlRead(state, "models", { defaults: {}, fallbackChain: [] as any[] });
+  return { current: normalizeModel(state.runtime?.model) ?? saved.current, models: state.runtime?.model ? [normalizeModel(state.runtime.model)].filter(Boolean) : (saved.current ? [saved.current] : []), providers: [], fallbackChain: saved.fallbackChain ?? [], defaults: saved.defaults ?? {}, switchability: { supported: false, reason: "Pi model switching is interactive-only unless a backend adapter implements direct selection." } };
 }
 
 async function settingsBundle(state: ControlPlaneState) {
-  const profile = await readJson(join(state.dataDir ?? DEFAULT_DATA_DIR, "profile.json"), {});
-  return { profile, workspaces: [{ id: state.cwd, path: state.cwd }], privacy: {}, memory: {}, models: {}, tools: {}, cost: {}, theme: {}, shortcuts: [], agent: {} };
+  const settings = await controlRead(state, "settings", {} as any);
+  const legacyProfile = await readJson(join(state.dataDir ?? DEFAULT_DATA_DIR, "profile.json"), {});
+  return { profile: settings.profile ?? legacyProfile, workspaces: [{ id: state.cwd, path: state.cwd }], privacy: settings.privacy ?? {}, memory: settings.memory ?? {}, models: settings.models ?? {}, tools: settings.tools ?? {}, cost: settings.cost ?? {}, theme: settings.theme ?? {}, shortcuts: settings.shortcuts ?? [], agent: settings.agent ?? {}, instructions: settings.instructions ?? {}, tone: settings.tone ?? {} };
 }
 
 async function screenBundle(state: ControlPlaneState, name: string, id?: string) {
@@ -157,69 +159,145 @@ async function screenBundle(state: ControlPlaneState, name: string, id?: string)
 async function handleMutationRoute(request: Request, url: URL, state: ControlPlaneState): Promise<Response | null> {
   if (request.method === "GET" || request.method === "OPTIONS") return null;
   const path = url.pathname;
-  const body = await parseJson(request).catch(() => ({}));
+  const body = await parseJson(request).catch(() => ({} as any));
+  const now = Date.now();
 
-  if (path === "/api/actions" && request.method === "POST") return ok({ actionId: crypto.randomUUID(), status: "unsupported", type: body.type, target: body.target, result: null }, CAPABILITIES, 202);
+  if (path === "/api/actions" && request.method === "POST") {
+    const actions = await controlRead(state, "actions", [] as any[]);
+    const action = { id: crypto.randomUUID(), type: body.type ?? "unknown", target: body.target, payload: body.payload, scope: body.scope ?? "session", status: "queued", createdAt: now };
+    actions.push(action); await controlWrite(state, "actions", actions); return ok({ actionId: action.id, status: action.status, result: action }, CAPABILITIES, 202);
+  }
 
-  if (/^\/api\/approvals\/[^/]+\/(approve|reject|request-changes)$/.test(path)) return unsupported("approval.resolve", path);
-  if (/^\/api\/approvals\/[^/]+\/files\/.+\/approve$/.test(path)) return unsupported("approval.file.approve", path);
-  if (/^\/api\/approvals\/[^/]+\/hunks\/[^/]+\/approve$/.test(path)) return unsupported("approval.hunk.approve", path);
+  const approval = path.match(/^\/api\/approvals\/([^/]+)\/(approve|reject|request-changes)$/);
+  if (approval) return ok(await mutateApproval(state, approval[1]!, approval[2]!, body), CAPABILITIES);
+  const approvalFile = path.match(/^\/api\/approvals\/([^/]+)\/files\/(.+)\/approve$/);
+  if (approvalFile) return ok(await mutateApproval(state, approvalFile[1]!, "approve-file", { ...body, file: decodeURIComponent(approvalFile[2]!) }), CAPABILITIES);
+  const approvalHunk = path.match(/^\/api\/approvals\/([^/]+)\/hunks\/([^/]+)\/approve$/);
+  if (approvalHunk) return ok(await mutateApproval(state, approvalHunk[1]!, "approve-hunk", { ...body, hunkId: decodeURIComponent(approvalHunk[2]!) }), CAPABILITIES);
 
-  if (/^\/api\/patches\/[^/]+\/(approve|reject|rollback|request-changes)$/.test(path)) return unsupported("patch.resolve", path);
-  if (/^\/api\/patches\/[^/]+\/files\/.+\/approve$/.test(path)) return unsupported("patch.file.approve", path);
-  if (/^\/api\/patches\/[^/]+\/hunks\/[^/]+\/approve$/.test(path)) return unsupported("patch.hunk.approve", path);
+  const patch = path.match(/^\/api\/patches\/([^/]+)\/(approve|reject|rollback|request-changes)$/);
+  if (patch) return ok(await mutatePatch(state, patch[1]!, patch[2]!, body), CAPABILITIES);
+  const patchFile = path.match(/^\/api\/patches\/([^/]+)\/files\/(.+)\/approve$/);
+  if (patchFile) return ok(await mutatePatch(state, patchFile[1]!, "approve-file", { ...body, file: decodeURIComponent(patchFile[2]!) }), CAPABILITIES);
+  const patchHunk = path.match(/^\/api\/patches\/([^/]+)\/hunks\/([^/]+)\/approve$/);
+  if (patchHunk) return ok(await mutatePatch(state, patchHunk[1]!, "approve-hunk", { ...body, hunkId: decodeURIComponent(patchHunk[2]!) }), CAPABILITIES);
 
-  if (path === "/api/memory" && request.method === "POST") return unsupported("memory.create", path);
-  if (/^\/api\/memory\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("memory.mutate", path);
-  if (/^\/api\/memory\/[^/]+\/(pin|unpin|sensitivity|scope|exclude|include)$/.test(path)) return unsupported("memory.policy", path);
+  if (path === "/api/memory" && request.method === "POST") return ok(await createMemoryForState(state, body), CAPABILITIES, 201);
+  const memory = path.match(/^\/api\/memory\/([^/]+)$/);
+  if (memory && request.method === "PATCH") return ok(await patchMemoryForState(state, memory[1]!, body), CAPABILITIES);
+  if (memory && request.method === "DELETE") return ok(await deleteMemoryForState(state, memory[1]!), CAPABILITIES);
+  const memoryPolicy = path.match(/^\/api\/memory\/([^/]+)\/(pin|unpin|sensitivity|scope|exclude|include)$/);
+  if (memoryPolicy) return ok(await patchMemoryPolicyForState(state, memoryPolicy[1]!, memoryPolicy[2]!, body), CAPABILITIES);
 
-  if (path === "/api/chat/threads" && request.method === "POST") return unsupported("chat.thread.create", path);
-  if (/^\/api\/chat\/threads\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("chat.thread.mutate", path);
-  if (/^\/api\/chat\/threads\/[^/]+\/(archive|branch)$/.test(path)) return unsupported("chat.thread.action", path);
-  if (/^\/api\/chat\/messages\/[^/]+\/(pin|unpin|bookmark|regenerate|edit-resend)$/.test(path) || (/^\/api\/chat\/messages\/[^/]+\/bookmark$/.test(path) && request.method === "DELETE")) return unsupported("chat.message.action", path);
-  if (path === "/api/chat/interrupt") return unsupported("chat.interrupt", path);
+  if (path === "/api/chat/threads" && request.method === "POST") return ok(await mutateThread(state, undefined, "create", body), CAPABILITIES, 201);
+  const thread = path.match(/^\/api\/chat\/threads\/([^/]+)$/);
+  if (thread && request.method === "PATCH") return ok(await mutateThread(state, thread[1]!, "patch", body), CAPABILITIES);
+  if (thread && request.method === "DELETE") return ok(await mutateThread(state, thread[1]!, "delete", body), CAPABILITIES);
+  const threadAction = path.match(/^\/api\/chat\/threads\/([^/]+)\/(archive|branch)$/);
+  if (threadAction) return ok(await mutateThread(state, threadAction[1]!, threadAction[2]!, body), CAPABILITIES, threadAction[2] === "branch" ? 201 : 200);
+  const messageAction = path.match(/^\/api\/chat\/messages\/([^/]+)\/(pin|unpin|bookmark|regenerate|edit-resend)$/);
+  if (messageAction) return ok(await mutateMessage(state, messageAction[1]!, messageAction[2]!, body), CAPABILITIES);
+  const messageBookmarkDelete = path.match(/^\/api\/chat\/messages\/([^/]+)\/bookmark$/);
+  if (messageBookmarkDelete && request.method === "DELETE") return ok(await mutateMessage(state, messageBookmarkDelete[1]!, "unbookmark", body), CAPABILITIES);
+  if (path === "/api/chat/interrupt") return ok(await runControl(state, "active", "cancel", body), CAPABILITIES);
 
-  if (/^\/api\/tools\/[^/]+\/invoke$/.test(path)) return unsupported("tool.invoke", path);
-  if (/^\/api\/tools\/[^/]+\/permission$/.test(path) && request.method === "PATCH") return unsupported("tool.permission", path);
+  const toolInvoke = path.match(/^\/api\/tools\/([^/]+)\/invoke$/);
+  if (toolInvoke) return ok(await invokeTool(state, decodeURIComponent(toolInvoke[1]!), body), CAPABILITIES, 202);
+  const toolPerm = path.match(/^\/api\/tools\/([^/]+)\/permission$/);
+  if (toolPerm && request.method === "PATCH") return ok(await setToolPermission(state, decodeURIComponent(toolPerm[1]!), body), CAPABILITIES);
 
-  if (/^\/api\/runs\/[^/]+\/(cancel|retry|pause|resume|steer)$/.test(path)) return unsupported("run.control", path);
+  const run = path.match(/^\/api\/runs\/([^/]+)\/(cancel|retry|pause|resume|steer)$/);
+  if (run) return ok(await runControl(state, run[1]!, run[2]!, body), CAPABILITIES);
 
-  if (path === "/api/graph/nodes" && request.method === "POST") return unsupported("graph.node.create", path);
-  if (/^\/api\/graph\/nodes\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("graph.node.mutate", path);
-  if (path === "/api/graph/edges" && request.method === "POST") return unsupported("graph.edge.create", path);
-  if (/^\/api\/graph\/edges\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("graph.edge.mutate", path);
+  if (path === "/api/graph/nodes" && request.method === "POST") return ok(await mutateGraph(state, "nodes", undefined, "create", body), CAPABILITIES, 201);
+  const graphNode = path.match(/^\/api\/graph\/nodes\/([^/]+)$/);
+  if (graphNode && request.method === "PATCH") return ok(await mutateGraph(state, "nodes", graphNode[1]!, "patch", body), CAPABILITIES);
+  if (graphNode && request.method === "DELETE") return ok(await mutateGraph(state, "nodes", graphNode[1]!, "delete", body), CAPABILITIES);
+  if (path === "/api/graph/edges" && request.method === "POST") return ok(await mutateGraph(state, "edges", undefined, "create", body), CAPABILITIES, 201);
+  const graphEdge = path.match(/^\/api\/graph\/edges\/([^/]+)$/);
+  if (graphEdge && request.method === "PATCH") return ok(await mutateGraph(state, "edges", graphEdge[1]!, "patch", body), CAPABILITIES);
+  if (graphEdge && request.method === "DELETE") return ok(await mutateGraph(state, "edges", graphEdge[1]!, "delete", body), CAPABILITIES);
 
-  if (path === "/api/workspace/context" && ["POST", "DELETE"].includes(request.method)) return unsupported("workspace.context", path);
-  if (/^\/api\/workspace\/context\/[^/]+$/.test(path) && request.method === "DELETE") return unsupported("workspace.context.remove", path);
-  if (/^\/api\/workspace\/files\/.+\/(rollback|accept|discard)$/.test(path)) return unsupported("workspace.file.change", path);
-  if (/^\/api\/workspace\/changes\/(accept|discard)$/.test(path)) return unsupported("workspace.changes", path);
+  if (path === "/api/workspace/context" && request.method === "POST") return ok(await mutateWorkspaceContext(state, "add", body), CAPABILITIES, 201);
+  const contextDelete = path.match(/^\/api\/workspace\/context\/([^/]+)$/);
+  if (contextDelete && request.method === "DELETE") return ok(await mutateWorkspaceContext(state, "remove", { id: decodeURIComponent(contextDelete[1]!) }), CAPABILITIES);
+  const fileChange = path.match(/^\/api\/workspace\/files\/(.+)\/(rollback|accept|discard)$/);
+  if (fileChange) return ok(await mutateWorkspaceChange(state, decodeURIComponent(fileChange[1]!), fileChange[2]!, body), CAPABILITIES);
+  const allChanges = path.match(/^\/api\/workspace\/changes\/(accept|discard)$/);
+  if (allChanges) return ok(await mutateWorkspaceChange(state, "*", allChanges[1]!, body), CAPABILITIES);
 
-  if (path === "/api/models/default" && request.method === "PUT") return unsupported("model.default", path);
-  if (path === "/api/models/fallback" && request.method === "PUT") return unsupported("model.fallback", path);
+  if (path === "/api/models/default" && request.method === "PUT") return ok(await setModelDefault(state, body), CAPABILITIES);
+  if (path === "/api/models/fallback" && request.method === "PUT") return ok(await setModelFallback(state, body), CAPABILITIES);
 
-  if (path === "/api/settings" && request.method === "PATCH") return unsupported("settings.patch", path);
-  if (path === "/api/profile" && request.method === "PATCH") return unsupported("profile.patch", path);
-  if (/^\/api\/settings\/(privacy|memory|theme|shortcuts|agent|cost)$/.test(path) && request.method === "PATCH") return unsupported("settings.section.patch", path);
+  if (path === "/api/settings" && request.method === "PATCH") return ok(await patchSettings(state, undefined, body), CAPABILITIES);
+  if (path === "/api/profile" && request.method === "PATCH") return ok(await patchSettings(state, "profile", body), CAPABILITIES);
+  const settingSection = path.match(/^\/api\/settings\/(privacy|memory|theme|shortcuts|agent|cost|profile|instructions|tone)$/);
+  if (settingSection && request.method === "PATCH") return ok(await patchSettings(state, settingSection[1]!, body), CAPABILITIES);
 
-  if (/^\/api\/providers\/[^/]+\/(connect|test)$/.test(path)) return unsupported("provider.connection", path);
-  if (/^\/api\/providers\/[^/]+$/.test(path) && request.method === "DELETE") return unsupported("provider.delete", path);
-  if (/^\/api\/providers\/[^/]+\/keys$/.test(path) && request.method === "POST") return unsupported("provider.key.create", path);
-  if (/^\/api\/providers\/[^/]+\/keys\/[^/]+\/(rotate)$/.test(path)) return unsupported("provider.key.rotate", path);
-  if (/^\/api\/providers\/[^/]+\/keys\/[^/]+$/.test(path) && request.method === "DELETE") return unsupported("provider.key.delete", path);
+  const providerAction = path.match(/^\/api\/providers\/([^/]+)\/(connect|test)$/);
+  if (providerAction) return ok(await mutateProvider(state, providerAction[1]!, providerAction[2]!, body), CAPABILITIES);
+  const providerDelete = path.match(/^\/api\/providers\/([^/]+)$/);
+  if (providerDelete && request.method === "DELETE") return ok(await mutateProvider(state, providerDelete[1]!, "delete", body), CAPABILITIES);
+  const providerKeyCreate = path.match(/^\/api\/providers\/([^/]+)\/keys$/);
+  if (providerKeyCreate && request.method === "POST") return ok(await mutateProviderKey(state, providerKeyCreate[1]!, undefined, "create", body), CAPABILITIES, 201);
+  const providerKeyRotate = path.match(/^\/api\/providers\/([^/]+)\/keys\/([^/]+)\/rotate$/);
+  if (providerKeyRotate) return ok(await mutateProviderKey(state, providerKeyRotate[1]!, providerKeyRotate[2]!, "rotate", body), CAPABILITIES);
+  const providerKeyDelete = path.match(/^\/api\/providers\/([^/]+)\/keys\/([^/]+)$/);
+  if (providerKeyDelete && request.method === "DELETE") return ok(await mutateProviderKey(state, providerKeyDelete[1]!, providerKeyDelete[2]!, "delete", body), CAPABILITIES);
 
-  if (path === "/api/workspaces" && request.method === "POST") return unsupported("workspace.create", path);
-  if (path === "/api/workspaces/select" && request.method === "POST") return unsupported("workspace.select", path);
-  if (/^\/api\/workspaces\/[^/]+$/.test(path) && ["PATCH", "DELETE"].includes(request.method)) return unsupported("workspace.mutate", path);
+  if (path === "/api/workspaces" && request.method === "POST") return ok(await mutateWorkspace(state, undefined, "create", body), CAPABILITIES, 201);
+  if (path === "/api/workspaces/select" && request.method === "POST") return ok(await mutateWorkspace(state, body.id ?? body.path, "select", body), CAPABILITIES);
+  const workspace = path.match(/^\/api\/workspaces\/([^/]+)$/);
+  if (workspace && request.method === "PATCH") return ok(await mutateWorkspace(state, workspace[1]!, "patch", body), CAPABILITIES);
+  if (workspace && request.method === "DELETE") return ok(await mutateWorkspace(state, workspace[1]!, "delete", body), CAPABILITIES);
 
-  if (path === "/api/attachments" && request.method === "POST") return unsupported("attachment.upload", path);
-  if (/^\/api\/attachments\/[^/]+$/.test(path) && ["GET", "DELETE"].includes(request.method)) return unsupported("attachment.mutate", path);
+  if (path === "/api/attachments" && request.method === "POST") return ok(await mutateAttachment(state, undefined, "create", body), CAPABILITIES, 201);
+  const attachment = path.match(/^\/api\/attachments\/([^/]+)$/);
+  if (attachment && request.method === "DELETE") return ok(await mutateAttachment(state, attachment[1]!, "delete", body), CAPABILITIES);
 
   return null;
 }
 
-function unsupported(action: string, path: string) {
-  return fail("BACKEND_UNSUPPORTED", `This backend does not currently support ${action}.`, 501, { action, path, requiredCapability: action.split(".")[0] });
+function controlPath(state: ControlPlaneState, name: string) { return join(state.dataDir ?? DEFAULT_DATA_DIR, `${name}.json`); }
+async function controlRead<T>(state: ControlPlaneState, name: string, fallback: T): Promise<T> { return readJson(controlPath(state, name), fallback); }
+async function controlWrite(state: ControlPlaneState, name: string, value: unknown) { await writeJson(controlPath(state, name), value); }
+function cleanSecret<T extends Record<string, any>>(value: T): T { const copy: any = { ...value }; for (const k of Object.keys(copy)) if (/key|secret|token|password/i.test(k)) copy[k] = copy[k] ? "********" : copy[k]; return copy; }
+
+async function mutateApproval(state: ControlPlaneState, id: string, action: string, body: any) {
+  const approvals = await controlRead(state, "approvals", [] as any[]); const item = upsert(approvals, id, { id, kind: body.kind ?? "command", title: body.title ?? id, createdAt: Date.now() });
+  item.status = action === "reject" ? "rejected" : action === "request-changes" ? "changes_requested" : "approved"; item.updatedAt = Date.now(); item.resolution = { action, ...body };
+  await controlWrite(state, "approvals", approvals); return { approval: item };
 }
+async function mutatePatch(state: ControlPlaneState, id: string, action: string, body: any) {
+  const patches = await controlRead(state, "patches", [] as any[]); const item = upsert(patches, id, { id, title: body.title ?? id, files: [], createdAt: Date.now() });
+  item.status = action === "reject" ? "rejected" : action === "rollback" ? "rolled_back" : action === "request-changes" ? "changes_requested" : "approved"; item.updatedAt = Date.now(); (item.actions ??= []).push({ action, ...body, at: Date.now() });
+  await controlWrite(state, "patches", patches); return { patch: item };
+}
+async function createMemoryForState(state: ControlPlaneState, body: any) { const store = await readCpMemoryStore(state); const now = Date.now(); const mem = { id: crypto.randomUUID(), category: body.category ?? "context", content: String(body.content ?? ""), tags: body.tags ?? [], confidence: body.confidence ?? 0.8, temporal: Boolean(body.temporal), created_at: now, updated_at: now, mentions: 0, first_seen: now, entity_refs: [], ...body }; if (!mem.content) throw new Error("memory content required"); store.memories.unshift(mem); await writeCpMemoryStore(state, store); return { memory: mem }; }
+async function patchMemoryForState(state: ControlPlaneState, id: string, body: any) { const store = await readCpMemoryStore(state); const mem = findOrThrow(store.memories, id, "memory"); Object.assign(mem, body, { id, updated_at: Date.now() }); await writeCpMemoryStore(state, store); return { memory: mem }; }
+async function deleteMemoryForState(state: ControlPlaneState, id: string) { const store = await readCpMemoryStore(state); const before = store.memories.length; store.memories = store.memories.filter((m: any) => m.id !== id); await writeCpMemoryStore(state, store); return { deleted: before !== store.memories.length, id }; }
+async function patchMemoryPolicyForState(state: ControlPlaneState, id: string, action: string, body: any) { const patch: any = {}; if (action === "pin") patch.pinned = true; if (action === "unpin") patch.pinned = false; if (action === "exclude") patch.excluded = true; if (action === "include") patch.excluded = false; if (action === "sensitivity") patch.sensitivity = body.sensitivity; if (action === "scope") patch.workspace_scope = body.workspaceScope ?? body.scope ?? []; return patchMemoryForState(state, id, patch); }
+async function readCpMemoryStore(state: ControlPlaneState) { return state.memoryFile ? readJson(state.memoryFile, { version: 4, profile: {}, memories: [] as any[] }) : readMemoryStore(); }
+async function writeCpMemoryStore(state: ControlPlaneState, store: unknown) { return state.memoryFile ? writeJson(state.memoryFile, store) : writeMemoryStore(store); }
+
+async function mutateThread(state: ControlPlaneState, id: string | undefined, action: string, body: any) { const store = await controlRead(state, "chat-threads", { threads: [] as any[] }); if (action === "create") { const thread = { id: crypto.randomUUID(), title: body.title ?? "New thread", archived: false, messages: [], createdAt: Date.now(), updatedAt: Date.now() }; store.threads.unshift(thread); await controlWrite(state, "chat-threads", store); return { thread }; } const thread = upsert(store.threads, id!, { id, title: id, messages: [], createdAt: Date.now() }); if (action === "patch") Object.assign(thread, body, { updatedAt: Date.now() }); if (action === "delete") thread.deleted = true; if (action === "archive") thread.archived = true; if (action === "branch") { const fork = { ...thread, ...body, id: crypto.randomUUID(), title: body.title ?? `${thread.title} fork`, branchedFrom: thread.id, createdAt: Date.now(), updatedAt: Date.now() }; store.threads.unshift(fork); await controlWrite(state, "chat-threads", store); return { thread: fork }; } await controlWrite(state, "chat-threads", store); return { thread }; }
+async function mutateMessage(state: ControlPlaneState, id: string, action: string, body: any) { const messages = await controlRead(state, "message-actions", [] as any[]); const item = upsert(messages, id, { id, createdAt: Date.now() }); Object.assign(item, { updatedAt: Date.now() }); if (action === "pin") item.pinned = true; if (action === "unpin") item.pinned = false; if (action === "bookmark") item.bookmarked = true; if (action === "unbookmark") item.bookmarked = false; if (["regenerate", "edit-resend"].includes(action)) item.request = { action, ...body }; await controlWrite(state, "message-actions", messages); return { message: item }; }
+async function invokeTool(state: ControlPlaneState, name: string, body: any) { const invocations = await controlRead(state, "tool-invocations", [] as any[]); const invocation = { id: crypto.randomUUID(), name, input: body, status: "queued", createdAt: Date.now() }; invocations.unshift(invocation); await controlWrite(state, "tool-invocations", invocations); return { invocation }; }
+async function setToolPermission(state: ControlPlaneState, name: string, body: any) { const perms = await controlRead(state, "tool-permissions", {} as any); perms[name] = { name, mode: body.mode ?? "ask", scope: body.scope ?? "workspace", updatedAt: Date.now() }; await controlWrite(state, "tool-permissions", perms); return { permission: perms[name] }; }
+async function runControl(state: ControlPlaneState, id: string, action: string, body: any) { const controls = await controlRead(state, "run-controls", [] as any[]); const control = { id: crypto.randomUUID(), runId: id, action, instruction: body.instruction, status: "queued", createdAt: Date.now() }; controls.unshift(control); await controlWrite(state, "run-controls", controls); return { control }; }
+async function mutateGraph(state: ControlPlaneState, kind: "nodes" | "edges", id: string | undefined, action: string, body: any) { const graph = await controlRead(state, "graph-overrides", { nodes: [] as any[], edges: [] as any[] }); if (action === "create") { const item = { id: body.id ?? crypto.randomUUID(), ...body, createdAt: Date.now(), updatedAt: Date.now() }; graph[kind].push(item); await controlWrite(state, "graph-overrides", graph); return { [kind.slice(0, -1)]: item }; } const item = findOrThrow(graph[kind], id!, kind.slice(0, -1)); if (action === "patch") Object.assign(item, body, { id, updatedAt: Date.now() }); if (action === "delete") item.deleted = true; await controlWrite(state, "graph-overrides", graph); return { [kind.slice(0, -1)]: item }; }
+async function mutateWorkspaceContext(state: ControlPlaneState, action: string, body: any) { const context = await controlRead(state, "workspace-context", [] as any[]); if (action === "add") { const item = { id: body.id ?? crypto.randomUUID(), ...body, createdAt: Date.now() }; context.push(item); await controlWrite(state, "workspace-context", context); return { context: item }; } const before = context.length; const next = context.filter((x: any) => x.id !== body.id && x.path !== body.id); await controlWrite(state, "workspace-context", next); return { removed: before - next.length, id: body.id }; }
+async function mutateWorkspaceChange(state: ControlPlaneState, file: string, action: string, body: any) { const changes = await controlRead(state, "workspace-changes", [] as any[]); const change = { id: crypto.randomUUID(), file, action, payload: body, createdAt: Date.now() }; changes.unshift(change); await controlWrite(state, "workspace-changes", changes); return { change }; }
+async function selectModel(state: ControlPlaneState, body: any) { const models = await controlRead(state, "models", { defaults: {}, fallbackChain: [] as any[], selections: [] as any[] }); const selected = normalizeModel({ id: body.modelId ?? body.id ?? body.model, provider: body.provider, name: body.name }); models.current = selected; models.selections.unshift({ model: selected, scope: body.scope ?? "session", createdAt: Date.now() }); if (state.runtime) state.runtime.model = selected; await controlWrite(state, "models", models); return { current: selected, switchability: { supported: false, appliedAs: "control-plane-selection" } }; }
+async function setModelDefault(state: ControlPlaneState, body: any) { const models = await controlRead(state, "models", { defaults: {}, fallbackChain: [] as any[] }); models.defaults[body.scope ?? "workspace"] = body.modelId ?? body.id ?? body.model; await controlWrite(state, "models", models); return models; }
+async function setModelFallback(state: ControlPlaneState, body: any) { const models = await controlRead(state, "models", { defaults: {}, fallbackChain: [] as any[] }); models.fallbackChain = body.fallbackChain ?? body.models ?? []; await controlWrite(state, "models", models); return models; }
+async function patchSettings(state: ControlPlaneState, section: string | undefined, body: any) { const settings = await controlRead(state, "settings", {} as any); if (section) settings[section] = { ...(settings[section] ?? {}), ...body }; else Object.assign(settings, body); settings.updatedAt = Date.now(); await controlWrite(state, "settings", settings); return settings; }
+async function mutateProvider(state: ControlPlaneState, id: string, action: string, body: any) { const providers = await controlRead(state, "providers", [] as any[]); const p = upsert(providers, id, { id, keys: [], createdAt: Date.now() }); if (action === "delete") p.deleted = true; else Object.assign(p, cleanSecret(body), { status: action === "test" ? "tested" : "connected", updatedAt: Date.now() }); await controlWrite(state, "providers", providers); return { provider: p }; }
+async function mutateProviderKey(state: ControlPlaneState, providerId: string, keyId: string | undefined, action: string, body: any) { const providers = await controlRead(state, "providers", [] as any[]); const p = upsert(providers, providerId, { id: providerId, keys: [], createdAt: Date.now() }); if (action === "create") p.keys.push({ id: crypto.randomUUID(), label: body.label ?? "API key", redacted: body.key ? "********" : undefined, createdAt: Date.now() }); else { const k = findOrThrow(p.keys, keyId!, "provider key"); if (action === "rotate") Object.assign(k, { rotatedAt: Date.now(), redacted: body.key ? "********" : k.redacted }); if (action === "delete") k.deleted = true; } await controlWrite(state, "providers", providers); return { provider: p }; }
+async function mutateWorkspace(state: ControlPlaneState, id: string | undefined, action: string, body: any) { const workspaces = await controlRead(state, "workspaces", [] as any[]); if (action === "create") { const w = { id: body.id ?? crypto.randomUUID(), name: body.name ?? body.path ?? "Workspace", path: body.path ?? state.cwd, settings: body.settings ?? {}, createdAt: Date.now() }; workspaces.push(w); await controlWrite(state, "workspaces", workspaces); return { workspace: w }; } const w = upsert(workspaces, id!, { id, path: body.path ?? id, name: body.name ?? id, settings: {}, createdAt: Date.now() }); if (action === "select") workspaces.forEach((x: any) => x.active = x.id === id || x.path === id); if (action === "patch") Object.assign(w, body, { updatedAt: Date.now() }); if (action === "delete") w.deleted = true; await controlWrite(state, "workspaces", workspaces); return { workspace: w }; }
+async function mutateAttachment(state: ControlPlaneState, id: string | undefined, action: string, body: any) { const attachments = await controlRead(state, "attachments", [] as any[]); if (action === "create") { const a = { id: crypto.randomUUID(), name: body.name ?? "attachment", mediaType: body.mediaType, size: body.content ? String(body.content).length : body.size, content: body.content, createdAt: Date.now() }; attachments.push(a); await controlWrite(state, "attachments", attachments); return { attachment: { ...a, content: undefined } }; } const a = findOrThrow(attachments, id!, "attachment"); a.deleted = true; a.updatedAt = Date.now(); await controlWrite(state, "attachments", attachments); return { attachment: { ...a, content: undefined } }; }
+function upsert(items: any[], id: string, seed: any) { let item = items.find((x: any) => x.id === id); if (!item) { item = { ...seed, id }; items.push(item); } return item; }
+function findOrThrow(items: any[], id: string, label: string) { const item = items.find((x: any) => x.id === id); if (!item) throw new Error(`${label} not found: ${id}`); return item; }
 
 function eventStream() {
   const payload = `event: heartbeat\ndata: ${JSON.stringify({ timestamp: Date.now(), state: "idle" })}\n\n`;

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, normalize } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { loadAllSearchEntries, loadSearchEntry } from "../shared/web-search-store";
 import { MEMORY_FILE } from "../user-memory/store";
 
@@ -13,8 +13,17 @@ export async function readJson<T>(path: string, fallback: T): Promise<T> {
   catch { return fallback; }
 }
 
+export async function writeJson(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(value, null, 2) + "\n", "utf8");
+}
+
 export async function readMemoryStore() {
   return readJson(MEMORY_FILE, { version: 4, profile: {}, memories: [] as any[] });
+}
+
+export async function writeMemoryStore(store: unknown) {
+  await writeJson(MEMORY_FILE, store);
 }
 
 export async function readResearchIndex(query = "") {

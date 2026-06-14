@@ -71,43 +71,46 @@ describe("control-plane API extension", () => {
     expect(allowed.status).toBe(200);
   });
 
-  test("mutation surfaces exist and fail explicitly when backend adapters are missing", async () => {
-    const state = { cwd: process.cwd(), runtime: runtimeState } as any;
-    const paths = [
-      ["/api/approvals/a1/approve", "POST"],
-      ["/api/approvals/a1/files/src%2Fapp.ts/approve", "POST"],
-      ["/api/patches/p1/hunks/h1/approve", "POST"],
-      ["/api/memory/m1", "PATCH"],
-      ["/api/memory/m1/exclude", "POST"],
-      ["/api/chat/threads", "POST"],
-      ["/api/chat/messages/m1/pin", "POST"],
-      ["/api/chat/interrupt", "POST"],
-      ["/api/tools/code_search/invoke", "POST"],
-      ["/api/tools/code_search/permission", "PATCH"],
-      ["/api/runs/r1/cancel", "POST"],
-      ["/api/graph/edges", "POST"],
-      ["/api/workspace/context", "POST"],
-      ["/api/workspace/files/src%2Fapp.ts/rollback", "POST"],
-      ["/api/models/default", "PUT"],
-      ["/api/settings/privacy", "PATCH"],
-      ["/api/providers/openai/connect", "POST"],
-      ["/api/providers/openai/keys", "POST"],
-      ["/api/workspaces/select", "POST"],
-      ["/api/attachments", "POST"],
-    ] as const;
-    for (const [path, method] of paths) {
-      const response = await handleControlPlaneRequest(req(path, { method, body: method === "PATCH" || method === "POST" || method === "PUT" ? "{}" : undefined }), state);
-      const payload = await body(response);
-      expect(response.status).toBe(501);
-      expect(payload.ok).toBe(false);
-      expect(payload.error.code).toBe("BACKEND_UNSUPPORTED");
-    }
+  test("mutation surfaces persist functional control-plane state", async () => {
+    const dataDir = `/tmp/keylime-control-plane-test-${Date.now()}-${Math.random()}`;
+    const state = { cwd: process.cwd(), dataDir, memoryFile: `${dataDir}/memories.json`, runtime: { agentState: "idle" } } as any;
+
+    expect((await body(await handleControlPlaneRequest(req("/api/approvals/a1/approve", { method: "POST", body: "{}" }), state))).data.approval.status).toBe("approved");
+    expect((await body(await handleControlPlaneRequest(req("/api/patches/p1/hunks/h1/approve", { method: "POST", body: "{}" }), state))).data.patch.status).toBe("approved");
+
+    const createdMemory = await body(await handleControlPlaneRequest(req("/api/memory", { method: "POST", body: JSON.stringify({ content: "likes graphite UIs", category: "preference" }) }), state));
+    const memoryId = createdMemory.data.memory.id;
+    expect((await body(await handleControlPlaneRequest(req(`/api/memory/${memoryId}`, { method: "PATCH", body: JSON.stringify({ tags: ["ui"] }) }), state))).data.memory.tags).toEqual(["ui"]);
+    expect((await body(await handleControlPlaneRequest(req(`/api/memory/${memoryId}/exclude`, { method: "POST", body: "{}" }), state))).data.memory.excluded).toBe(true);
+
+    const thread = await body(await handleControlPlaneRequest(req("/api/chat/threads", { method: "POST", body: JSON.stringify({ title: "Prototype" }) }), state));
+    const threadId = thread.data.thread.id;
+    expect((await body(await handleControlPlaneRequest(req(`/api/chat/threads/${threadId}/branch`, { method: "POST", body: "{}" }), state))).data.thread.branchedFrom).toBe(threadId);
+    expect((await body(await handleControlPlaneRequest(req("/api/chat/messages/m1/pin", { method: "POST", body: "{}" }), state))).data.message.pinned).toBe(true);
+
+    expect((await body(await handleControlPlaneRequest(req("/api/tools/code_search/invoke", { method: "POST", body: JSON.stringify({ query: "x" }) }), state))).data.invocation.status).toBe("queued");
+    expect((await body(await handleControlPlaneRequest(req("/api/tools/code_search/permission", { method: "PATCH", body: JSON.stringify({ mode: "blocked" }) }), state))).data.permission.mode).toBe("blocked");
+    expect((await body(await handleControlPlaneRequest(req("/api/runs/r1/cancel", { method: "POST", body: "{}" }), state))).data.control.action).toBe("cancel");
+
+    expect((await body(await handleControlPlaneRequest(req("/api/graph/edges", { method: "POST", body: JSON.stringify({ from: "a", to: "b", type: "related" }) }), state))).data.edge.type).toBe("related");
+    expect((await body(await handleControlPlaneRequest(req("/api/workspace/context", { method: "POST", body: JSON.stringify({ path: "README.md" }) }), state))).data.context.path).toBe("README.md");
+    expect((await body(await handleControlPlaneRequest(req("/api/workspace/files/src%2Fapp.ts/rollback", { method: "POST", body: "{}" }), state))).data.change.action).toBe("rollback");
+
+    expect((await body(await handleControlPlaneRequest(req("/api/models/select", { method: "POST", body: JSON.stringify({ modelId: "gpt-test", provider: "openai" }) }), state))).data.current.id).toBe("gpt-test");
+    expect((await body(await handleControlPlaneRequest(req("/api/models/default", { method: "PUT", body: JSON.stringify({ modelId: "gpt-test", scope: "workspace" }) }), state))).data.defaults.workspace).toBe("gpt-test");
+    expect((await body(await handleControlPlaneRequest(req("/api/settings/privacy", { method: "PATCH", body: JSON.stringify({ localOnly: true }) }), state))).data.privacy.localOnly).toBe(true);
+
+    expect((await body(await handleControlPlaneRequest(req("/api/providers/openai/connect", { method: "POST", body: JSON.stringify({ apiKey: "secret", label: "OpenAI" }) }), state))).data.provider.apiKey).toBe("********");
+    expect((await body(await handleControlPlaneRequest(req("/api/providers/openai/keys", { method: "POST", body: JSON.stringify({ key: "secret" }) }), state))).data.provider.keys[0].redacted).toBe("********");
+    expect((await body(await handleControlPlaneRequest(req("/api/workspaces", { method: "POST", body: JSON.stringify({ name: "Lab", path: "/tmp/lab" }) }), state))).data.workspace.name).toBe("Lab");
+    expect((await body(await handleControlPlaneRequest(req("/api/attachments", { method: "POST", body: JSON.stringify({ name: "note.txt", content: "hello" }) }), state))).data.attachment.name).toBe("note.txt");
   });
 
   test("generic actions and provider/attachment read surfaces are present", async () => {
-    const state = { cwd: process.cwd(), runtime: runtimeState } as any;
+    const dataDir = `/tmp/keylime-control-plane-test-${Date.now()}-${Math.random()}`;
+    const state = { cwd: process.cwd(), dataDir, runtime: runtimeState } as any;
     const action = await body(await handleControlPlaneRequest(req("/api/actions", { method: "POST", body: JSON.stringify({ type: "custom.do" }) }), state));
-    expect(action.data.status).toBe("unsupported");
+    expect(action.data.status).toBe("queued");
     const providers = await body(await handleControlPlaneRequest(req("/api/providers"), state));
     expect(providers.data.providers).toEqual([]);
     const attachments = await body(await handleControlPlaneRequest(req("/api/attachments"), state));
