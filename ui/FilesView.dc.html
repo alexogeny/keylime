@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display: grid; grid-template-columns: 300px 1fr; height: 100%; min-height: 0;">
+  <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+      <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Workspace</span>
+      <span style="font-size: 10px; color: #6a655c;">keylime-core</span>
+    </div>
+    <div style="flex: 1; overflow-y: auto; padding: 6px 0;">
+      <sc-for list="{{ tree }}" as="f" hint-placeholder-count="9">
+        <button onClick="{{ f.select }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 9px; padding: 6px 16px 6px {{ f.pad }}px; background: {{ f.bg }}; border: none; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+          <sc-if value="{{ f.isDir }}" hint-placeholder-val="{{ false }}">
+            <span style="color: #6a655c; font-size: 11px;">▾</span>
+          </sc-if>
+          <span style="flex: 1; font-size: 12.5px; color: {{ f.fg }};">{{ f.name }}</span>
+          <sc-if value="{{ f.status }}" hint-placeholder-val="mod">
+            <span style="font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ f.statusFg }};">{{ f.status }}</span>
+          </sc-if>
+        </button>
+      </sc-for>
+    </div>
+    <div style="border-top: 1px solid rgba(255,255,255,0.06); padding: 12px 16px;">
+      <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 8px;">In agent context</div>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; color: #9c968a;">
+        <span><span style="color: #7fa6b0;">◆</span> AGENTS.md</span>
+        <span><span style="color: #82a98c;">◆</span> research/small-model-tooluse.md</span>
+        <span><span style="color: #c9a86a;">◆</span> src/auth/middleware.ts <span style="color: #6a655c;">(pending)</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; min-height: 0;">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px 22px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #141210;">
+      <span style="font-size: 13px; color: #d8d3c7;">{{ selFile.name }}</span>
+      <span style="font-size: 10.5px; padding: 1px 8px; border: 1px solid rgba(130,169,140,0.3); color: #82a98c; border-radius: 2px;">written by agent</span>
+      <span style="flex: 1;"></span>
+      <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 4px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">↺ rollback</button>
+      <button onClick="{{ openPatch }}" style="background: rgba(179,196,110,0.12); border: 1px solid rgba(179,196,110,0.35); color: #b3c46e; padding: 4px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="background: rgba(179,196,110,0.2);">open in patch review</button>
+    </div>
+    <div style="flex: 1; overflow-y: auto; min-height: 0; padding: 26px 32px;">
+      <div style="max-width: 760px;">
+        <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6a655c; margin-bottom: 12px;">Agent summary</div>
+        <div style="font-family: 'Newsreader', serif; font-size: 17px; line-height: 1.7; color: #cfc9bc; padding: 16px 18px; background: #17150f; border: 1px solid rgba(255,255,255,0.07); border-left: 2px solid #82a98c; border-radius: 0 2px 2px 0; margin-bottom: 26px;">A 142-line research brief assembled from 3 web sources and 2 recalled notes. Contains the three-lever summary, inline numbered citations, and a sources block. No code; safe to keep in the workspace context for follow-up questions.</div>
+
+        <div style="display: flex; align-items: center; gap: 14px; font-size: 11px; color: #6a655c; margin-bottom: 14px;">
+          <span style="letter-spacing: 0.1em; text-transform: uppercase;">Preview</span>
+          <span style="color: #82a98c;">+142</span>
+          <span style="color: #c5897a;">−0</span>
+          <span>·</span>
+          <span>created 14:04</span>
+        </div>
+        <pre style="margin: 0; padding: 16px 18px; background: #100f0c; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px; font-size: 12.5px; color: #b6b0a4; line-height: 1.65; overflow-x: auto; white-space: pre-wrap;"># Small-model fine-tuning for tool use
+
+> Auto-generated by keylime · 3 sources
+
+Recent work converges on three levers:
+
+1. **SFT** on synthetic tool-call traces — closes most
+   of the schema-adherence gap [1]
+2. **RL** from execution feedback — robustness on
+   multi-step plans [2]
+3. **Distillation** under 7B — most cost-effective [3]
+
+## Sources
+[1] arxiv.org/2503 — Toolformer-style SFT on 3B
+[2] arxiv.org/2504 — RL from tool feedback
+[3] blog.allenai.org — Tulu tool-use distillation</pre>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { selectedFile: 'f_brief' };
+  renderVals() {
+    const tree = [
+      { id: 'd1', name: 'research/', depth: 0, type: 'dir', status: '' },
+      { id: 'f_brief', name: 'small-model-tooluse.md', depth: 1, type: 'md', status: 'new' },
+      { id: 'f_q3', name: 'q3-landscape.md', depth: 1, type: 'md', status: '' },
+      { id: 'd2', name: 'src/', depth: 0, type: 'dir', status: '' },
+      { id: 'f_auth', name: 'auth/middleware.ts', depth: 1, type: 'ts', status: 'mod' },
+      { id: 'f_session', name: 'auth/session.ts', depth: 1, type: 'ts', status: 'mod' },
+      { id: 'f_index', name: 'index.ts', depth: 1, type: 'ts', status: '' },
+      { id: 'd3', name: 'specs/', depth: 0, type: 'dir', status: '' },
+      { id: 'f_spec', name: 'harness.spec.md', depth: 1, type: 'md', status: '' },
+      { id: 'f_agents', name: 'AGENTS.md', depth: 0, type: 'md', status: 'ctx' },
+    ];
+    const statusColor = { new: '#82a98c', mod: '#c9a86a', ctx: '#7fa6b0', '': '#6a655c' };
+    const sel = this.state.selectedFile;
+    const selFile = tree.find(f => f.id === sel) || tree[1];
+    return {
+      tree: tree.map(f => ({ ...f, select: () => f.type !== 'dir' && this.setState({ selectedFile: f.id }), pad: 14 + f.depth * 16, bg: f.id === sel ? '#1f1c18' : 'transparent', fg: f.type === 'dir' ? '#9c968a' : (f.id === sel ? '#e3ddd0' : '#b6b0a4'), statusFg: statusColor[f.status], isDir: f.type === 'dir' })),
+      selFile,
+      openPatch: () => this.props.onOpenPatch && this.props.onOpenPatch(),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display: grid; grid-template-columns: 340px 1fr; height: 100%; min-height: 0;">
+  <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+    <div style="padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+      <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a; margin-bottom: 12px;">Tool catalog</div>
+      <div style="display: flex; flex-direction: column; gap: 7px;">
+        <sc-for list="{{ catalog }}" as="t" hint-placeholder-count="7">
+          <div style="display: flex; align-items: center; gap: 11px; padding: 9px 11px; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px; background: #17150f;">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ t.modeFg }}; flex-shrink: 0;"></span>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 12.5px; color: #d3cec2;">{{ t.name }}</div>
+              <div style="font-size: 10.5px; color: #6a655c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.desc }}</div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <div style="font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ t.modeFg }};">{{ t.mode }}</div>
+              <div style="font-size: 10px; color: #524e47;">{{ t.calls }} calls</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding: 12px 16px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a; border-bottom: 1px solid rgba(255,255,255,0.06);">Call history</div>
+    <div style="flex: 1; overflow-y: auto;">
+      <sc-for list="{{ history }}" as="h" hint-placeholder-count="6">
+        <button onClick="{{ h.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 5px; padding: 11px 16px; background: {{ h.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ h.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #7fa6b0; font-size: 10px;">⛁</span>
+            <span style="flex: 1; font-size: 12.5px; color: #d3cec2;">{{ h.name }}</span>
+            <span style="font-size: 10px; color: {{ h.statusFg }};">● {{ h.status }}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 10px; color: #6a655c; padding-left: 18px;">
+            <span>{{ h.dur }}</span><span>{{ h.tokens }} tok</span><span style="color: #82a98c;">{{ h.cost }}</span>
+            <span style="flex: 1;"></span><span>{{ h.time }}</span>
+          </div>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="overflow-y: auto; min-height: 0; padding: 30px 36px 48px;">
+    <div style="max-width: 760px;">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 22px;">
+        <span style="width: 34px; height: 34px; border: 1px solid rgba(127,166,176,0.35); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; color: #7fa6b0; font-size: 15px;">⛁</span>
+        <div style="flex: 1;">
+          <div style="font-size: 18px; color: #e3ddd0;">{{ selCall.name }}</div>
+          <div style="font-size: 11px; color: #6a655c;">{{ selCall.thread }} · {{ selCall.time }}</div>
+        </div>
+        <span style="font-size: 11px; color: {{ selCall.statusFg }}; border: 1px solid rgba(255,255,255,0.1); padding: 3px 11px; border-radius: 2px;">● {{ selCall.status }}</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 26px;">
+        <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">model</div><div style="font-size: 12.5px; color: #c7c1b4;">{{ selCall.model }}</div></div>
+        <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">latency</div><div style="font-size: 12.5px; color: #c7c1b4;">{{ selCall.dur }}</div></div>
+        <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">tokens</div><div style="font-size: 12.5px; color: #c7c1b4;">{{ selCall.tokens }}</div></div>
+        <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">cost</div><div style="font-size: 12.5px; color: #82a98c;">{{ selCall.cost }}</div></div>
+      </div>
+      <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 6px;">input</div>
+      <pre style="margin: 0 0 18px; padding: 12px 14px; background: #100f0c; border: 1px solid rgba(255,255,255,0.05); border-radius: 2px; font-size: 12.5px; color: #9c968a; overflow-x: auto; white-space: pre-wrap; line-height: 1.6;">{{ selCall.input }}</pre>
+      <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 6px;">output</div>
+      <pre style="margin: 0; padding: 12px 14px; background: #100f0c; border: 1px solid rgba(255,255,255,0.05); border-radius: 2px; font-size: 12.5px; color: #b6b0a4; overflow-x: auto; white-space: pre-wrap; line-height: 1.6;">{{ selCall.output }}</pre>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { selectedTool: 'tc1' };
+  renderVals() {
+    const catalog = [
+      { name: 'web.search', mode: 'auto', calls: 41, desc: 'Query the web for recent sources', c: '#82a98c' },
+      { name: 'web.fetch', mode: 'auto', calls: 28, desc: 'Fetch and extract a page', c: '#82a98c' },
+      { name: 'file.read', mode: 'auto', calls: 96, desc: 'Read workspace files into context', c: '#82a98c' },
+      { name: 'file.write', mode: 'ask', calls: 12, desc: 'Write or modify workspace files', c: '#c9a86a' },
+      { name: 'shell.exec', mode: 'ask', calls: 7, desc: 'Run a shell command', c: '#c9a86a' },
+      { name: 'memory.query', mode: 'auto', calls: 54, desc: 'Recall structured memory', c: '#82a98c' },
+      { name: 'network.post', mode: 'blocked', calls: 0, desc: 'Outbound POST requests', c: '#c5897a' },
+    ];
+    const history = [
+      { id: 'tc1', name: 'web.search', status: 'ok', thread: 'Small-model fine-tuning', time: '14:03', dur: '2.4s', tokens: '1.2k', cost: '$0.004', model: 'sonnet-4.6', input: 'query: "small language model fine-tuning tool use agents 2025"\ntop_k: 8\nrecency: 12mo', output: '8 results · 6 unique domains\n[1] arxiv.org/2503 — Toolformer-style SFT on 3B\n[2] arxiv.org/2504 — RL from tool feedback\n[3] blog.allenai.org — Tulu distillation' },
+      { id: 'tc2', name: 'memory.query', status: 'ok', thread: 'Small-model fine-tuning', time: '14:02', dur: '0.3s', tokens: '320', cost: '$0.001', model: 'haiku-4', input: 'entities: ["fine-tuning","tool-use"]\nscope: workspace', output: '2 related notes, 1 preference, 1 prior brief recalled' },
+      { id: 'tc3', name: 'web.fetch', status: 'retry', thread: 'Small-model fine-tuning', time: '14:03', dur: '1.9s', tokens: '880', cost: '$0.003', model: 'sonnet-4.6', input: 'url: arxiv.org/2503.xxxxx', output: '429 rate-limited → retried → 200 OK on attempt 2' },
+      { id: 'tc4', name: 'file.write', status: 'ok', thread: 'Small-model fine-tuning', time: '14:04', dur: '0.1s', tokens: '0', cost: '$0.000', model: '—', input: 'path: research/small-model-tooluse.md\nbytes: 4,210', output: 'wrote 142 lines · awaiting approval' },
+      { id: 'tc5', name: 'shell.exec', status: 'ok', thread: 'Refactor auth middleware', time: '11:19', dur: '4.2s', tokens: '0', cost: '$0.000', model: '—', input: 'cmd: npm test -- auth', output: '14 passing · 0 failing · 4.1s' },
+      { id: 'tc6', name: 'file.read', status: 'ok', thread: 'Refactor auth middleware', time: '11:17', dur: '0.1s', tokens: '1.4k', cost: '$0.000', model: '—', input: 'path: src/auth/middleware.ts', output: 'read 86 lines into context' },
+    ];
+    const sc = { ok: '#82a98c', retry: '#c9a86a', error: '#c5897a' };
+    const mc = { auto: '#82a98c', ask: '#c9a86a', blocked: '#c5897a' };
+    const sel = this.state.selectedTool;
+    const selCall = history.find(h => h.id === sel) || history[0];
+    return {
+      catalog: catalog.map(t => ({ ...t, modeFg: mc[t.mode] })),
+      history: history.map(h => ({ ...h, select: () => this.setState({ selectedTool: h.id }), statusFg: sc[h.status], bg: h.id === sel ? '#1f1c18' : 'transparent', bar: h.id === sel ? sc[h.status] : 'transparent' })),
+      selCall: { ...selCall, statusFg: sc[selCall.status] },
+    };
+  }
+}
+</script>
+</body>
+</html>

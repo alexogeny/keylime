@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display: grid; grid-template-columns: 380px 1fr; height: 100%; min-height: 0;">
+  <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+    <div style="display: flex; align-items: center; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+      <button onClick="{{ selectPending }}" style="flex: 1; padding: 13px; background: {{ pendingTabBg }}; border: none; border-bottom: 2px solid {{ pendingTabBar }}; color: {{ pendingTabFg }}; font-family: inherit; font-size: 12px; cursor: pointer;">Pending <span style="color: #c9a86a;">1</span></button>
+      <button onClick="{{ selectHistory }}" style="flex: 1; padding: 13px; background: {{ historyTabBg }}; border: none; border-bottom: 2px solid {{ historyTabBar }}; color: {{ historyTabFg }}; font-family: inherit; font-size: 12px; cursor: pointer;">History</button>
+    </div>
+    <div style="flex: 1; overflow-y: auto;">
+      <sc-for list="{{ list }}" as="a" hint-placeholder-count="4">
+        <button onClick="{{ a.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: {{ a.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ a.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+          <div style="display: flex; align-items: center; gap: 9px;">
+            <span style="width: 22px; height: 22px; border: 1px solid rgba(255,255,255,0.1); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: {{ a.c }}; flex-shrink: 0;">{{ a.icon }}</span>
+            <span style="flex: 1; font-size: 12.5px; color: #d3cec2;">{{ a.title }}</span>
+            <sc-if value="{{ a.decided }}" hint-placeholder-val="{{ false }}">
+              <span style="font-size: 10px; color: {{ a.decisionFg }};">{{ a.decision }}</span>
+            </sc-if>
+          </div>
+          <div style="display: flex; align-items: center; gap: 9px; font-size: 10px; color: #6a655c; padding-left: 31px;">
+            <span style="color: {{ a.c }}; text-transform: uppercase; letter-spacing: 0.04em;">{{ a.type }}</span>
+            <span>·</span><span>{{ a.scope }}</span>
+            <span style="flex: 1;"></span><span>{{ a.time }}</span>
+          </div>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="overflow-y: auto; min-height: 0; padding: 32px 36px 40px; display: flex; flex-direction: column;">
+    <div style="max-width: 680px; flex: 1;">
+      <div style="display: flex; align-items: center; gap: 13px; margin-bottom: 20px;">
+        <span style="width: 40px; height: 40px; border: 1px solid rgba(255,255,255,0.12); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; color: {{ selAp.c }};">{{ selAp.icon }}</span>
+        <div style="flex: 1;">
+          <div style="font-size: 19px; color: #e3ddd0;">{{ selAp.title }}</div>
+          <div style="font-size: 11.5px; color: #6a655c;"><span style="color: {{ selAp.c }}; text-transform: uppercase; letter-spacing: 0.04em;">{{ selAp.type }}</span> · {{ selAp.scope }} · from {{ selAp.origin }}</div>
+        </div>
+        <span style="font-size: 11px; color: {{ selAp.riskFg }}; border: 1px solid rgba(255,255,255,0.1); padding: 3px 11px; border-radius: 2px; text-transform: uppercase; letter-spacing: 0.05em;">{{ selAp.risk }} risk</span>
+      </div>
+      <div style="font-family: 'Newsreader', serif; font-size: 16px; line-height: 1.65; color: #cfc9bc; padding: 16px 18px; background: #17150f; border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; margin-bottom: 22px;">{{ selAp.detail }}</div>
+
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 11px; color: #6a655c;">
+        <button onClick="{{ openChat }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⇱ open originating chat</button>
+        <button onClick="{{ openPatch }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⧉ view payload</button>
+      </div>
+    </div>
+
+    <sc-if value="{{ isPending }}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; gap: 10px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 22px; max-width: 680px;">
+        <button onClick="{{ openPatch }}" style="padding: 9px 20px; background: #b3c46e; border: none; color: #1a1a14; font-family: inherit; font-size: 13px; font-weight: 600; border-radius: 2px; cursor: pointer;" style-hover="background: #c2d27e;">Approve</button>
+        <button style="padding: 9px 18px; background: transparent; border: 1px solid rgba(197,137,122,0.35); color: #d3a99e; font-family: inherit; font-size: 13px; border-radius: 2px; cursor: pointer;" style-hover="background: rgba(197,137,122,0.1);">Reject</button>
+        <button style="padding: 9px 18px; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #c7c1b4; font-family: inherit; font-size: 13px; border-radius: 2px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.25);">Request changes</button>
+        <span style="flex: 1;"></span>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #6a655c; cursor: pointer;"><span style="width: 14px; height: 14px; border: 1px solid rgba(255,255,255,0.2); border-radius: 2px; display: inline-block;"></span>Always allow file.write here</label>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+      <div style="padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 22px; max-width: 680px; display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 12px; color: {{ selAp.decisionFg }};">● {{ selAp.decision }}</span>
+        <span style="font-size: 11.5px; color: #6a655c;">by jordan · {{ selAp.time }}</span>
+        <span style="flex: 1;"></span>
+        <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">↺ revoke</button>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { tab: 'pending', selected: 'ap1' };
+  renderVals() {
+    const pending = [
+      { id: 'ap1', type: 'patch', title: 'Write 3 files to workspace', scope: 'src/auth/*.ts', risk: 'medium', time: '2m ago', origin: 'Refactor auth middleware', detail: 'Apply the auth middleware patch: 3 files, +83 −12. Tests pass, lint clean.', c: '#c9a86a', riskFg: '#c9a86a' },
+    ];
+    const history = [
+      { id: 'ap2', type: 'command', title: 'Run npm test -- auth', scope: 'shell.exec', risk: 'low', time: '11:19', origin: 'Refactor auth middleware', detail: 'Execute the auth test suite.', decision: 'approved', c: '#7fa6b0', riskFg: '#82a98c' },
+      { id: 'ap3', type: 'memory write', title: 'Store preference: briefs < 400 words', scope: 'memory.write', risk: 'low', time: '14:02', origin: 'Small-model fine-tuning', detail: 'Persist a stated length preference to memory.', decision: 'approved', c: '#bda07a', riskFg: '#82a98c' },
+      { id: 'ap4', type: 'network', title: 'POST results to webhook', scope: 'network.post', risk: 'high', time: 'Yesterday', origin: 'Q3 competitor landscape', detail: 'Send the generated report to an external webhook.', decision: 'rejected', c: '#c5897a', riskFg: '#c5897a' },
+      { id: 'ap5', type: 'file write', title: 'Overwrite vector store config', scope: 'infra/relay.toml', risk: 'medium', time: '2d', origin: 'Migrate vector store', detail: 'Replace the relay configuration file.', decision: 'approved', c: '#82a98c', riskFg: '#c9a86a' },
+    ];
+    const typeIcon = { patch: '⧉', command: '›_', 'memory write': '◈', network: '↗', 'file write': '✎', 'tool call': '⛁', 'model switch': '⛁' };
+    const tab = this.state.tab;
+    const list = tab === 'pending' ? pending : history;
+    const sel = this.state.selected;
+    const selAp = [...pending, ...history].find(a => a.id === sel) || pending[0];
+    return {
+      isPending: tab === 'pending', isHistory: tab === 'history',
+      pendingTabBg: tab === 'pending' ? '#1f1c18' : 'transparent', pendingTabBar: tab === 'pending' ? '#c9a86a' : 'transparent', pendingTabFg: tab === 'pending' ? '#e3ddd0' : '#9c968a',
+      historyTabBg: tab === 'history' ? '#1f1c18' : 'transparent', historyTabBar: tab === 'history' ? '#c9a86a' : 'transparent', historyTabFg: tab === 'history' ? '#e3ddd0' : '#9c968a',
+      selectPending: () => this.setState({ tab: 'pending', selected: 'ap1' }),
+      selectHistory: () => this.setState({ tab: 'history', selected: 'ap2' }),
+      list: list.map(a => ({ ...a, icon: typeIcon[a.type] || '•', select: () => this.setState({ selected: a.id }), bg: a.id === sel ? '#1f1c18' : '#161412', bar: a.id === sel ? a.c : 'transparent', decided: !!a.decision, decisionFg: a.decision === 'approved' ? '#82a98c' : '#c5897a' })),
+      selAp: { ...selAp, icon: typeIcon[selAp.type] || '•', decided: !!selAp.decision, decisionFg: selAp.decision === 'approved' ? '#82a98c' : '#c5897a' },
+      openChat: () => this.props.onNavigate && this.props.onNavigate('chat'),
+      openPatch: () => this.props.onOpenPatch && this.props.onOpenPatch(),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="overflow-y: auto; min-height: 0; height: 100%; padding: 30px 36px 48px;">
+  <div style="max-width: 1080px; margin: 0 auto;">
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px;">
+      <div>
+        <div style="font-family: 'Newsreader', serif; font-size: 28px; color: #e6e0d3; line-height: 1.2;">Good afternoon, Jordan.</div>
+        <div style="font-size: 12.5px; color: #6a655c; margin-top: 5px;">personal workspace · <span style="color: #b3c46e;">● agent researching</span> · 3 days of context loaded</div>
+      </div>
+      <button onClick="{{ openPalette }}" style="display: flex; align-items: center; gap: 9px; padding: 8px 14px; background: transparent; border: 1px solid rgba(255,255,255,0.12); color: #9c968a; font-family: inherit; font-size: 12px; border-radius: 2px; cursor: pointer;" style-hover="border-color: #b3c46e; color: #b3c46e;"><span>⌘K</span><span style="color: #524e47;">jump to anything</span></button>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 26px;">
+      <sc-for list="{{ stats }}" as="st" hint-placeholder-count="6">
+        <div style="border: 1px solid rgba(255,255,255,0.07); border-top: 2px solid {{ st.c }}; border-radius: 0 0 2px 2px; background: #17150f; padding: 14px 15px;">
+          <div style="font-size: 26px; color: #e3ddd0; line-height: 1;">{{ st.value }}</div>
+          <div style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #6a655c; margin: 8px 0 3px;">{{ st.label }}</div>
+          <div style="font-size: 11px; color: {{ st.c }};">{{ st.sub }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+      <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #161412;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Active threads</span>
+          <button onClick="{{ openChat }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #b3c46e;">open chat →</button>
+        </div>
+        <sc-for list="{{ threads }}" as="t" hint-placeholder-count="3">
+          <button onClick="{{ openChat }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 11px; padding: 13px 16px; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ t.dot }}; flex-shrink: 0;"></span>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 13px; color: #d3cec2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.title }}</div>
+              <div style="font-size: 11px; color: #6a655c;">{{ t.meta }}</div>
+            </div>
+            <span style="font-size: 10px; color: #524e47;">{{ t.time }}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #161412;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Recent activity</span>
+          <button onClick="{{ goRuns }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #b3c46e;">all runs →</button>
+        </div>
+        <sc-for list="{{ activity }}" as="a" hint-placeholder-count="4">
+          <div style="display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid rgba(255,255,255,0.04);">
+            <span style="font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ a.c }}; min-width: 62px;">{{ a.label }}</span>
+            <span style="flex: 1; font-size: 12.5px; color: #b6b0a4;">{{ a.text }}</span>
+            <span style="font-size: 10px; color: #524e47;">{{ a.time }}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="border: 1px solid rgba(201,168,106,0.25); border-radius: 2px; background: rgba(201,168,106,0.03);">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #c9a86a;">⧖ Pending approvals</span>
+          <button onClick="{{ goApprovals }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #c9a86a;">review queue →</button>
+        </div>
+        <div style="padding: 16px;">
+          <div style="display: flex; align-items: center; gap: 11px; margin-bottom: 12px;">
+            <span style="width: 30px; height: 30px; border: 1px solid rgba(201,168,106,0.4); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; color: #c9a86a; font-size: 13px;">⧉</span>
+            <div style="flex: 1;">
+              <div style="font-size: 13px; color: #d8d3c7;">Write 3 files to workspace</div>
+              <div style="font-size: 11px; color: #6a655c;">patch · src/auth/*.ts · medium risk</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button onClick="{{ openPatch }}" style="flex: 1; padding: 7px; background: #b3c46e; border: none; color: #1a1a14; font-family: inherit; font-size: 12px; font-weight: 600; border-radius: 2px; cursor: pointer;" style-hover="background: #c2d27e;">Review</button>
+            <button style="padding: 7px 14px; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #c7c1b4; font-family: inherit; font-size: 12px; border-radius: 2px; cursor: pointer;" style-hover="border-color: #c5897a; color: #d3a99e;">Reject</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #161412;">
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Fresh research</span>
+          <button onClick="{{ goResearch }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #9a93b4;">library →</button>
+        </div>
+        <sc-for list="{{ research }}" as="r" hint-placeholder-count="3">
+          <button onClick="{{ goResearch }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 11px; padding: 12px 16px; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+            <span style="color: #9a93b4; font-size: 11px;">↳</span>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-family: 'Newsreader', serif; font-size: 15px; color: #d3cec2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.title }}</div>
+              <div style="font-size: 10.5px; color: #6a655c;">{{ r.tags }}</div>
+            </div>
+            <span style="font-size: 10px; color: #524e47;">{{ r.time }}</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  dashboardData() {
+    return {
+      stats: [
+        { label: 'Active runs', value: '1', sub: 'researching', c: '#b3c46e' },
+        { label: 'Pending approvals', value: '1', sub: '1 patch waiting', c: '#c9a86a' },
+        { label: 'Memories', value: '24', sub: '+3 today', c: '#bda07a' },
+        { label: 'Research notes', value: '12', sub: '+2 today', c: '#9a93b4' },
+        { label: 'Today spend', value: '$0.34', sub: 'of $20.00 cap', c: '#82a98c' },
+        { label: 'Tools active', value: '3', sub: '2 ask-gated', c: '#7fa6b0' },
+      ],
+      threads: [
+        { title: 'Small-model fine-tuning for tool use', meta: 'researching · 11 msgs', dot: '#b3c46e', time: 'now' },
+        { title: 'Refactor auth middleware', meta: 'patch pending · 4 files', dot: '#c9a86a', time: '2h' },
+        { title: 'Q3 competitor landscape', meta: 'done · 11 entities', dot: '#6a655c', time: '1d' },
+      ],
+      activity: [
+        { text: 'web.search returned 8 results', label: 'tool', c: '#7fa6b0', time: '14:03' },
+        { text: 'research note created · 3 sources', label: 'research', c: '#9a93b4', time: '14:04' },
+        { text: 'wrote research/small-model-tooluse.md', label: 'file', c: '#82a98c', time: '14:04' },
+        { text: 'approval requested · write 3 files', label: 'approval', c: '#c9a86a', time: '14:05' },
+      ],
+      research: [
+        { title: 'Small-model fine-tuning for tool use', tags: 'ml · agents', time: '2m' },
+        { title: 'RL from execution feedback', tags: 'ml · rl', time: '2m' },
+        { title: 'Distillation under 7B', tags: 'efficiency', time: '14m' },
+      ],
+    };
+  }
+  renderVals() {
+    const nav = this.props.onNavigate || (() => {});
+    return {
+      ...this.dashboardData(),
+      openChat: () => nav('chat'),
+      goRuns: () => nav('runs'),
+      goResearch: () => nav('research'),
+      goApprovals: () => nav('approvals'),
+      openPatch: () => this.props.onOpenPatch && this.props.onOpenPatch(),
+      openPalette: () => this.props.onOpenPalette && this.props.onOpenPalette(),
+    };
+  }
+}
+</script>
+</body>
+</html>

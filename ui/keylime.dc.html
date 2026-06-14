@@ -1,0 +1,1747 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+<script src="./keylime-api.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #0f0e0d; }
+  ::selection { background: rgba(179,196,110,0.25); }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 0; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+  @keyframes klpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  @keyframes klblink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+  @keyframes klfade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes klspin { to { transform: rotate(360deg); } }
+</style>
+</helmet>
+<div style="position: fixed; inset: 0; height: 100vh; display: grid; grid-template-rows: 40px 1fr auto; background: #131210; color: #d8d3c7; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.5; overflow: hidden;">
+
+  <div style="position: absolute; inset: 0; pointer-events: none; z-index: 60; opacity: 0.5; mix-blend-mode: soft-light; background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E&quot;);"></div>
+
+  <!-- ░░ STATUS BAR ░░ -->
+  <header style="display: flex; align-items: stretch; height: 40px; border-bottom: 1px solid rgba(255,255,255,0.07); background: #161412; position: relative; z-index: 20;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 16px; border-right: 1px solid rgba(255,255,255,0.06);">
+      <div style="width: 9px; height: 9px; background: #b3c46e; border-radius: 1px;"></div>
+      <span style="font-weight: 600; letter-spacing: 0.14em; font-size: 12px; color: #d8d3c7;">KEYLIME</span>
+    </div>
+    <button onClick="{{ openWorkspace }}" style="display: flex; align-items: center; gap: 8px; padding: 0 14px; background: transparent; border: none; border-right: 1px solid rgba(255,255,255,0.06); color: #9c968a; font-family: inherit; font-size: 12px; cursor: pointer;" style-hover="background: #1c1a17; color: #d8d3c7;">
+      <span style="color: #6a655c;">ws</span>
+      <span style="color: #c7c1b4;">{{ workspace }}</span>
+      <span style="color: #524e47;">▾</span>
+    </button>
+    <button onClick="{{ openModels }}" style="display: flex; align-items: center; gap: 8px; padding: 0 14px; background: transparent; border: none; border-right: 1px solid rgba(255,255,255,0.06); color: #9c968a; font-family: inherit; font-size: 12px; cursor: pointer;" style-hover="background: #1c1a17; color: #d8d3c7;">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #82a98c; box-shadow: 0 0 6px rgba(130,169,140,0.6);"></span>
+      <span style="color: #c7c1b4;">{{ model }}</span>
+      <span style="color: #524e47;">▾</span>
+    </button>
+
+    <div style="flex: 1;"></div>
+
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 14px; border-left: 1px solid rgba(255,255,255,0.06);">
+      <span style="width: 8px; height: 8px; border-radius: 50%; background: #b3c46e; animation: klpulse 1.4s ease-in-out infinite; box-shadow: 0 0 7px rgba(179,196,110,0.7);"></span>
+      <span style="color: #b3c46e; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;">{{ agentState }}</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 9px; padding: 0 14px; border-left: 1px solid rgba(255,255,255,0.06);">
+      <span style="color: #6a655c; font-size: 11px;">ctx</span>
+      <div style="width: 72px; height: 5px; background: #221f1c; border-radius: 1px; overflow: hidden;">
+        <div style="width: 24%; height: 100%; background: #8a9a5a;"></div>
+      </div>
+      <span style="color: #9c968a; font-size: 11px;">48.2k</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid rgba(255,255,255,0.06);">
+      <span style="color: #6a655c; font-size: 11px;">cost</span>
+      <span style="color: #c7c1b4; font-size: 12px;">$0.34</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 0 14px; border-left: 1px solid rgba(255,255,255,0.06); font-size: 11px; color: #6a655c;">
+      <span><span style="color: #bda07a;">●</span> mem 24</span>
+      <span><span style="color: #9a93b4;">●</span> res 12</span>
+      <span><span style="color: #7fa6b0;">●</span> tools 3</span>
+    </div>
+    <button onClick="{{ openPatch }}" style="display: flex; align-items: center; gap: 7px; padding: 0 16px; background: rgba(201,168,106,0.1); border: none; border-left: 1px solid rgba(255,255,255,0.06); color: #c9a86a; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="background: rgba(201,168,106,0.18);">
+      <span>⧖</span>
+      <span style="letter-spacing: 0.05em;">1 PENDING</span>
+    </button>
+  </header>
+
+  <!-- ░░ MIDDLE: SIDEBAR + CONTENT ░░ -->
+  <div style="display: grid; grid-template-columns: 232px 1fr; min-height: 0; position: relative; z-index: 10;">
+
+    <!-- SIDEBAR -->
+    <nav style="display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.07); background: #151311; min-height: 0;">
+      <div style="padding: 14px 14px 8px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: #524e47;">Workspace</div>
+      <div style="flex: 1; overflow-y: auto; padding: 0 8px;">
+        <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="6">
+          <button onClick="{{ item.go }}" style="width: 100%; display: flex; align-items: center; gap: 11px; padding: 9px 10px; margin-bottom: 2px; background: {{ item.bg }}; border: none; border-left: 2px solid {{ item.bar }}; color: {{ item.fg }}; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer; border-radius: 0 2px 2px 0;" style-hover="background: #1d1a17;">
+            <span style="width: 19px; height: 19px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid {{ item.chipBorder }}; border-radius: 2px; font-size: 10px; color: {{ item.chipFg }}; flex-shrink: 0;">{{ item.glyph }}</span>
+            <span style="flex: 1;">{{ item.label }}</span>
+            <sc-if value="{{ item.badge }}" hint-placeholder-val="12">
+              <span style="font-size: 10px; color: #6a655c; background: #211e1b; padding: 1px 6px; border-radius: 2px;">{{ item.badge }}</span>
+            </sc-if>
+            <span style="font-size: 10px; color: #43403a;">{{ item.key }}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="border-top: 1px solid rgba(255,255,255,0.07); padding: 8px;">
+        <button onClick="{{ openModels }}" style="width: 100%; display: flex; align-items: center; gap: 11px; padding: 9px 10px; background: transparent; border: none; color: #9c968a; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer; border-radius: 2px;" style-hover="background: #1d1a17; color: #d8d3c7;">
+          <span style="width: 19px; height: 19px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.1); border-radius: 2px; font-size: 10px; color: #7fa6b0;">M</span>
+          <span style="flex: 1;">Models</span>
+        </button>
+        <button onClick="{{ goSettings }}" style="width: 100%; display: flex; align-items: center; gap: 11px; padding: 9px 10px; background: {{ settingsBg }}; border: none; color: {{ settingsFg }}; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer; border-radius: 2px;" style-hover="background: #1d1a17; color: #d8d3c7;">
+          <span style="width: 19px; height: 19px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.1); border-radius: 2px; font-size: 10px; color: #9c968a;">S</span>
+          <span style="flex: 1;">Settings</span>
+        </button>
+        <button onClick="{{ goSettings }}" style="width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 8px; margin-top: 4px; background: transparent; border: none; border-top: 1px solid rgba(255,255,255,0.05); color: #c7c1b4; font-family: inherit; text-align: left; cursor: pointer;" style-hover="background: #1d1a17;">
+          <span style="width: 24px; height: 24px; border-radius: 2px; background: linear-gradient(135deg, #4a4438, #2a2722); border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: #bda07a;">JD</span>
+          <span style="display: flex; flex-direction: column; line-height: 1.3;">
+            <span style="font-size: 12px;">jordan</span>
+            <span style="font-size: 10px; color: #6a655c;">pro · local relay</span>
+          </span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- CONTENT -->
+    <main style="min-height: 0; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+
+      <!-- ░░ CHAT ░░ -->
+      <sc-if value="{{ isChat }}" hint-placeholder-val="{{ true }}">
+        <div style="display: grid; grid-template-columns: 252px 1fr; height: 100%; min-height: 0;">
+
+          <!-- THREAD LIST -->
+          <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Threads</span>
+              <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; width: 20px; height: 20px; border-radius: 2px; cursor: pointer; font-family: inherit;" style-hover="border-color: #b3c46e; color: #b3c46e;">+</button>
+            </div>
+            <div style="flex: 1; overflow-y: auto;">
+              <sc-for list="{{ threads }}" as="t" hint-placeholder-count="5">
+                <button onClick="{{ t.go }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 11px 14px; background: {{ t.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ t.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                  <div style="display: flex; align-items: center; gap: 7px;">
+                    <span style="width: 6px; height: 6px; border-radius: 50%; background: {{ t.dot }}; flex-shrink: 0;"></span>
+                    <span style="flex: 1; font-size: 12.5px; color: {{ t.fg }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.title }}</span>
+                    <span style="font-size: 10px; color: #524e47;">{{ t.time }}</span>
+                  </div>
+                  <div style="font-size: 11px; color: #6a655c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 13px;">{{ t.preview }}</div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- CONVERSATION -->
+          <div style="display: flex; flex-direction: column; min-height: 0;">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #141210;">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #b3c46e; animation: klpulse 1.4s ease-in-out infinite;"></span>
+              <div style="flex: 1;">
+                <div style="font-size: 13.5px; color: #d8d3c7;">Small-model fine-tuning for agentic tool use</div>
+                <div style="font-size: 11px; color: #6a655c;">11 messages · 3 tools · 1 research note · started 14:02</div>
+              </div>
+              <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 4px 10px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⌖ pinned 2</button>
+              <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 4px 10px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⎘ branch</button>
+            </div>
+
+            <div style="flex: 1; overflow-y: auto; padding: 22px 20px 28px;">
+              <div style="max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 4px;">
+                <sc-for list="{{ messages }}" as="m" hint-placeholder-count="8">
+
+                  <!-- system -->
+                  <sc-if value="{{ m.isSystem }}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; align-items: center; gap: 12px; padding: 8px 0; margin: 4px 0;">
+                      <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.06);"></div>
+                      <span style="font-size: 11px; color: #6a655c; letter-spacing: 0.04em;">{{ m.text }}</span>
+                      <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.06);"></div>
+                    </div>
+                  </sc-if>
+
+                  <!-- user -->
+                  <sc-if value="{{ m.isUser }}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; gap: 13px; padding: 12px 0;">
+                      <span style="width: 28px; height: 28px; border-radius: 2px; background: linear-gradient(135deg,#4a4438,#2a2722); border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: #bda07a; flex-shrink: 0;">JD</span>
+                      <div style="flex: 1;">
+                        <div style="display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px;">
+                          <span style="font-size: 12.5px; color: #c7c1b4; font-weight: 500;">jordan</span>
+                          <span style="font-size: 10px; color: #524e47;">{{ m.time }}</span>
+                        </div>
+                        <div style="font-size: 13.5px; color: #d3cec2; line-height: 1.62;">{{ m.text }}</div>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <!-- agent -->
+                  <sc-if value="{{ m.isAgent }}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; gap: 13px; padding: 12px 0;">
+                      <span style="width: 28px; height: 28px; border-radius: 2px; background: rgba(179,196,110,0.12); border: 1px solid rgba(179,196,110,0.35); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: #b3c46e; flex-shrink: 0;">kl</span>
+                      <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px;">
+                          <span style="font-size: 12.5px; color: #b3c46e; font-weight: 500;">keylime</span>
+                          <span style="font-size: 10px; color: #6a655c;">sonnet-4.6</span>
+                          <span style="font-size: 10px; color: #524e47;">{{ m.time }}</span>
+                        </div>
+                        <div style="font-size: 13.5px; color: #cdc8bc; line-height: 1.64;" innerHTML="{{ m.html }}"></div>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <!-- tool call -->
+                  <sc-if value="{{ m.isTool }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin: 5px 0 5px 41px; border: 1px solid rgba(127,166,176,0.22); border-radius: 2px; background: #15140f; overflow: hidden;">
+                      <button onClick="{{ m.toggle }}" style="width: 100%; display: flex; align-items: center; gap: 11px; padding: 9px 13px; background: rgba(127,166,176,0.05); border: none; cursor: pointer; font-family: inherit; text-align: left;" style-hover="background: rgba(127,166,176,0.1);">
+                        <span style="color: #524e47; font-size: 10px; width: 9px; transition: transform 0.15s; transform: rotate({{ m.caret }}deg);">▸</span>
+                        <span style="color: #7fa6b0; font-size: 11px;">⛁</span>
+                        <span style="font-size: 12.5px; color: #c7c1b4;">{{ m.name }}</span>
+                        <span style="font-size: 11px; padding: 1px 7px; border-radius: 2px; background: {{ m.statusBg }}; color: {{ m.statusFg }};">{{ m.status }}</span>
+                        <span style="flex: 1;"></span>
+                        <span style="font-size: 10.5px; color: #6a655c;">{{ m.duration }}</span>
+                        <span style="font-size: 10.5px; color: #6a655c;">·</span>
+                        <span style="font-size: 10.5px; color: #6a655c;">{{ m.tokens }} tok</span>
+                        <span style="font-size: 10.5px; color: #6a655c;">·</span>
+                        <span style="font-size: 10.5px; color: #82a98c;">{{ m.cost }}</span>
+                      </button>
+                      <sc-if value="{{ m.expanded }}" hint-placeholder-val="{{ false }}">
+                        <div style="border-top: 1px solid rgba(255,255,255,0.06); padding: 13px;">
+                          <div style="display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; font-size: 11px;">
+                            <span style="color: #6a655c;">model <span style="color: #9c968a;">{{ m.model }}</span></span>
+                            <span style="color: #6a655c;">latency <span style="color: #9c968a;">{{ m.duration }}</span></span>
+                            <span style="color: #6a655c;">in <span style="color: #9c968a;">{{ m.tokensIn }}</span></span>
+                            <span style="color: #6a655c;">out <span style="color: #9c968a;">{{ m.tokensOut }}</span></span>
+                            <span style="color: #6a655c;">cost <span style="color: #82a98c;">{{ m.cost }}</span></span>
+                          </div>
+                          <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 6px;">input</div>
+                          <pre style="margin: 0 0 12px; padding: 10px 12px; background: #100f0c; border: 1px solid rgba(255,255,255,0.05); border-radius: 2px; font-size: 12px; color: #9c968a; overflow-x: auto; white-space: pre-wrap; line-height: 1.55;">{{ m.input }}</pre>
+                          <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 6px;">output</div>
+                          <pre style="margin: 0; padding: 10px 12px; background: #100f0c; border: 1px solid rgba(255,255,255,0.05); border-radius: 2px; font-size: 12px; color: #b6b0a4; overflow-x: auto; white-space: pre-wrap; line-height: 1.55;">{{ m.output }}</pre>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-if>
+
+                  <!-- memory ref -->
+                  <sc-if value="{{ m.isMemory }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin: 3px 0 3px 41px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-left: 2px solid #bda07a; background: rgba(189,160,122,0.06); border-radius: 0 2px 2px 0;">
+                      <span style="color: #bda07a; font-size: 11px;">↳ memory</span>
+                      <span style="font-size: 12.5px; color: #b6b0a4; flex: 1;">{{ m.text }}</span>
+                      <span style="font-size: 10px; color: #6a655c;">{{ m.source }}</span>
+                    </div>
+                  </sc-if>
+
+                  <!-- research ref -->
+                  <sc-if value="{{ m.isResearch }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ goResearch }}" style="width: calc(100% - 41px); margin: 3px 0 3px 41px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border: none; border-left: 2px solid #9a93b4; background: rgba(154,147,180,0.06); border-radius: 0 2px 2px 0; cursor: pointer; font-family: inherit; text-align: left;" style-hover="background: rgba(154,147,180,0.13);">
+                      <span style="color: #9a93b4; font-size: 11px;">↳ research</span>
+                      <span style="font-size: 12.5px; color: #b6b0a4; flex: 1;">{{ m.text }}</span>
+                      <span style="font-size: 10px; color: #9a93b4;">open ↗</span>
+                    </button>
+                  </sc-if>
+
+                  <!-- file op -->
+                  <sc-if value="{{ m.isFile }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ openPatch }}" style="width: calc(100% - 41px); margin: 3px 0 3px 41px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border: none; border-left: 2px solid #82a98c; background: rgba(130,169,140,0.06); border-radius: 0 2px 2px 0; cursor: pointer; font-family: inherit; text-align: left;" style-hover="background: rgba(130,169,140,0.13);">
+                      <span style="color: #82a98c; font-size: 11px;">✎ {{ m.op }}</span>
+                      <span style="font-size: 12.5px; color: #b6b0a4; flex: 1;">{{ m.path }}</span>
+                      <span style="font-size: 11px; color: #82a98c;">+{{ m.added }}</span>
+                      <span style="font-size: 11px; color: #c5897a;">−{{ m.removed }}</span>
+                      <span style="font-size: 10px; color: #6a655c;">review ↗</span>
+                    </button>
+                  </sc-if>
+
+                  <!-- error + retry -->
+                  <sc-if value="{{ m.isError }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin: 3px 0 3px 41px; padding: 9px 12px; border: 1px solid rgba(197,137,122,0.28); background: rgba(197,137,122,0.06); border-radius: 2px;">
+                      <div style="display: flex; align-items: center; gap: 9px;">
+                        <span style="color: #c5897a; font-size: 11px;">✕ error</span>
+                        <span style="font-size: 12.5px; color: #d3a99e;">{{ m.text }}</span>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 7px; margin-top: 6px; padding-left: 2px;">
+                        <span style="width: 11px; height: 11px; border: 1.5px solid #c9a86a; border-top-color: transparent; border-radius: 50%; animation: klspin 0.8s linear infinite;"></span>
+                        <span style="font-size: 11.5px; color: #c9a86a;">{{ m.retry }}</span>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <!-- approval -->
+                  <sc-if value="{{ m.isApproval }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin: 6px 0 6px 41px; padding: 14px 15px; border: 1px solid rgba(201,168,106,0.32); background: rgba(201,168,106,0.05); border-radius: 2px;">
+                      <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 5px;">
+                        <span style="color: #c9a86a;">⧖</span>
+                        <span style="font-size: 12.5px; color: #c9a86a; letter-spacing: 0.04em; text-transform: uppercase;">Approval required</span>
+                      </div>
+                      <div style="font-size: 13px; color: #cdc8bc; margin-bottom: 12px;">{{ m.text }}</div>
+                      <div style="display: flex; gap: 8px;">
+                        <button onClick="{{ openPatch }}" style="padding: 7px 15px; background: #b3c46e; border: none; color: #1a1a14; font-family: inherit; font-size: 12px; font-weight: 600; border-radius: 2px; cursor: pointer;" style-hover="background: #c2d27e;">Review &amp; approve</button>
+                        <button style="padding: 7px 14px; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #c7c1b4; font-family: inherit; font-size: 12px; border-radius: 2px; cursor: pointer;" style-hover="border-color: #c5897a; color: #d3a99e;">Reject</button>
+                        <button style="padding: 7px 14px; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #9c968a; font-family: inherit; font-size: 12px; border-radius: 2px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.25); color: #d8d3c7;">Request changes</button>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ RESEARCH ░░ -->
+      <sc-if value="{{ isResearch }}" hint-placeholder-val="{{ false }}">
+        <div style="display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0;">
+          <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+            <div style="padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px;">
+                <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Research Library</span>
+                <span style="font-size: 10px; color: #6a655c;">12 notes</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #100f0c; border: 1px solid rgba(255,255,255,0.07); border-radius: 2px;">
+                <span style="color: #524e47; font-size: 12px;">⌕</span>
+                <input placeholder="filter notes, tags, sources…" style="flex: 1; background: transparent; border: none; outline: none; color: #c7c1b4; font-family: inherit; font-size: 12px;" />
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;">
+                <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(154,147,180,0.3); color: #9a93b4; border-radius: 2px; background: rgba(154,147,180,0.08);">ml</span>
+                <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; border-radius: 2px;">agents</span>
+                <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; border-radius: 2px;">market</span>
+                <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; border-radius: 2px;">infra</span>
+              </div>
+            </div>
+            <div style="flex: 1; overflow-y: auto;">
+              <sc-for list="{{ research.list }}" as="r" hint-placeholder-count="6">
+                <button onClick="{{ r.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 7px; padding: 13px 16px; background: {{ r.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ r.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                  <div style="font-size: 13px; color: #d3cec2; line-height: 1.4;">{{ r.title }}</div>
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 10px; color: #6a655c;">
+                    <span style="color: {{ r.confFg }};">● {{ r.conf }}</span>
+                    <span>{{ r.sources }} src</span>
+                    <span>{{ r.claims }} claims</span>
+                    <span>⇆ {{ r.backlinks }}</span>
+                    <span style="flex: 1;"></span>
+                    <span>{{ r.recency }}</span>
+                  </div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="overflow-y: auto; min-height: 0;">
+            <div style="max-width: 760px; margin: 0 auto; padding: 40px 48px 56px;">
+              <div style="display: flex; align-items: center; gap: 10px; font-size: 11px; color: #6a655c; margin-bottom: 18px;">
+                <span style="color: #9a93b4;">RESEARCH NOTE</span>
+                <span>·</span>
+                <span>auto-generated</span>
+                <span>·</span>
+                <span>{{ research.selNote.recency }}</span>
+                <span style="flex: 1;"></span>
+                <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 3px 9px; border-radius: 2px; font-family: inherit; font-size: 10.5px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⇱ open source chat</button>
+              </div>
+              <h1 style="font-family: 'Newsreader', serif; font-weight: 500; font-size: 33px; line-height: 1.2; color: #e6e0d3; margin: 0 0 8px; letter-spacing: -0.01em;">{{ research.selNote.title }}</h1>
+              <div style="display: flex; gap: 7px; margin-bottom: 26px;">
+                <sc-for list="{{ research.selNote.tags }}" as="tag" hint-placeholder-count="3">
+                  <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(154,147,180,0.25); color: #9a93b4; border-radius: 2px; background: rgba(154,147,180,0.06);">{{ tag }}</span>
+                </sc-for>
+              </div>
+              <div style="font-family: 'Newsreader', serif; font-size: 18px; line-height: 1.72; color: #cfc9bc;" innerHTML="{{ research.detail.body }}"></div>
+
+              <div style="margin-top: 36px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.08);">
+                <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6a655c; margin-bottom: 14px;">Sources</div>
+                <sc-for list="{{ research.detail.sources }}" as="s" hint-placeholder-count="3">
+                  <div style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <span style="width: 20px; height: 20px; border: 1px solid rgba(154,147,180,0.3); color: #9a93b4; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0;">{{ s.n }}</span>
+                    <div style="flex: 1;">
+                      <div style="font-size: 13px; color: #cdc8bc;">{{ s.title }}</div>
+                      <div style="font-size: 11px; color: #6a655c;">{{ s.host }}</div>
+                    </div>
+                    <span style="font-size: 10.5px; color: #82a98c;">● {{ s.conf }}</span>
+                    <span style="font-size: 11px; color: #524e47;">↗</span>
+                  </div>
+                </sc-for>
+              </div>
+
+              <div style="margin-top: 28px;">
+                <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6a655c; margin-bottom: 12px;">Related &amp; backlinks</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                  <sc-for list="{{ research.detail.related }}" as="rel" hint-placeholder-count="3">
+                    <span style="font-size: 12px; padding: 5px 12px; background: #1a1714; border: 1px solid rgba(255,255,255,0.08); color: #b6b0a4; border-radius: 2px; cursor: pointer;">⇆ {{ rel }}</span>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ MEMORIES ░░ -->
+      <sc-if value="{{ isMemories }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; height: 100%; min-height: 0;">
+          <div style="display: flex; align-items: center; gap: 4px; padding: 0 20px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #141210;">
+            <div style="padding: 14px 4px 14px 0; margin-right: 14px; display: flex; align-items: center; gap: 9px;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #bda07a;"></span>
+              <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Memory</span>
+            </div>
+            <sc-for list="{{ memory.tabs }}" as="tab" hint-placeholder-count="4">
+              <button onClick="{{ tab.select }}" style="padding: 13px 16px; background: {{ tab.bg }}; border: none; border-bottom: 2px solid {{ tab.bar }}; color: {{ tab.fg }}; font-family: inherit; font-size: 12.5px; cursor: pointer;" style-hover="color: #d8d3c7;">{{ tab.label }}</button>
+            </sc-for>
+            <span style="flex: 1;"></span>
+            <span style="font-size: 11px; color: #6a655c;">24 memories · scoped to <span style="color: #9c968a;">personal</span></span>
+          </div>
+
+          <div style="flex: 1; overflow-y: auto; min-height: 0; padding: 28px 32px 48px;">
+            <div style="max-width: 920px; margin: 0 auto;">
+
+              <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 18px; background: #100f0c; border: 1px solid rgba(255,255,255,0.07); border-radius: 2px;">
+                <span style="color: #524e47; font-size: 12px;">⌕</span>
+                <input placeholder="search memory items — facts, entities, sources…" style="flex: 1; background: transparent; border: none; outline: none; color: #c7c1b4; font-family: inherit; font-size: 12.5px;" />
+                <span style="font-size: 10px; color: #524e47;">{{ memory.profile.length }} editable records</span>
+              </div>
+
+              <!-- PROFILE -->
+              <sc-if value="{{ memory.isProfile }}" hint-placeholder-val="{{ true }}">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <sc-for list="{{ memory.profile }}" as="p" hint-placeholder-count="6">
+                    <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f; padding: 15px 16px;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px;">
+                        <span style="font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6a655c;">{{ p.k }}</span>
+                        <sc-if value="{{ p.isSensitive }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-size: 10px; color: #c5897a; border: 1px solid rgba(197,137,122,0.3); padding: 1px 6px; border-radius: 2px;">sensitive</span>
+                        </sc-if>
+                      </div>
+                      <div style="font-size: 14.5px; color: #d8d3c7; margin-bottom: 12px;">{{ p.v }}</div>
+                      <div style="display: flex; align-items: center; gap: 12px; font-size: 10.5px; color: #6a655c;">
+                        <span style="color: #82a98c;">● {{ p.conf }}</span>
+                        <span>{{ p.src }}</span>
+                        <span style="flex: 1;"></span>
+                        <span style="cursor: pointer; color: #524e47;">edit</span>
+                        <span style="cursor: pointer; color: #524e47;">pin</span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <!-- TIMELINE -->
+              <sc-if value="{{ memory.isTimeline }}" hint-placeholder-val="{{ false }}">
+                <div style="position: relative; padding-left: 24px;">
+                  <div style="position: absolute; left: 5px; top: 6px; bottom: 6px; width: 1px; background: rgba(255,255,255,0.1);"></div>
+                  <sc-for list="{{ memory.timeline }}" as="ev" hint-placeholder-count="5">
+                    <div style="position: relative; padding: 0 0 22px;">
+                      <span style="position: absolute; left: -23px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: {{ ev.c }}; box-shadow: 0 0 0 3px #131210;"></span>
+                      <div style="font-size: 11px; color: #6a655c; margin-bottom: 3px;">{{ ev.t }}</div>
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 13.5px; color: #cdc8bc;">{{ ev.text }}</span>
+                        <span style="font-size: 10px; color: {{ ev.c }}; border: 1px solid rgba(255,255,255,0.08); padding: 1px 7px; border-radius: 2px;">{{ ev.tag }}</span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <!-- ENTITIES -->
+              <sc-if value="{{ memory.isEntities }}" hint-placeholder-val="{{ false }}">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                  <sc-for list="{{ memory.entities }}" as="en" hint-placeholder-count="5">
+                    <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f; padding: 16px;">
+                      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                        <span style="width: 32px; height: 32px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center; justify-content: center; color: {{ en.c }}; font-size: 13px;">◈</span>
+                        <div>
+                          <div style="font-size: 13.5px; color: #d8d3c7;">{{ en.name }}</div>
+                          <div style="font-size: 10.5px; color: #6a655c;">{{ en.type }} · {{ en.rel }}</div>
+                        </div>
+                      </div>
+                      <div style="display: flex; align-items: center; gap: 12px; font-size: 10.5px; color: #6a655c; padding-top: 11px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span>{{ en.facts }} facts</span>
+                        <span style="flex: 1;"></span>
+                        <span>fresh {{ en.fresh }}</span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <!-- PREFERENCES -->
+              <sc-if value="{{ memory.isPrefs }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ memory.prefs }}" as="pr" hint-placeholder-count="4">
+                  <div style="display: flex; align-items: center; gap: 16px; padding: 15px 16px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.07); border-left: 2px solid #bda07a; border-radius: 0 2px 2px 0; background: #17150f;">
+                    <div style="flex: 1;">
+                      <div style="font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #6a655c; margin-bottom: 4px;">{{ pr.k }}</div>
+                      <div style="font-size: 14px; color: #d3cec2;">{{ pr.v }}</div>
+                    </div>
+                    <span style="font-size: 10.5px; color: #6a655c;">{{ pr.freq }}</span>
+                    <label style="display: inline-flex; align-items: center;">
+                      <span style="width: 30px; height: 17px; background: rgba(179,196,110,0.4); border-radius: 9px; position: relative; display: inline-block;"><span style="position: absolute; top: 2px; right: 2px; width: 13px; height: 13px; border-radius: 50%; background: #d8d3c7;"></span></span>
+                    </label>
+                  </div>
+                </sc-for>
+              </sc-if>
+
+              <!-- RELATIONSHIPS -->
+              <sc-if value="{{ memory.isRelationships }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ memory.relationships }}" as="rel" hint-placeholder-count="6">
+                  <div style="display: flex; align-items: center; gap: 14px; padding: 13px 16px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f;">
+                    <span style="font-size: 13.5px; color: #d8d3c7; min-width: 130px;">{{ rel.subj }}</span>
+                    <span style="font-size: 11px; color: #bda07a; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 10px; border: 1px solid rgba(189,160,122,0.25); border-radius: 2px;">{{ rel.rel }}</span>
+                    <span style="color: #524e47;">→</span>
+                    <span style="font-size: 13.5px; color: #d8d3c7; flex: 1;">{{ rel.obj }}</span>
+                    <span style="font-size: 10.5px; color: #82a98c;">● {{ rel.conf }}</span>
+                    <span style="font-size: 10px; color: #524e47; cursor: pointer;">edit</span>
+                  </div>
+                </sc-for>
+              </sc-if>
+
+              <!-- PROJECTS -->
+              <sc-if value="{{ memory.isProjects }}" hint-placeholder-val="{{ false }}">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+                  <sc-for list="{{ memory.projects }}" as="pj" hint-placeholder-count="3">
+                    <div style="border: 1px solid rgba(255,255,255,0.07); border-top: 2px solid {{ pj.c }}; border-radius: 0 0 2px 2px; background: #17150f; padding: 16px;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px;">
+                        <span style="font-size: 14px; color: #e3ddd0;">{{ pj.name }}</span>
+                        <span style="font-size: 10px; color: {{ pj.c }}; text-transform: uppercase; letter-spacing: 0.05em;">{{ pj.status }}</span>
+                      </div>
+                      <div style="font-family: 'Newsreader', serif; font-size: 14px; line-height: 1.55; color: #b6b0a4; margin-bottom: 12px;">{{ pj.note }}</div>
+                      <div style="display: flex; align-items: center; gap: 12px; font-size: 10.5px; color: #6a655c; padding-top: 11px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span>{{ pj.role }}</span><span style="flex: 1;"></span><span>{{ pj.facts }} facts</span>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ KNOWLEDGE GRAPH ░░ -->
+      <sc-if value="{{ isGraph }}" hint-placeholder-val="{{ false }}">
+        <div style="display: grid; grid-template-columns: 300px 1fr; height: 100%; min-height: 0;">
+          <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Entities</span>
+              <span style="font-size: 10px; color: #6a655c;">7 nodes · 38 edges</span>
+            </div>
+            <div style="flex: 1; overflow-y: auto; padding: 6px 0;">
+              <sc-for list="{{ graph.nodes }}" as="n" hint-placeholder-count="7">
+                <button onClick="{{ n.select }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 11px; padding: 10px 16px; background: {{ n.bg }}; border: none; border-left: 2px solid {{ n.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                  <span style="width: 9px; height: 9px; border-radius: 50%; background: {{ n.c }}; flex-shrink: 0;"></span>
+                  <div style="flex: 1;">
+                    <div style="font-size: 13px; color: #d3cec2;">{{ n.name }}</div>
+                    <div style="font-size: 10px; color: #6a655c;">{{ n.type }}</div>
+                  </div>
+                  <span style="font-size: 10.5px; color: #6a655c;">{{ n.conns }} ⇆</span>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="overflow-y: auto; min-height: 0; padding: 32px 36px 48px;">
+            <div style="max-width: 860px; margin: 0 auto;">
+              <div style="display: flex; align-items: center; gap: 16px; padding-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 28px;">
+                <span style="width: 48px; height: 48px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.12); display: inline-flex; align-items: center; justify-content: center; color: {{ graph.selNode.c }}; font-size: 22px;">◈</span>
+                <div style="flex: 1;">
+                  <div style="font-size: 22px; color: #e3ddd0;">{{ graph.selNode.name }}</div>
+                  <div style="font-size: 12px; color: #6a655c;">{{ graph.selNode.type }} · {{ graph.selNode.conns }} connections · central node</div>
+                </div>
+                <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 12px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">edit relationships</button>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #bda07a; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #bda07a;"></span>Memories</div>
+                  <sc-for list="{{ graph.adjMem }}" as="x" hint-placeholder-count="3">
+                    <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+                  </sc-for>
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #b3c46e; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #b3c46e;"></span>Conversations</div>
+                  <sc-for list="{{ graph.adjChats }}" as="x" hint-placeholder-count="2">
+                    <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+                  </sc-for>
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #9a93b4; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #9a93b4;"></span>Research</div>
+                  <sc-for list="{{ graph.adjRes }}" as="x" hint-placeholder-count="2">
+                    <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+                  </sc-for>
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #82a98c; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #82a98c;"></span>Files &amp; People</div>
+                  <sc-for list="{{ graph.adjFiles }}" as="x" hint-placeholder-count="1">
+                    <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+                  </sc-for>
+                  <sc-for list="{{ graph.adjPeople }}" as="x" hint-placeholder-count="1">
+                    <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ FILES / WORKSPACE ░░ -->
+      <sc-if value="{{ isFiles }}" hint-placeholder-val="{{ false }}">
+        <div style="display: grid; grid-template-columns: 300px 1fr; height: 100%; min-height: 0;">
+          <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Workspace</span>
+              <span style="font-size: 10px; color: #6a655c;">keylime-core</span>
+            </div>
+            <div style="flex: 1; overflow-y: auto; padding: 6px 0;">
+              <sc-for list="{{ files.tree }}" as="f" hint-placeholder-count="9">
+                <button onClick="{{ f.select }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 9px; padding: 6px 16px 6px {{ f.pad }}px; background: {{ f.bg }}; border: none; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                  <sc-if value="{{ f.isDir }}" hint-placeholder-val="{{ false }}">
+                    <span style="color: #6a655c; font-size: 11px;">▾</span>
+                  </sc-if>
+                  <span style="flex: 1; font-size: 12.5px; color: {{ f.fg }};">{{ f.name }}</span>
+                  <sc-if value="{{ f.status }}" hint-placeholder-val="mod">
+                    <span style="font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ f.statusFg }};">{{ f.status }}</span>
+                  </sc-if>
+                </button>
+              </sc-for>
+            </div>
+            <div style="border-top: 1px solid rgba(255,255,255,0.06); padding: 12px 16px;">
+              <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 8px;">In agent context</div>
+              <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11.5px; color: #9c968a;">
+                <span><span style="color: #7fa6b0;">◆</span> AGENTS.md</span>
+                <span><span style="color: #82a98c;">◆</span> research/small-model-tooluse.md</span>
+                <span><span style="color: #c9a86a;">◆</span> src/auth/middleware.ts <span style="color: #6a655c;">(pending)</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; min-height: 0;">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 12px 22px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #141210;">
+              <span style="font-size: 13px; color: #d8d3c7;">{{ files.selFile.name }}</span>
+              <span style="font-size: 10.5px; padding: 1px 8px; border: 1px solid rgba(130,169,140,0.3); color: #82a98c; border-radius: 2px;">written by agent</span>
+              <span style="flex: 1;"></span>
+              <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 4px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">↺ rollback</button>
+              <button onClick="{{ openPatch }}" style="background: rgba(179,196,110,0.12); border: 1px solid rgba(179,196,110,0.35); color: #b3c46e; padding: 4px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="background: rgba(179,196,110,0.2);">open in patch review</button>
+            </div>
+            <div style="flex: 1; overflow-y: auto; min-height: 0; padding: 26px 32px;">
+              <div style="max-width: 760px;">
+                <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6a655c; margin-bottom: 12px;">Agent summary</div>
+                <div style="font-family: 'Newsreader', serif; font-size: 17px; line-height: 1.7; color: #cfc9bc; padding: 16px 18px; background: #17150f; border: 1px solid rgba(255,255,255,0.07); border-left: 2px solid #82a98c; border-radius: 0 2px 2px 0; margin-bottom: 26px;">A 142-line research brief assembled from 3 web sources and 2 recalled notes. Contains the three-lever summary, inline numbered citations, and a sources block. No code; safe to keep in the workspace context for follow-up questions.</div>
+
+                <div style="display: flex; align-items: center; gap: 14px; font-size: 11px; color: #6a655c; margin-bottom: 14px;">
+                  <span style="letter-spacing: 0.1em; text-transform: uppercase;">Preview</span>
+                  <span style="color: #82a98c;">+142</span>
+                  <span style="color: #c5897a;">−0</span>
+                  <span>·</span>
+                  <span>created 14:04</span>
+                </div>
+                <pre style="margin: 0; padding: 16px 18px; background: #100f0c; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px; font-size: 12.5px; color: #b6b0a4; line-height: 1.65; overflow-x: auto; white-space: pre-wrap;"># Small-model fine-tuning for tool use
+
+> Auto-generated by keylime · 3 sources
+
+Recent work converges on three levers:
+
+1. **SFT** on synthetic tool-call traces — closes most
+   of the schema-adherence gap [1]
+2. **RL** from execution feedback — robustness on
+   multi-step plans [2]
+3. **Distillation** under 7B — most cost-effective [3]
+
+## Sources
+[1] arxiv.org/2503 — Toolformer-style SFT on 3B
+[2] arxiv.org/2504 — RL from tool feedback
+[3] blog.allenai.org — Tulu tool-use distillation</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ RUNS / ACTIVITY ░░ -->
+      <sc-if value="{{ isRuns }}" hint-placeholder-val="{{ false }}">
+        <div style="display: grid; grid-template-columns: 360px 1fr; height: 100%; min-height: 0;">
+          <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Runs</span>
+              <span style="font-size: 10px; color: #6a655c;">last 24h</span>
+            </div>
+            <div style="flex: 1; overflow-y: auto;">
+              <sc-for list="{{ runsView.runs }}" as="r" hint-placeholder-count="4">
+                <button onClick="{{ r.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: {{ r.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ r.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                  <div style="display: flex; align-items: center; gap: 9px;">
+                    <span style="font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ r.statusFg }};">● {{ r.status }}</span>
+                    <span style="flex: 1;"></span>
+                    <span style="font-size: 10px; color: #524e47;">{{ r.time }}</span>
+                  </div>
+                  <div style="font-size: 12.5px; color: #cdc8bc; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.prompt }}</div>
+                  <div style="display: flex; align-items: center; gap: 12px; font-size: 10.5px; color: #6a655c;">
+                    <span>⛁ {{ r.model }}</span>
+                    <span>{{ r.dur }}</span>
+                    <span>{{ r.tools }} tools</span>
+                    <span style="color: #82a98c;">{{ r.cost }}</span>
+                  </div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="overflow-y: auto; min-height: 0; padding: 28px 36px 48px;">
+            <div style="max-width: 800px;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
+                <span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: {{ runsView.selRun.statusFg }};">● {{ runsView.selRun.status }}</span>
+                <span style="font-size: 11px; color: #6a655c;">trace · {{ runsView.selRun.id }}</span>
+              </div>
+              <h2 style="font-size: 18px; color: #e3ddd0; margin: 0 0 16px; font-weight: 500; line-height: 1.4;">{{ runsView.selRun.prompt }}</h2>
+              <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 30px;">
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 10px 14px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">model</div><div style="font-size: 13px; color: #c7c1b4;">{{ runsView.selRun.model }}</div></div>
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 10px 14px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">duration</div><div style="font-size: 13px; color: #c7c1b4;">{{ runsView.selRun.dur }}</div></div>
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 10px 14px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">tools</div><div style="font-size: 13px; color: #c7c1b4;">{{ runsView.selRun.tools }} calls</div></div>
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 10px 14px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">cost</div><div style="font-size: 13px; color: #82a98c;">{{ runsView.selRun.cost }}</div></div>
+              </div>
+
+              <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6a655c; margin-bottom: 16px;">Execution trace</div>
+              <div style="position: relative; padding-left: 26px;">
+                <div style="position: absolute; left: 9px; top: 8px; bottom: 8px; width: 1px; background: rgba(255,255,255,0.09);"></div>
+                <sc-for list="{{ runsView.trace }}" as="ev" hint-placeholder-count="9">
+                  <div style="position: relative; padding: 0 0 16px;">
+                    <span style="position: absolute; left: -25px; top: 0; width: 19px; height: 19px; border-radius: 2px; background: #17150f; border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: {{ ev.c }};">{{ ev.icon }}</span>
+                    <div style="display: flex; align-items: baseline; gap: 10px;">
+                      <span style="font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ ev.c }}; min-width: 76px;">{{ ev.label }}</span>
+                      <span style="font-size: 13px; color: #b6b0a4;">{{ ev.text }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ SETTINGS ░░ -->
+      <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+        <div style="overflow-y: auto; min-height: 0; height: 100%; padding: 36px 40px 56px;">
+          <div style="max-width: 880px; margin: 0 auto;">
+            <div style="display: flex; align-items: center; gap: 18px; padding-bottom: 26px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 30px;">
+              <span style="width: 64px; height: 64px; border-radius: 2px; background: linear-gradient(135deg,#4a4438,#2a2722); border: 1px solid rgba(255,255,255,0.12); display: inline-flex; align-items: center; justify-content: center; font-size: 22px; color: #bda07a;">JD</span>
+              <div style="flex: 1;">
+                <div style="font-size: 22px; color: #e3ddd0;">Jordan</div>
+                <div style="font-size: 12.5px; color: #6a655c;">@jordan · staff engineer · pro plan</div>
+              </div>
+              <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 6px 14px; border-radius: 2px; font-family: inherit; font-size: 12px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">edit profile</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+              <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f; padding: 20px;">
+                <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #b3c46e; margin-bottom: 16px;">Special instructions</div>
+                <div style="font-family: 'Newsreader', serif; font-size: 15px; line-height: 1.6; color: #cfc9bc;">"Be terse. No preamble. Always cite sources inline. Ask before writing files outside /tmp. Prefer functional code with early returns."</div>
+              </div>
+              <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f; padding: 20px;">
+                <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6a655c; margin-bottom: 16px;">Provider connections</div>
+                <div style="display: flex; flex-direction: column; gap: 11px;">
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 13px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #82a98c;"></span><span style="color: #bda07a;">anthropic</span><span style="flex: 1;"></span><span style="color: #6a655c; font-size: 11px;">connected</span></div>
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 13px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #82a98c;"></span><span style="color: #82a98c;">openai</span><span style="flex: 1;"></span><span style="color: #6a655c; font-size: 11px;">connected</span></div>
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 13px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #9a93b4;"></span><span style="color: #9a93b4;">local relay</span><span style="flex: 1;"></span><span style="color: #6a655c; font-size: 11px;">2 models</span></div>
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 13px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #6a655c;"></span><span style="color: #9c968a;">google</span><span style="flex: 1;"></span><span style="color: #524e47; font-size: 11px;">add key →</span></div>
+                </div>
+              </div>
+
+              <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f; padding: 20px;">
+                <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6a655c; margin-bottom: 16px;">Tool permissions</div>
+                <sc-for list="{{ toolPerms }}" as="tp" hint-placeholder-count="4">
+                  <div style="display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <span style="font-size: 13px; color: #c7c1b4; flex: 1;">{{ tp.name }}</span>
+                    <span style="font-size: 10.5px; color: {{ tp.c }}; border: 1px solid rgba(255,255,255,0.08); padding: 1px 8px; border-radius: 2px;">{{ tp.mode }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f; padding: 20px;">
+                <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6a655c; margin-bottom: 16px;">Cost &amp; privacy</div>
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                  <div><div style="display: flex; justify-content: space-between; font-size: 12px; color: #9c968a; margin-bottom: 6px;"><span>Daily cost limit</span><span style="color: #c7c1b4;">$8.00 / $20.00</span></div><div style="height: 5px; background: #221f1c; border-radius: 1px; overflow: hidden;"><div style="width: 40%; height: 100%; background: #82a98c;"></div></div></div>
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 13px;"><span style="color: #c7c1b4; flex: 1;">Sensitive workspace → local only</span><span style="width: 30px; height: 17px; background: rgba(179,196,110,0.4); border-radius: 9px; position: relative;"><span style="position: absolute; top: 2px; right: 2px; width: 13px; height: 13px; border-radius: 50%; background: #d8d3c7;"></span></span></div>
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 13px;"><span style="color: #c7c1b4; flex: 1;">Redact secrets in traces</span><span style="width: 30px; height: 17px; background: rgba(179,196,110,0.4); border-radius: 9px; position: relative;"><span style="position: absolute; top: 2px; right: 2px; width: 13px; height: 13px; border-radius: 50%; background: #d8d3c7;"></span></span></div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top: 24px; border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #17150f; padding: 20px;">
+              <div style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6a655c; margin-bottom: 16px;">Profiles &amp; workspaces</div>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <span style="font-size: 12.5px; padding: 7px 14px; background: rgba(179,196,110,0.1); border: 1px solid rgba(179,196,110,0.35); color: #b3c46e; border-radius: 2px;">● personal</span>
+                <span style="font-size: 12.5px; padding: 7px 14px; background: #1a1714; border: 1px solid rgba(255,255,255,0.08); color: #b6b0a4; border-radius: 2px;">work</span>
+                <span style="font-size: 12.5px; padding: 7px 14px; background: #1a1714; border: 1px solid rgba(255,255,255,0.08); color: #b6b0a4; border-radius: 2px;">study</span>
+                <span style="font-size: 12.5px; padding: 7px 14px; background: #1a1714; border: 1px solid rgba(255,255,255,0.08); color: #b6b0a4; border-radius: 2px;">coding</span>
+                <span style="font-size: 12.5px; padding: 7px 14px; background: #1a1714; border: 1px solid rgba(255,255,255,0.08); color: #b6b0a4; border-radius: 2px;">research</span>
+                <span style="font-size: 12.5px; padding: 7px 12px; background: transparent; border: 1px dashed rgba(255,255,255,0.14); color: #6a655c; border-radius: 2px;">+ new</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ DASHBOARD ░░ -->
+      <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ false }}">
+        <div style="overflow-y: auto; min-height: 0; height: 100%; padding: 30px 36px 48px;">
+          <div style="max-width: 1080px; margin: 0 auto;">
+            <div style="display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 24px;">
+              <div>
+                <div style="font-family: 'Newsreader', serif; font-size: 28px; color: #e6e0d3; line-height: 1.2;">Good afternoon, Jordan.</div>
+                <div style="font-size: 12.5px; color: #6a655c; margin-top: 5px;">personal workspace · <span style="color: #b3c46e;">● agent researching</span> · 3 days of context loaded</div>
+              </div>
+              <button onClick="{{ openPalette }}" style="display: flex; align-items: center; gap: 9px; padding: 8px 14px; background: transparent; border: 1px solid rgba(255,255,255,0.12); color: #9c968a; font-family: inherit; font-size: 12px; border-radius: 2px; cursor: pointer;" style-hover="border-color: #b3c46e; color: #b3c46e;"><span>⌘K</span><span style="color: #524e47;">jump to anything</span></button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 26px;">
+              <sc-for list="{{ dashboard.stats }}" as="st" hint-placeholder-count="6">
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-top: 2px solid {{ st.c }}; border-radius: 0 0 2px 2px; background: #17150f; padding: 14px 15px;">
+                  <div style="font-size: 26px; color: #e3ddd0; line-height: 1;">{{ st.value }}</div>
+                  <div style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #6a655c; margin: 8px 0 3px;">{{ st.label }}</div>
+                  <div style="font-size: 11px; color: {{ st.c }};">{{ st.sub }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #161412;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                  <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Active threads</span>
+                  <button onClick="{{ openChat }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #b3c46e;">open chat →</button>
+                </div>
+                <sc-for list="{{ dashboard.threads }}" as="t" hint-placeholder-count="3">
+                  <button onClick="{{ openChat }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 11px; padding: 13px 16px; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                    <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ t.dot }}; flex-shrink: 0;"></span>
+                    <div style="flex: 1; min-width: 0;">
+                      <div style="font-size: 13px; color: #d3cec2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.title }}</div>
+                      <div style="font-size: 11px; color: #6a655c;">{{ t.meta }}</div>
+                    </div>
+                    <span style="font-size: 10px; color: #524e47;">{{ t.time }}</span>
+                  </button>
+                </sc-for>
+              </div>
+
+              <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #161412;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                  <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Recent activity</span>
+                  <button onClick="{{ goRuns }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #b3c46e;">all runs →</button>
+                </div>
+                <sc-for list="{{ dashboard.activity }}" as="a" hint-placeholder-count="4">
+                  <div style="display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-bottom: 1px solid rgba(255,255,255,0.04);">
+                    <span style="font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ a.c }}; min-width: 62px;">{{ a.label }}</span>
+                    <span style="flex: 1; font-size: 12.5px; color: #b6b0a4;">{{ a.text }}</span>
+                    <span style="font-size: 10px; color: #524e47;">{{ a.time }}</span>
+                  </div>
+                </sc-for>
+              </div>
+
+              <div style="border: 1px solid rgba(201,168,106,0.25); border-radius: 2px; background: rgba(201,168,106,0.03);">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                  <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #c9a86a;">⧖ Pending approvals</span>
+                  <button onClick="{{ goApprovals }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #c9a86a;">review queue →</button>
+                </div>
+                <div style="padding: 16px;">
+                  <div style="display: flex; align-items: center; gap: 11px; margin-bottom: 12px;">
+                    <span style="width: 30px; height: 30px; border: 1px solid rgba(201,168,106,0.4); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; color: #c9a86a; font-size: 13px;">⧉</span>
+                    <div style="flex: 1;">
+                      <div style="font-size: 13px; color: #d8d3c7;">Write 3 files to workspace</div>
+                      <div style="font-size: 11px; color: #6a655c;">patch · src/auth/*.ts · medium risk</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <button onClick="{{ openPatch }}" style="flex: 1; padding: 7px; background: #b3c46e; border: none; color: #1a1a14; font-family: inherit; font-size: 12px; font-weight: 600; border-radius: 2px; cursor: pointer;" style-hover="background: #c2d27e;">Review</button>
+                    <button style="padding: 7px 14px; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #c7c1b4; font-family: inherit; font-size: 12px; border-radius: 2px; cursor: pointer;" style-hover="border-color: #c5897a; color: #d3a99e;">Reject</button>
+                  </div>
+                </div>
+              </div>
+
+              <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; background: #161412;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                  <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Fresh research</span>
+                  <button onClick="{{ goResearch }}" style="background: transparent; border: none; color: #524e47; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="color: #9a93b4;">library →</button>
+                </div>
+                <sc-for list="{{ dashboard.research }}" as="r" hint-placeholder-count="3">
+                  <button onClick="{{ goResearch }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 11px; padding: 12px 16px; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                    <span style="color: #9a93b4; font-size: 11px;">↳</span>
+                    <div style="flex: 1; min-width: 0;">
+                      <div style="font-family: 'Newsreader', serif; font-size: 15px; color: #d3cec2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.title }}</div>
+                      <div style="font-size: 10.5px; color: #6a655c;">{{ r.tags }}</div>
+                    </div>
+                    <span style="font-size: 10px; color: #524e47;">{{ r.time }}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ TOOLS ░░ -->
+      <sc-if value="{{ isTools }}" hint-placeholder-val="{{ false }}">
+        <div style="display: grid; grid-template-columns: 340px 1fr; height: 100%; min-height: 0;">
+          <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+            <div style="padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a; margin-bottom: 12px;">Tool catalog</div>
+              <div style="display: flex; flex-direction: column; gap: 7px;">
+                <sc-for list="{{ tools.catalog }}" as="t" hint-placeholder-count="7">
+                  <div style="display: flex; align-items: center; gap: 11px; padding: 9px 11px; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px; background: #17150f;">
+                    <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ t.modeFg }}; flex-shrink: 0;"></span>
+                    <div style="flex: 1; min-width: 0;">
+                      <div style="font-size: 12.5px; color: #d3cec2;">{{ t.name }}</div>
+                      <div style="font-size: 10.5px; color: #6a655c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.desc }}</div>
+                    </div>
+                    <div style="text-align: right; flex-shrink: 0;">
+                      <div style="font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: {{ t.modeFg }};">{{ t.mode }}</div>
+                      <div style="font-size: 10px; color: #524e47;">{{ t.calls }} calls</div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="padding: 12px 16px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a; border-bottom: 1px solid rgba(255,255,255,0.06);">Call history</div>
+            <div style="flex: 1; overflow-y: auto;">
+              <sc-for list="{{ tools.history }}" as="h" hint-placeholder-count="6">
+                <button onClick="{{ h.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 5px; padding: 11px 16px; background: {{ h.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ h.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #7fa6b0; font-size: 10px;">⛁</span>
+                    <span style="flex: 1; font-size: 12.5px; color: #d3cec2;">{{ h.name }}</span>
+                    <span style="font-size: 10px; color: {{ h.statusFg }};">● {{ h.status }}</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 10px; font-size: 10px; color: #6a655c; padding-left: 18px;">
+                    <span>{{ h.dur }}</span><span>{{ h.tokens }} tok</span><span style="color: #82a98c;">{{ h.cost }}</span>
+                    <span style="flex: 1;"></span><span>{{ h.time }}</span>
+                  </div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="overflow-y: auto; min-height: 0; padding: 30px 36px 48px;">
+            <div style="max-width: 760px;">
+              <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 22px;">
+                <span style="width: 34px; height: 34px; border: 1px solid rgba(127,166,176,0.35); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; color: #7fa6b0; font-size: 15px;">⛁</span>
+                <div style="flex: 1;">
+                  <div style="font-size: 18px; color: #e3ddd0;">{{ tools.selCall.name }}</div>
+                  <div style="font-size: 11px; color: #6a655c;">{{ tools.selCall.thread }} · {{ tools.selCall.time }}</div>
+                </div>
+                <span style="font-size: 11px; color: {{ tools.selCall.statusFg }}; border: 1px solid rgba(255,255,255,0.1); padding: 3px 11px; border-radius: 2px;">● {{ tools.selCall.status }}</span>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 26px;">
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">model</div><div style="font-size: 12.5px; color: #c7c1b4;">{{ tools.selCall.model }}</div></div>
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">latency</div><div style="font-size: 12.5px; color: #c7c1b4;">{{ tools.selCall.dur }}</div></div>
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">tokens</div><div style="font-size: 12.5px; color: #c7c1b4;">{{ tools.selCall.tokens }}</div></div>
+                <div style="border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; padding: 9px 13px; background: #17150f;"><div style="font-size: 10px; color: #6a655c; text-transform: uppercase; letter-spacing: 0.06em;">cost</div><div style="font-size: 12.5px; color: #82a98c;">{{ tools.selCall.cost }}</div></div>
+              </div>
+              <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 6px;">input</div>
+              <pre style="margin: 0 0 18px; padding: 12px 14px; background: #100f0c; border: 1px solid rgba(255,255,255,0.05); border-radius: 2px; font-size: 12.5px; color: #9c968a; overflow-x: auto; white-space: pre-wrap; line-height: 1.6;">{{ tools.selCall.input }}</pre>
+              <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 6px;">output</div>
+              <pre style="margin: 0; padding: 12px 14px; background: #100f0c; border: 1px solid rgba(255,255,255,0.05); border-radius: 2px; font-size: 12.5px; color: #b6b0a4; overflow-x: auto; white-space: pre-wrap; line-height: 1.6;">{{ tools.selCall.output }}</pre>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ░░ APPROVALS ░░ -->
+      <sc-if value="{{ isApprovals }}" hint-placeholder-val="{{ false }}">
+        <div style="display: grid; grid-template-columns: 380px 1fr; height: 100%; min-height: 0;">
+          <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+            <div style="display: flex; align-items: center; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <button onClick="{{ approvals.selectPending }}" style="flex: 1; padding: 13px; background: {{ approvals.pendingTabBg }}; border: none; border-bottom: 2px solid {{ approvals.pendingTabBar }}; color: {{ approvals.pendingTabFg }}; font-family: inherit; font-size: 12px; cursor: pointer;">Pending <span style="color: #c9a86a;">1</span></button>
+              <button onClick="{{ approvals.selectHistory }}" style="flex: 1; padding: 13px; background: {{ approvals.historyTabBg }}; border: none; border-bottom: 2px solid {{ approvals.historyTabBar }}; color: {{ approvals.historyTabFg }}; font-family: inherit; font-size: 12px; cursor: pointer;">History</button>
+            </div>
+            <div style="flex: 1; overflow-y: auto;">
+              <sc-for list="{{ approvals.list }}" as="a" hint-placeholder-count="4">
+                <button onClick="{{ a.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: {{ a.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ a.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                  <div style="display: flex; align-items: center; gap: 9px;">
+                    <span style="width: 22px; height: 22px; border: 1px solid rgba(255,255,255,0.1); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: {{ a.c }}; flex-shrink: 0;">{{ a.icon }}</span>
+                    <span style="flex: 1; font-size: 12.5px; color: #d3cec2;">{{ a.title }}</span>
+                    <sc-if value="{{ a.decided }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-size: 10px; color: {{ a.decisionFg }};">{{ a.decision }}</span>
+                    </sc-if>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 9px; font-size: 10px; color: #6a655c; padding-left: 31px;">
+                    <span style="color: {{ a.c }}; text-transform: uppercase; letter-spacing: 0.04em;">{{ a.type }}</span>
+                    <span>·</span><span>{{ a.scope }}</span>
+                    <span style="flex: 1;"></span><span>{{ a.time }}</span>
+                  </div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="overflow-y: auto; min-height: 0; padding: 32px 36px 40px; display: flex; flex-direction: column;">
+            <div style="max-width: 680px; flex: 1;">
+              <div style="display: flex; align-items: center; gap: 13px; margin-bottom: 20px;">
+                <span style="width: 40px; height: 40px; border: 1px solid rgba(255,255,255,0.12); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; color: {{ approvals.selAp.c }};">{{ approvals.selAp.icon }}</span>
+                <div style="flex: 1;">
+                  <div style="font-size: 19px; color: #e3ddd0;">{{ approvals.selAp.title }}</div>
+                  <div style="font-size: 11.5px; color: #6a655c;"><span style="color: {{ approvals.selAp.c }}; text-transform: uppercase; letter-spacing: 0.04em;">{{ approvals.selAp.type }}</span> · {{ approvals.selAp.scope }} · from {{ approvals.selAp.origin }}</div>
+                </div>
+                <span style="font-size: 11px; color: {{ approvals.selAp.riskFg }}; border: 1px solid rgba(255,255,255,0.1); padding: 3px 11px; border-radius: 2px; text-transform: uppercase; letter-spacing: 0.05em;">{{ approvals.selAp.risk }} risk</span>
+              </div>
+              <div style="font-family: 'Newsreader', serif; font-size: 16px; line-height: 1.65; color: #cfc9bc; padding: 16px 18px; background: #17150f; border: 1px solid rgba(255,255,255,0.07); border-radius: 2px; margin-bottom: 22px;">{{ approvals.selAp.detail }}</div>
+
+              <div style="display: flex; align-items: center; gap: 10px; font-size: 11px; color: #6a655c;">
+                <button onClick="{{ openChat }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⇱ open originating chat</button>
+                <button onClick="{{ openPatch }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⧉ view payload</button>
+              </div>
+            </div>
+
+            <sc-if value="{{ approvals.isPending }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; gap: 10px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 22px; max-width: 680px;">
+                <button onClick="{{ openPatch }}" style="padding: 9px 20px; background: #b3c46e; border: none; color: #1a1a14; font-family: inherit; font-size: 13px; font-weight: 600; border-radius: 2px; cursor: pointer;" style-hover="background: #c2d27e;">Approve</button>
+                <button style="padding: 9px 18px; background: transparent; border: 1px solid rgba(197,137,122,0.35); color: #d3a99e; font-family: inherit; font-size: 13px; border-radius: 2px; cursor: pointer;" style-hover="background: rgba(197,137,122,0.1);">Reject</button>
+                <button style="padding: 9px 18px; background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #c7c1b4; font-family: inherit; font-size: 13px; border-radius: 2px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.25);">Request changes</button>
+                <span style="flex: 1;"></span>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #6a655c; cursor: pointer;"><span style="width: 14px; height: 14px; border: 1px solid rgba(255,255,255,0.2); border-radius: 2px; display: inline-block;"></span>Always allow file.write here</label>
+              </div>
+            </sc-if>
+            <sc-if value="{{ approvals.isHistory }}" hint-placeholder-val="{{ false }}">
+              <div style="padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 22px; max-width: 680px; display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 12px; color: {{ approvals.selAp.decisionFg }};">● {{ approvals.selAp.decision }}</span>
+                <span style="font-size: 11.5px; color: #6a655c;">by jordan · {{ approvals.selAp.time }}</span>
+                <span style="flex: 1;"></span>
+                <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">↺ revoke</button>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+    </main>
+  </div>
+
+  <!-- ░░ COMMAND BAR ░░ -->
+  <div style="border-top: 1px solid rgba(255,255,255,0.07); background: #161412; position: relative; z-index: 20;">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 10px 18px;">
+      <span style="color: #b3c46e; font-size: 13px;">❯</span>
+      <input value="{{ composer }}" onChange="{{ onComposerChange }}" onKeyDown="{{ onComposerKey }}" placeholder="Message keylime, or type / for commands…" onFocus="{{ noop }}" style="flex: 1; background: transparent; border: none; outline: none; color: #d8d3c7; font-family: inherit; font-size: 13.5px;" />
+      <span style="display: inline-block; width: 7px; height: 15px; background: #b3c46e; animation: klblink 1.1s step-end infinite; opacity: 0.7;"></span>
+      <button onClick="{{ openPalette }}" style="display: flex; align-items: center; gap: 7px; padding: 5px 11px; background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; font-family: inherit; font-size: 11px; border-radius: 2px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">
+        <span>⌘K</span><span style="color: #524e47;">palette</span>
+      </button>
+      <button style="padding: 5px 10px; background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; font-family: inherit; font-size: 11px; border-radius: 2px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⎘ attach</button>
+      <button onClick="{{ openModels }}" style="padding: 5px 10px; background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #7fa6b0; font-family: inherit; font-size: 11px; border-radius: 2px; cursor: pointer;" style-hover="border-color: rgba(127,166,176,0.4);">⛁ {{ modelShort }}</button>
+    </div>
+  </div>
+
+  <!-- ░░ COMMAND PALETTE ░░ -->
+  <sc-if value="{{ paletteOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; inset: 0; z-index: 100; background: rgba(8,7,6,0.62); backdrop-filter: blur(2px); animation: klfade 0.12s ease;" onClick="{{ closePalette }}"></div>
+    <div style="position: fixed; left: 50%; top: 90px; transform: translateX(-50%); width: 620px; max-width: 92vw; z-index: 101; background: #1a1714; border: 1px solid rgba(255,255,255,0.12); border-radius: 3px; box-shadow: 0 24px 70px rgba(0,0,0,0.6); overflow: hidden; animation: klfade 0.14s ease;">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 15px 18px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <span style="color: #b3c46e; font-size: 15px;">❯</span>
+        <input autoFocus placeholder="Type a command or search…" style="flex: 1; background: transparent; border: none; outline: none; color: #e3ddd0; font-family: inherit; font-size: 15px;" />
+        <span style="font-size: 10px; color: #524e47; border: 1px solid rgba(255,255,255,0.1); padding: 2px 7px; border-radius: 2px;">esc</span>
+      </div>
+      <div style="max-height: 380px; overflow-y: auto; padding: 8px;">
+        <sc-for list="{{ palette }}" as="grp" hint-placeholder-count="3">
+          <div style="padding: 10px 10px 5px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #524e47;">{{ grp.group }}</div>
+          <sc-for list="{{ grp.items }}" as="cmd" hint-placeholder-count="4">
+            <button onClick="{{ cmd.act }}" style="width: 100%; display: flex; align-items: center; gap: 13px; padding: 10px 12px; background: transparent; border: none; border-radius: 2px; cursor: pointer; font-family: inherit; text-align: left;" style-hover="background: #221f1b;">
+              <span style="width: 22px; height: 22px; border: 1px solid rgba(255,255,255,0.1); border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: {{ cmd.c }}; flex-shrink: 0;">{{ cmd.icon }}</span>
+              <span style="flex: 1; font-size: 13.5px; color: #cdc8bc;">{{ cmd.text }}</span>
+              <span style="font-size: 11px; color: #524e47;">{{ cmd.hint }}</span>
+            </button>
+          </sc-for>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ░░ MODELS MODAL ░░ -->
+  <sc-if value="{{ modelsOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; inset: 0; z-index: 100; background: rgba(8,7,6,0.62); backdrop-filter: blur(2px); animation: klfade 0.12s ease;" onClick="{{ closeModels }}"></div>
+    <div style="position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 880px; max-width: 94vw; max-height: 86vh; z-index: 101; background: #17150f; border: 1px solid rgba(255,255,255,0.12); border-radius: 3px; box-shadow: 0 24px 70px rgba(0,0,0,0.6); overflow: hidden; display: flex; flex-direction: column; animation: klfade 0.14s ease;">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <span style="color: #7fa6b0;">⛁</span>
+        <span style="font-size: 15px; color: #e3ddd0; letter-spacing: 0.02em;">Models &amp; providers</span>
+        <span style="font-size: 11px; color: #6a655c;">harness wraps any backend</span>
+        <span style="flex: 1;"></span>
+        <button onClick="{{ closeModels }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; width: 26px; height: 26px; border-radius: 2px; cursor: pointer; font-family: inherit;" style-hover="border-color: rgba(255,255,255,0.25); color: #d8d3c7;">✕</button>
+      </div>
+      <div style="overflow-y: auto; min-height: 0;">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 11px 22px; background: rgba(201,168,106,0.06); border-bottom: 1px solid rgba(201,168,106,0.2);">
+          <span style="color: #c9a86a; font-size: 12px;">⚐</span>
+          <span style="font-size: 11.5px; color: #c2a06a;">This backend exposes models read-only. Direct switching is <span style="color: #d8d3c7;">interactive-only</span> unless an adapter implements <span style="font-family: inherit; color: #9c968a;">POST&nbsp;/models/select</span> — use the harness prompt to switch.</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1.6fr 0.9fr 0.7fr 0.7fr 0.6fr 0.9fr 0.7fr; gap: 0; padding: 9px 22px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #524e47;">
+          <span>Model</span><span>Provider</span><span>Context</span><span>In / Out</span><span>Latency</span><span>Capabilities</span><span></span>
+        </div>
+        <sc-for list="{{ models }}" as="m" hint-placeholder-count="7">
+          <div style="display: grid; grid-template-columns: 1.6fr 0.9fr 0.7fr 0.7fr 0.6fr 0.9fr 0.7fr; gap: 0; align-items: center; padding: 13px 22px; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ m.bar }}; background: {{ m.rowBg }};">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: {{ m.statusFg }};"></span>
+              <span style="font-size: 13px; color: #d8d3c7;">{{ m.name }}</span>
+            </div>
+            <span style="font-size: 12px; color: {{ m.pc }};">{{ m.provider }}</span>
+            <span style="font-size: 12px; color: #9c968a;">{{ m.ctx }}</span>
+            <span style="font-size: 12px; color: {{ m.costFg }};">{{ m.cin }}/{{ m.cout }}</span>
+            <span style="font-size: 12px; color: #9c968a;">{{ m.lat }}</span>
+            <span style="display: flex; gap: 9px; font-size: 11px;"><span style="color: {{ m.visFg }};">vis</span><span style="color: {{ m.toolFg }};">tools</span><span style="color: {{ m.localFg }};">local</span></span>
+            <span style="display: flex; justify-content: flex-end;">
+              <sc-if value="{{ m.active }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size: 10.5px; color: #b3c46e; border: 1px solid rgba(179,196,110,0.4); padding: 2px 9px; border-radius: 2px;">active</span>
+              </sc-if>
+              <sc-if value="{{ m.inactive }}" hint-placeholder-val="{{ true }}">
+                <span title="Switching is interactive-only on this backend" style="font-size: 10.5px; color: #524e47; border: 1px solid rgba(255,255,255,0.07); padding: 2px 9px; border-radius: 2px; display: inline-flex; align-items: center; gap: 5px;"><span style="opacity: 0.7;">⌷</span>prompt</span>
+              </sc-if>
+            </span>
+          </div>
+        </sc-for>
+        <div style="display: flex; align-items: center; gap: 14px; padding: 16px 22px; background: #141210;">
+          <span style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #6a655c;">Fallback chain</span>
+          <span style="font-size: 12.5px; color: #b3c46e;">sonnet-4.6</span><span style="color: #524e47;">→</span>
+          <span style="font-size: 12.5px; color: #c7c1b4;">haiku-4</span><span style="color: #524e47;">→</span>
+          <span style="font-size: 12.5px; color: #9a93b4;">llama-3.3-70b (local)</span>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ░░ PATCH REVIEW ░░ -->
+  <sc-if value="{{ patchOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; inset: 0; z-index: 110; background: #100f0c; display: flex; flex-direction: column; animation: klfade 0.14s ease;">
+      <div style="display: flex; align-items: center; gap: 14px; padding: 15px 24px; border-bottom: 1px solid rgba(255,255,255,0.08); background: #161412;">
+        <span style="width: 9px; height: 9px; background: #c9a86a; border-radius: 1px;"></span>
+        <span style="font-size: 15px; color: #e3ddd0;">Patch review</span>
+        <span style="font-size: 12px; color: #6a655c;">Refactor auth middleware · 3 files · +83 −12</span>
+        <span style="flex: 1;"></span>
+        <span style="font-size: 11px; color: #82a98c; border: 1px solid rgba(130,169,140,0.3); padding: 3px 10px; border-radius: 2px;">✓ 14 tests pass</span>
+        <span style="font-size: 11px; color: #82a98c; border: 1px solid rgba(130,169,140,0.3); padding: 3px 10px; border-radius: 2px;">✓ lint clean</span>
+        <button onClick="{{ closePatch }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; width: 28px; height: 28px; border-radius: 2px; cursor: pointer; font-family: inherit;" style-hover="border-color: rgba(255,255,255,0.25); color: #d8d3c7;">✕</button>
+      </div>
+
+      <div style="flex: 1; display: grid; grid-template-columns: 232px 288px 1fr; min-height: 0;">
+        <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #131210;">
+          <div style="padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #9c968a;">Patch queue</div>
+          <div style="flex: 1; overflow-y: auto;">
+            <sc-for list="{{ patch.queue }}" as="p" hint-placeholder-count="3">
+              <button onClick="{{ p.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 7px; padding: 13px 15px; background: {{ p.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ p.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+                <div style="font-size: 12.5px; color: #d3cec2; line-height: 1.35;">{{ p.title }}</div>
+                <div style="display: flex; align-items: center; gap: 9px; font-size: 10px; color: #6a655c;">
+                  <span style="color: {{ p.statusFg }}; text-transform: uppercase; letter-spacing: 0.04em;">● {{ p.status }}</span>
+                  <span style="flex: 1;"></span>
+                  <span>{{ p.files }}f</span>
+                  <span style="color: #82a98c;">+{{ p.added }}</span>
+                  <span style="color: #c5897a;">−{{ p.removed }}</span>
+                </div>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+          <div style="padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #9c968a;">Files in patch</div>
+          <div style="flex: 1; overflow-y: auto;">
+            <sc-for list="{{ patch.files }}" as="f" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; gap: 6px; padding: 13px 16px; border-bottom: 1px solid rgba(255,255,255,0.04); background: {{ f.bg }}; border-left: 2px solid {{ f.bar }};">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 12px; color: #d3cec2; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ f.name }}</span>
+                  <span style="font-size: 10px; color: {{ f.statusFg }};">● {{ f.status }}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 10.5px;">
+                  <span style="color: #82a98c;">+{{ f.added }}</span>
+                  <span style="color: #c5897a;">−{{ f.removed }}</span>
+                  <span style="flex: 1;"></span>
+                  <span style="color: #524e47; cursor: pointer;">approve file</span>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.06);">
+            <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #524e47; margin-bottom: 8px;">Agent explanation</div>
+            <div style="font-family: 'Newsreader', serif; font-size: 14px; line-height: 1.6; color: #b6b0a4;">Replaced direct JWT verification with the session resolver so token revocation takes effect immediately. Added a null-session guard to fail closed.</div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; min-height: 0;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 11px 22px; border-bottom: 1px solid rgba(255,255,255,0.06); background: #141210;">
+            <span style="font-size: 12.5px; color: #c7c1b4;">src/auth/middleware.ts</span>
+            <span style="font-size: 11px; color: #6a655c;">hunk 1 of 2</span>
+            <span style="flex: 1;"></span>
+            <button style="background: transparent; border: 1px solid rgba(130,169,140,0.3); color: #82a98c; padding: 4px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="background: rgba(130,169,140,0.1);">✓ approve hunk</button>
+            <button style="background: transparent; border: 1px solid rgba(197,137,122,0.3); color: #c5897a; padding: 4px 11px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="background: rgba(197,137,122,0.1);">✕ reject hunk</button>
+          </div>
+          <div style="flex: 1; overflow-y: auto; min-height: 0; font-size: 12.5px; line-height: 1.7;">
+            <sc-for list="{{ patch.diff }}" as="d" hint-placeholder-count="11">
+              <div style="display: flex; background: {{ d.bg }};">
+                <span style="width: 30px; text-align: center; color: {{ d.fg }}; flex-shrink: 0; user-select: none; opacity: 0.7;">{{ d.sign }}</span>
+                <span style="color: {{ d.fg }}; white-space: pre; padding-right: 22px;">{{ d.text }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.08); background: #161412;">
+            <button onClick="{{ openChat }}" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 8px 14px; border-radius: 2px; font-family: inherit; font-size: 12px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⇱ open originating chat</button>
+            <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 8px 14px; border-radius: 2px; font-family: inherit; font-size: 12px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">↺ roll back</button>
+            <span style="flex: 1;"></span>
+            <button onClick="{{ closePatch }}" style="background: transparent; border: 1px solid rgba(197,137,122,0.35); color: #d3a99e; padding: 8px 18px; border-radius: 2px; font-family: inherit; font-size: 12px; cursor: pointer;" style-hover="background: rgba(197,137,122,0.1);">Reject patch</button>
+            <button style="background: transparent; border: 1px solid rgba(255,255,255,0.14); color: #c7c1b4; padding: 8px 18px; border-radius: 2px; font-family: inherit; font-size: 12px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.25);">Request changes</button>
+            <button onClick="{{ closePatch }}" style="background: #b3c46e; border: none; color: #1a1a14; padding: 8px 22px; border-radius: 2px; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;" style-hover="background: #c2d27e;">Approve all · 3 files</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    section: 'dashboard',
+    expandedTools: { t1: true },
+    paletteOpen: false,
+    modelsOpen: false,
+    patchOpen: false,
+    workspaceMenu: false,
+    selectedResearch: 'r1',
+    selectedMemoryTab: 'profile',
+    selectedNode: 'n_jordan',
+    selectedRun: 'run1',
+    selectedFile: 'f_brief',
+    selectedTool: 'tc1',
+    selectedApproval: 'ap1',
+    approvalTab: 'pending',
+    selectedPatch: 'p1',
+    api: null,
+    apiError: null,
+    loading: true,
+    composer: '',
+  };
+
+  componentDidMount() {
+    this._key = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        this.setState(s => ({ paletteOpen: !s.paletteOpen }));
+      } else if (e.key === 'Escape') {
+        this.setState({ paletteOpen: false, modelsOpen: false, patchOpen: false, workspaceMenu: false });
+      }
+    };
+    window.addEventListener('keydown', this._key);
+    this.loadApi();
+    this._events = window.KeylimeAPI?.stream?.(() => this.loadApi({ quiet: true }));
+  }
+  componentWillUnmount() { window.removeEventListener('keydown', this._key); this._events?.close?.(); }
+
+  async loadApi(opts = {}) {
+    try {
+      const api = await window.KeylimeAPI.loadAll();
+      this.setState({ api, loading: false, apiError: null });
+    } catch (e) {
+      this.setState({ loading: false, apiError: e.message || String(e) });
+    }
+  }
+  async apiAction(fn) { try { await fn(window.KeylimeAPI); await this.loadApi({ quiet: true }); } catch (e) { this.setState({ apiError: e.message || String(e) }); } }
+  onComposerChange = (e) => this.setState({ composer: e.target.value });
+  onComposerKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendComposer(); } };
+  sendComposer() { const content = (this.state.composer || '').trim(); if (!content) return; this.setState({ composer: '' }); this.apiAction(api => api.post('/api/chat/threads/current/messages', { content, mode: 'followUp' })); }
+
+  go(section) { this.setState({ section, patchOpen: false, modelsOpen: false, paletteOpen: false }); }
+  toggleTool(id) { this.setState(s => ({ expandedTools: { ...s.expandedTools, [id]: !s.expandedTools[id] } })); }
+
+  navData() {
+    const items = [
+      { id: 'dashboard', label: 'Dashboard', glyph: 'D', key: '1', badge: null },
+      { id: 'chat', label: 'Chat', glyph: 'C', key: '2', badge: null },
+      { id: 'research', label: 'Research', glyph: 'R', key: '3', badge: '12' },
+      { id: 'memories', label: 'Memories', glyph: 'M', key: '4', badge: '24' },
+      { id: 'graph', label: 'Knowledge Graph', glyph: 'G', key: '5', badge: null },
+      { id: 'files', label: 'Files', glyph: 'F', key: '6', badge: '6' },
+      { id: 'tools', label: 'Tools', glyph: 'T', key: '7', badge: null },
+      { id: 'approvals', label: 'Approvals', glyph: '⧖', key: '8', badge: '1' },
+      { id: 'runs', label: 'Runs', glyph: 'A', key: '9', badge: null },
+    ];
+    return items.map(it => {
+      const active = this.state.section === it.id;
+      return {
+        ...it,
+        go: () => this.go(it.id),
+        bg: active ? '#1f1c18' : 'transparent',
+        bar: active ? '#b3c46e' : 'transparent',
+        fg: active ? '#e3ddd0' : '#9c968a',
+        chipBorder: active ? 'rgba(179,196,110,0.4)' : 'rgba(255,255,255,0.1)',
+        chipFg: active ? '#b3c46e' : '#9c968a',
+      };
+    });
+  }
+
+  threadData() {
+    const apiThreads = this.state.api?.dashboard?.threads || this.state.api?.chat?.threads || this.state.api?.chat?.items;
+    if (apiThreads?.length) return apiThreads.map((t, i) => ({ id: t.id, title: t.title || 'Untitled', preview: t.preview || t.meta || '', time: window.KeylimeAPI.rel(t.time || t.updatedAt), dot: t.state === 'running' ? '#b3c46e' : '#6a655c', active: i === 0, go: () => {}, bg: i === 0 ? '#1b1815' : 'transparent', bar: i === 0 ? '#b3c46e' : 'transparent', fg: i === 0 ? '#e3ddd0' : '#b6b0a4' }));
+    const threads = [
+      { id: 'th1', title: 'Small-model fine-tuning for tool use', preview: 'assembled cited brief · 3 sources', time: 'now', dot: '#b3c46e', active: true },
+      { id: 'th2', title: 'Refactor auth middleware', preview: 'patch pending review · 4 files', time: '2h', dot: '#c9a86a', active: false },
+      { id: 'th3', title: 'Q3 competitor landscape', preview: 'research note · 11 entities', time: '1d', dot: '#9a93b4', active: false },
+      { id: 'th4', title: 'Migrate vector store to local', preview: 'done · 0 errors', time: '2d', dot: '#6a655c', active: false },
+      { id: 'th5', title: 'Onboarding copy review', preview: 'idle', time: '4d', dot: '#6a655c', active: false },
+    ];
+    return threads.map(t => ({
+      ...t,
+      go: () => {},
+      bg: t.active ? '#1b1815' : 'transparent',
+      bar: t.active ? '#b3c46e' : 'transparent',
+      fg: t.active ? '#e3ddd0' : '#b6b0a4',
+    }));
+  }
+
+  messageData() {
+    const apiMessages = this.state.api?.chat?.messages;
+    if (apiMessages?.length) return apiMessages.map(window.KeylimeAPI.mapMessage);
+    const E = this.state.expandedTools;
+    const raw = [
+      { id: 's1', role: 'system', text: 'Session resumed · web-research workspace · 3 days of context loaded' },
+      { id: 'u1', role: 'user', time: '14:02', text: 'Pull together the current state of small-model fine-tuning for agentic tool use. I want a short, cited brief — under 400 words.' },
+      { id: 'a1', role: 'agent', time: '14:02', html: 'Planning a four-step pass:<br>1 · scoped web search across recent literature<br>2 · extract and dedupe claims<br>3 · cross-check against memory + prior notes<br>4 · assemble a cited brief under your length preference.' },
+      { id: 'mem1', role: 'memory', text: 'You prefer briefs under 400 words with inline citations.', source: 'preference · 96%' },
+      { id: 't1', role: 'tool', name: 'web.search', status: 'ok', duration: '2.4s', tokens: '1.2k', tokensIn: '180', tokensOut: '1,040', cost: '$0.004', model: 'sonnet-4.6',
+        input: 'query: "small language model fine-tuning tool use agents 2025"\ntop_k: 8\nrecency: 12mo',
+        output: '8 results · 6 unique domains\n[1] arxiv.org/2503.xxxxx — "Toolformer-style SFT on 3B models"\n[2] arxiv.org/2504.xxxxx — "RL from tool feedback"\n[3] blog.allenai.org — "Tulu tool-use distillation"\n…' },
+      { id: 't2', role: 'tool', name: 'memory.query', status: 'ok', duration: '0.3s', tokens: '320', tokensIn: '64', tokensOut: '256', cost: '$0.001', model: 'haiku-4',
+        input: 'entities: ["fine-tuning","tool-use"]\nscope: workspace',
+        output: '2 related notes, 1 preference, 1 prior brief (Q1) recalled.' },
+      { id: 'res1', role: 'research', text: 'Created note — “Small-model fine-tuning for tool use” · 3 sources, 7 claims' },
+      { id: 'err1', role: 'error', text: 'web.fetch rate-limited (429) on arxiv.org', retry: 'retrying in 1.2s — attempt 2 of 3' },
+      { id: 'file1', role: 'file', op: 'write', path: 'research/small-model-tooluse.md', added: '142', removed: '0' },
+      { id: 'appr1', role: 'approval', text: 'keylime wants to write 3 files to the workspace and run the test suite.' },
+      { id: 'a2', role: 'agent', time: '14:05', html: '<b style="color:#cdc8bc">Brief — Small-model fine-tuning for agentic tool use</b><br>Recent work converges on three levers. Supervised fine-tuning on synthetic tool-call traces closes most of the gap to frontier models on schema adherence <span style="color:#9a93b4">[1]</span>. RL from execution feedback adds robustness on multi-step plans <span style="color:#9a93b4">[2]</span>. Distillation from a stronger teacher remains the most cost-effective path under 7B <span style="color:#9a93b4">[3]</span>.<br><br>Saved to your library with citations. Want the full report or just the sources?' },
+    ];
+    return raw.map(m => ({
+      ...m,
+      isSystem: m.role === 'system', isUser: m.role === 'user', isAgent: m.role === 'agent',
+      isTool: m.role === 'tool', isMemory: m.role === 'memory', isResearch: m.role === 'research',
+      isFile: m.role === 'file', isError: m.role === 'error', isApproval: m.role === 'approval',
+      expanded: !!E[m.id], caret: E[m.id] ? 90 : 0,
+      toggle: () => this.toggleTool(m.id),
+      statusBg: m.status === 'ok' ? 'rgba(130,169,140,0.14)' : 'rgba(197,137,122,0.14)',
+      statusFg: m.status === 'ok' ? '#82a98c' : '#c5897a',
+    }));
+  }
+
+  researchData() {
+    const apiResearch = this.state.api?.research?.items || this.state.api?.research?.entries;
+    if (apiResearch?.length) {
+      const selectedId = this.state.selectedResearch || apiResearch[0].id;
+      const notes = apiResearch.map((r) => ({ id: r.id, title: r.title, tags: r.tags || [], sources: r.sources || r.sourceCount || 0, claims: r.claims?.length || 0, conf: Math.round((r.confidence || 0.8) * 100) + '%', recency: window.KeylimeAPI.rel(r.recency || r.updatedAt || r.createdAt), backlinks: r.backlinks?.length || 0 }));
+      const selected = notes.find(n => n.id === selectedId) || notes[0];
+      return { notes: notes.map(n => ({ ...n, tagText: n.tags.join(' · '), active: n.id === selected.id, select: () => this.setState({ selectedResearch: n.id }), bg: n.id === selected.id ? '#1f1c18' : 'transparent', bar: n.id === selected.id ? '#9a93b4' : 'transparent' })), selected: { ...selected, body: selected.summary || '', sourcesList: selected.sourcesList || [], related: selected.related || [] } };
+    }
+    const notes = [
+      { id: 'r1', title: 'Small-model fine-tuning for tool use', tags: ['ml', 'agents', 'fine-tuning'], sources: 3, claims: 7, conf: 'high', recency: '2m ago', backlinks: 4 },
+      { id: 'r2', title: 'RL from execution feedback', tags: ['ml', 'rl'], sources: 5, claims: 9, conf: 'high', recency: '2m ago', backlinks: 2 },
+      { id: 'r3', title: 'Distillation under 7B parameters', tags: ['ml', 'efficiency'], sources: 4, claims: 6, conf: 'medium', recency: '14m ago', backlinks: 3 },
+      { id: 'r4', title: 'Q3 competitor landscape', tags: ['market', 'strategy'], sources: 11, claims: 18, conf: 'medium', recency: '1d ago', backlinks: 6 },
+      { id: 'r5', title: 'Vector store local migration notes', tags: ['infra', 'eng'], sources: 2, claims: 4, conf: 'high', recency: '2d ago', backlinks: 1 },
+      { id: 'r6', title: 'Schema adherence benchmarks', tags: ['ml', 'eval'], sources: 6, claims: 12, conf: 'low', recency: '3d ago', backlinks: 2 },
+    ];
+    const details = {
+      r1: {
+        body: 'Recent work converges on three levers for closing the gap between small (1–7B) models and frontier systems on agentic tool use.<br><br><b>Supervised fine-tuning</b> on synthetic tool-call traces closes most of the gap on schema adherence and argument validity. Models trained on 50–100k verified traces reach 90%+ valid-call rates [1].<br><br><b>RL from execution feedback</b> adds robustness on multi-step plans, where SFT alone tends to compound errors. Reward shaping on successful tool returns is the dominant signal [2].<br><br><b>Distillation</b> from a stronger teacher remains the most cost-effective path under 7B, trading a small accuracy loss for a 6–10× inference cost reduction [3].',
+        sources: [
+          { n: '1', title: 'Toolformer-style SFT on 3B models', host: 'arxiv.org/2503', conf: 'high' },
+          { n: '2', title: 'RL from tool feedback', host: 'arxiv.org/2504', conf: 'high' },
+          { n: '3', title: 'Tulu tool-use distillation', host: 'blog.allenai.org', conf: 'medium' },
+        ],
+        related: ['RL from execution feedback', 'Distillation under 7B parameters', 'Schema adherence benchmarks'],
+      },
+    };
+    const sel = this.state.selectedResearch;
+    const detail = details[sel] || details.r1;
+    const selNote = notes.find(n => n.id === sel) || notes[0];
+    return {
+      list: notes.map(n => ({
+        ...n,
+        select: () => this.setState({ selectedResearch: n.id }),
+        bg: n.id === sel ? '#1f1c18' : '#161412',
+        bar: n.id === sel ? '#9a93b4' : 'transparent',
+        confFg: n.conf === 'high' ? '#82a98c' : (n.conf === 'medium' ? '#c9a86a' : '#c5897a'),
+      })),
+      detail, selNote,
+    };
+  }
+
+  memoryData() {
+    const apiMemory = this.state.api?.memory;
+    if (apiMemory) {
+      const tabs = ['profile','timeline','entities','relationships','projects','prefs'].map(id => ({ id, label: id === 'prefs' ? 'Preferences' : id[0].toUpperCase()+id.slice(1) }));
+      return { tabs: tabs.map(t => ({ ...t, select: () => this.setState({ selectedMemoryTab: t.id }), active: this.state.selectedMemoryTab === t.id, bg: this.state.selectedMemoryTab === t.id ? '#1f1c18' : 'transparent', fg: this.state.selectedMemoryTab === t.id ? '#e3ddd0' : '#9c968a', bar: this.state.selectedMemoryTab === t.id ? '#bda07a' : 'transparent' })), profile: (apiMemory.profile || []).map(p => ({ key: p.k, val: p.v, conf: p.confidence || '', source: p.source || '', priv: p.privacy || '', isSensitive: p.privacy === 'sensitive' })), timeline: apiMemory.timeline || [], entities: apiMemory.entities || [], relationships: apiMemory.relationships || [], projects: apiMemory.projects || [], prefs: apiMemory.preferences || [], isProfile: this.state.selectedMemoryTab === 'profile', isTimeline: this.state.selectedMemoryTab === 'timeline', isEntities: this.state.selectedMemoryTab === 'entities', isRelationships: this.state.selectedMemoryTab === 'relationships', isProjects: this.state.selectedMemoryTab === 'projects', isPrefs: this.state.selectedMemoryTab === 'prefs' };
+    }
+    const tabs = [
+      { id: 'profile', label: 'Profile' },
+      { id: 'timeline', label: 'Timeline' },
+      { id: 'entities', label: 'Entities' },
+      { id: 'relationships', label: 'Relationships' },
+      { id: 'projects', label: 'Projects' },
+      { id: 'prefs', label: 'Preferences' },
+    ];
+    const relationships = [
+      { subj: 'Jordan', rel: 'reports to', obj: 'Maya Chen', conf: '94%' },
+      { subj: 'Jordan', rel: 'owns', obj: 'ML Platform', conf: '99%' },
+      { subj: 'Jordan', rel: 'maintains', obj: 'keylime-core', conf: '97%' },
+      { subj: 'ML Platform', rel: 'depends on', obj: 'Local Relay', conf: '88%' },
+      { subj: 'Acme Research', rel: 'competes with', obj: 'ML Platform', conf: '72%' },
+      { subj: 'Maya Chen', rel: 'leads', obj: 'Platform org', conf: '90%' },
+    ];
+    const projects = [
+      { name: 'ML Platform', role: 'owner', facts: 12, status: 'active', note: 'Fine-tuning + serving infra. Q3 focus on tool-use evals.', c: '#82a98c' },
+      { name: 'keylime-core', role: 'maintainer', facts: 8, status: 'active', note: 'The harness itself. Auth refactor in review.', c: '#7fa6b0' },
+      { name: 'Vector store migration', role: 'lead', facts: 5, status: 'done', note: 'Moved to local relay, 0 errors.', c: '#6a655c' },
+    ];
+    const profile = [
+      { k: 'Preferred name', v: 'Jordan', conf: '100%', src: 'stated', priv: 'normal' },
+      { k: 'Role', v: 'Staff engineer, ML platform', conf: '94%', src: 'inferred · 4 chats', priv: 'normal' },
+      { k: 'Timezone', v: 'America/New_York (UTC−4)', conf: '99%', src: 'observed', priv: 'normal' },
+      { k: 'Writing tone', v: 'Terse, technical, no preamble', conf: '88%', src: 'inferred', priv: 'normal' },
+      { k: 'Brief length', v: 'Under 400 words, inline citations', conf: '96%', src: 'stated', priv: 'normal' },
+      { k: 'Home address', v: '•••••••• (hidden)', conf: '100%', src: 'stated', priv: 'sensitive' },
+    ];
+    const timeline = [
+      { t: 'Today 14:05', text: 'Generated brief on small-model fine-tuning', tag: 'research', c: '#9a93b4' },
+      { t: 'Today 11:20', text: 'Approved auth middleware refactor (4 files)', tag: 'patch', c: '#82a98c' },
+      { t: 'Yesterday', text: 'Set default model to sonnet-4.6 for this workspace', tag: 'config', c: '#7fa6b0' },
+      { t: '3 days ago', text: 'Migrated vector store to local relay', tag: 'infra', c: '#bda07a' },
+      { t: 'Last week', text: 'Started Q3 competitor landscape thread', tag: 'research', c: '#9a93b4' },
+    ];
+    const entities = [
+      { name: 'Maya Chen', type: 'person', rel: 'manager', facts: 4, fresh: '2d', c: '#bda07a' },
+      { name: 'ML Platform', type: 'project', rel: 'owner', facts: 12, fresh: '4h', c: '#82a98c' },
+      { name: 'keylime-core', type: 'repo', rel: 'maintainer', facts: 8, fresh: '1h', c: '#7fa6b0' },
+      { name: 'Acme Research', type: 'company', rel: 'competitor', facts: 6, fresh: '1d', c: '#9a93b4' },
+      { name: 'Local Relay', type: 'system', rel: 'infra', facts: 5, fresh: '3d', c: '#c9a86a' },
+    ];
+    const prefs = [
+      { k: 'Code style', v: 'Functional, early returns, no comments unless asked', freq: 'used 31×' },
+      { k: 'Citations', v: 'Always inline, numbered', freq: 'used 12×' },
+      { k: 'Approvals', v: 'Require approval for any file write outside /tmp', freq: 'enforced' },
+      { k: 'Models', v: 'Prefer local for sensitive workspaces', freq: 'used 8×' },
+    ];
+    return { tabs: tabs.map(t => ({ ...t, select: () => this.setState({ selectedMemoryTab: t.id }), active: this.state.selectedMemoryTab === t.id, bg: this.state.selectedMemoryTab === t.id ? '#1f1c18' : 'transparent', fg: this.state.selectedMemoryTab === t.id ? '#e3ddd0' : '#9c968a', bar: this.state.selectedMemoryTab === t.id ? '#bda07a' : 'transparent' })),
+      profile: profile.map(p => ({ ...p, isSensitive: p.priv === 'sensitive' })), timeline, entities, prefs, relationships, projects,
+      isProfile: this.state.selectedMemoryTab === 'profile',
+      isTimeline: this.state.selectedMemoryTab === 'timeline',
+      isEntities: this.state.selectedMemoryTab === 'entities',
+      isRelationships: this.state.selectedMemoryTab === 'relationships',
+      isProjects: this.state.selectedMemoryTab === 'projects',
+      isPrefs: this.state.selectedMemoryTab === 'prefs',
+    };
+  }
+
+  graphData() {
+    const apiGraph = this.state.api?.graph;
+    if (apiGraph?.nodes?.length) {
+      const typeColor = { person: '#bda07a', project: '#82a98c', workspace: '#7fa6b0', file: '#7fa6b0', research_topic: '#9a93b4', memory: '#bda07a', task: '#c9a86a', company: '#c5897a', system: '#9c968a' };
+      const sel = this.state.selectedNode || apiGraph.nodes[0].id;
+      const nodes = apiGraph.nodes.map(n => ({ ...n, select: () => this.setState({ selectedNode: n.id }), c: typeColor[n.type] || '#9c968a', bg: n.id === sel ? '#1f1c18' : '#161412', bar: n.id === sel ? (typeColor[n.type] || '#9c968a') : 'transparent' }));
+      return { nodes, selNode: nodes.find(n => n.id === sel) || nodes[0], adjacency: { memories: [], chats: [], research: [], files: [], people: [], timeline: [] } };
+    }
+    const nodes = [
+      { id: 'n_jordan', name: 'Jordan', type: 'person', conns: 14 },
+      { id: 'n_mlplat', name: 'ML Platform', type: 'project', conns: 11 },
+      { id: 'n_core', name: 'keylime-core', type: 'repo', conns: 9 },
+      { id: 'n_maya', name: 'Maya Chen', type: 'person', conns: 6 },
+      { id: 'n_ft', name: 'Fine-tuning brief', type: 'research', conns: 5 },
+      { id: 'n_auth', name: 'Auth refactor', type: 'task', conns: 4 },
+      { id: 'n_acme', name: 'Acme Research', type: 'company', conns: 3 },
+    ];
+    const typeColor = { person: '#bda07a', project: '#82a98c', repo: '#7fa6b0', research: '#9a93b4', task: '#c9a86a', company: '#c5897a', system: '#9c968a' };
+    const adjacency = {
+      n_jordan: {
+        memories: ['Preferred name: Jordan', 'Role: Staff engineer', 'Brief length preference'],
+        chats: ['Small-model fine-tuning', 'Refactor auth middleware'],
+        research: ['Fine-tuning brief', 'Q3 competitor landscape'],
+        files: ['research/small-model-tooluse.md'],
+        people: ['Maya Chen (manager)'],
+      },
+    };
+    const sel = this.state.selectedNode;
+    const selNode = nodes.find(n => n.id === sel) || nodes[0];
+    const adj = adjacency[sel] || adjacency.n_jordan;
+    return {
+      nodes: nodes.map(n => ({ ...n, select: () => this.setState({ selectedNode: n.id }), c: typeColor[n.type], bg: n.id === sel ? '#1f1c18' : 'transparent', bar: n.id === sel ? typeColor[n.type] : 'transparent' })),
+      selNode: { ...selNode, c: typeColor[selNode.type] },
+      adjMem: adj.memories, adjChats: adj.chats, adjRes: adj.research, adjFiles: adj.files, adjPeople: adj.people,
+    };
+  }
+
+  filesData() {
+    const apiWs = this.state.api?.workspace;
+    if (apiWs) return { tree: (apiWs.recent || apiWs.recentFiles || []).map((f, i) => ({ id: f.id || f.path || String(i), name: f.name || f.path, depth: f.depth || 0, type: f.kind || f.type || 'file', status: f.status || '' })), activeContext: apiWs.activeContext || [], recent: apiWs.recent || apiWs.recentFiles || [], modified: apiWs.modified || apiWs.modifiedFiles || [], generated: apiWs.generated || apiWs.generatedFiles || [], attached: apiWs.attached || apiWs.attachedFiles || [], projectMemory: apiWs.projectMemory || [] };
+    const tree = [
+      { id: 'd1', name: 'research/', depth: 0, type: 'dir', status: '' },
+      { id: 'f_brief', name: 'small-model-tooluse.md', depth: 1, type: 'md', status: 'new' },
+      { id: 'f_q3', name: 'q3-landscape.md', depth: 1, type: 'md', status: '' },
+      { id: 'd2', name: 'src/', depth: 0, type: 'dir', status: '' },
+      { id: 'f_auth', name: 'auth/middleware.ts', depth: 1, type: 'ts', status: 'mod' },
+      { id: 'f_session', name: 'auth/session.ts', depth: 1, type: 'ts', status: 'mod' },
+      { id: 'f_index', name: 'index.ts', depth: 1, type: 'ts', status: '' },
+      { id: 'd3', name: 'specs/', depth: 0, type: 'dir', status: '' },
+      { id: 'f_spec', name: 'harness.spec.md', depth: 1, type: 'md', status: '' },
+      { id: 'f_agents', name: 'AGENTS.md', depth: 0, type: 'md', status: 'ctx' },
+    ];
+    const statusColor = { new: '#82a98c', mod: '#c9a86a', ctx: '#7fa6b0', '': '#6a655c' };
+    const sel = this.state.selectedFile;
+    const selFile = tree.find(f => f.id === sel) || tree[1];
+    return {
+      tree: tree.map(f => ({ ...f, select: () => f.type !== 'dir' && this.setState({ selectedFile: f.id }), pad: 14 + f.depth * 16, bg: f.id === sel ? '#1f1c18' : 'transparent', fg: f.type === 'dir' ? '#9c968a' : (f.id === sel ? '#e3ddd0' : '#b6b0a4'), statusFg: statusColor[f.status], isDir: f.type === 'dir' })),
+      selFile,
+    };
+  }
+
+  runsData() {
+    const apiRuns = this.state.api?.runs?.items || this.state.api?.runs?.runs;
+    if (apiRuns?.length) { const sc = { done: '#82a98c', review: '#c9a86a', error: '#c5897a', running: '#b3c46e' }; const sel = this.state.selectedRun || apiRuns[0].id; const runs = apiRuns.map(r => ({ ...r, dur: r.duration || r.durationMs || '', cost: r.cost || '$0.00', time: window.KeylimeAPI.rel(r.time || r.startedAt), status: r.status || r.state || 'done', model: r.model?.id || r.model || '—' })); const selRun = runs.find(r => r.id === sel) || runs[0]; return { runs: runs.map(r => ({ ...r, select: () => this.setState({ selectedRun: r.id }), statusFg: sc[r.status] || '#9c968a', statusBg: 'rgba(255,255,255,0.04)', bg: r.id === sel ? '#1f1c18' : '#161412', bar: r.id === sel ? (sc[r.status] || '#9c968a') : 'transparent' })), selRun: { ...selRun, statusFg: sc[selRun.status] || '#9c968a' }, trace: [] }; }
+    const runs = [
+      { id: 'run1', prompt: 'Pull together state of small-model fine-tuning…', model: 'sonnet-4.6', status: 'done', dur: '3m 04s', cost: '$0.34', tools: 5, time: '14:05' },
+      { id: 'run2', prompt: 'Refactor auth middleware to use session tokens', model: 'sonnet-4.6', status: 'review', dur: '5m 41s', cost: '$0.61', tools: 9, time: '11:20' },
+      { id: 'run3', prompt: 'Summarize Q3 competitor landscape', model: 'opus-4.1', status: 'done', dur: '8m 12s', cost: '$1.42', tools: 14, time: 'Yesterday' },
+      { id: 'run4', prompt: 'Migrate vector store to local relay', model: 'sonnet-4.6', status: 'error', dur: '1m 56s', cost: '$0.18', tools: 4, time: '2d' },
+    ];
+    const sc = { done: '#82a98c', review: '#c9a86a', error: '#c5897a', running: '#b3c46e' };
+    const trace = [
+      { icon: '❯', label: 'prompt', text: 'Pull together state of small-model fine-tuning for tool use', c: '#9c968a' },
+      { icon: '⛁', label: 'model', text: 'claude-sonnet-4.6 · personal workspace', c: '#7fa6b0' },
+      { icon: '↳', label: 'memory', text: '2 notes, 1 preference recalled', c: '#bda07a' },
+      { icon: '⛁', label: 'web.search', text: '8 results · 2.4s · 1.2k tok · $0.004', c: '#7fa6b0' },
+      { icon: '✕', label: 'retry', text: 'web.fetch 429 — retried, succeeded on attempt 2', c: '#c9a86a' },
+      { icon: '↳', label: 'research', text: 'note created · 3 sources, 7 claims', c: '#9a93b4' },
+      { icon: '✎', label: 'file.write', text: 'research/small-model-tooluse.md +142', c: '#82a98c' },
+      { icon: '⧖', label: 'approval', text: 'requested + granted by jordan', c: '#c9a86a' },
+      { icon: '✓', label: 'output', text: 'brief delivered · 312 words, 3 citations', c: '#82a98c' },
+    ];
+    const sel = this.state.selectedRun;
+    const selRun = runs.find(r => r.id === sel) || runs[0];
+    return {
+      runs: runs.map(r => ({ ...r, select: () => this.setState({ selectedRun: r.id }), statusFg: sc[r.status], statusBg: 'rgba(255,255,255,0.04)', bg: r.id === sel ? '#1f1c18' : '#161412', bar: r.id === sel ? sc[r.status] : 'transparent' })),
+      selRun: { ...selRun, statusFg: sc[selRun.status] }, trace,
+    };
+  }
+
+  modelsData() {
+    const apiModels = this.state.api?.models?.items || this.state.api?.models?.models;
+    if (apiModels?.length) { const pc = { anthropic: '#bda07a', openai: '#82a98c', google: '#7fa6b0', 'local relay': '#9a93b4' }; return apiModels.map(m => ({ ...m, cin: m.costIn, cout: m.costOut, lat: m.latency || '', pc: pc[m.provider] || '#9c968a', inactive: !m.active, statusFg: m.status === 'available' || m.status === 'ready' ? '#82a98c' : '#6a655c', rowBg: m.active ? 'rgba(179,196,110,0.06)' : 'transparent', bar: m.active ? '#b3c46e' : 'transparent', visFg: m.vision ? '#9c968a' : '#43403a', toolFg: m.tools ? '#9c968a' : '#43403a', localFg: m.local ? '#9a93b4' : '#43403a', costFg: m.local ? '#82a98c' : '#9c968a' })); }
+    const models = [
+      { name: 'claude-sonnet-4.6', provider: 'anthropic', ctx: '200k', cin: '$3.00', cout: '$15.00', lat: '0.9s', vision: true, tools: true, local: false, status: 'ready', active: true },
+      { name: 'claude-opus-4.1', provider: 'anthropic', ctx: '200k', cin: '$15.0', cout: '$75.0', lat: '1.8s', vision: true, tools: true, local: false, status: 'ready', active: false },
+      { name: 'claude-haiku-4', provider: 'anthropic', ctx: '200k', cin: '$0.80', cout: '$4.00', lat: '0.3s', vision: true, tools: true, local: false, status: 'ready', active: false },
+      { name: 'gpt-5.1', provider: 'openai', ctx: '256k', cin: '$2.50', cout: '$10.0', lat: '1.1s', vision: true, tools: true, local: false, status: 'ready', active: false },
+      { name: 'gemini-2.5-pro', provider: 'google', ctx: '1M', cin: '$1.25', cout: '$5.00', lat: '1.4s', vision: true, tools: true, local: false, status: 'ready', active: false },
+      { name: 'llama-3.3-70b', provider: 'local relay', ctx: '128k', cin: '$0.00', cout: '$0.00', lat: '2.2s', vision: false, tools: true, local: true, status: 'ready', active: false },
+      { name: 'qwen-2.5-coder-32b', provider: 'local relay', ctx: '64k', cin: '$0.00', cout: '$0.00', lat: '1.6s', vision: false, tools: true, local: true, status: 'cold', active: false },
+    ];
+    const pc = { anthropic: '#bda07a', openai: '#82a98c', google: '#7fa6b0', 'local relay': '#9a93b4' };
+    return models.map(m => ({ ...m, inactive: !m.active, pc: pc[m.provider], statusFg: m.status === 'ready' ? '#82a98c' : '#6a655c', rowBg: m.active ? 'rgba(179,196,110,0.06)' : 'transparent', bar: m.active ? '#b3c46e' : 'transparent', visFg: m.vision ? '#9c968a' : '#43403a', toolFg: m.tools ? '#9c968a' : '#43403a', localFg: m.local ? '#9a93b4' : '#43403a', costFg: m.local ? '#82a98c' : '#9c968a' }));
+  }
+
+  paletteData() {
+    const groups = [
+      { group: 'Navigate', items: [
+        { icon: 'C', text: 'Go to Chat', hint: 'g c', c: '#b3c46e', act: () => this.go('chat') },
+        { icon: 'R', text: 'Go to Research', hint: 'g r', c: '#9a93b4', act: () => this.go('research') },
+        { icon: 'M', text: 'Go to Memories', hint: 'g m', c: '#bda07a', act: () => this.go('memories') },
+        { icon: 'G', text: 'Go to Knowledge Graph', hint: 'g g', c: '#82a98c', act: () => this.go('graph') },
+      ]},
+      { group: 'Actions', items: [
+        { icon: '⛁', text: 'Switch model…', hint: '⌘M', c: '#7fa6b0', act: () => this.setState({ paletteOpen: false, modelsOpen: true }) },
+        { icon: '⧖', text: 'Review pending patch', hint: '⌘P', c: '#c9a86a', act: () => this.setState({ paletteOpen: false, patchOpen: true }) },
+        { icon: '⎘', text: 'Attach files to context', hint: '⌘U', c: '#9c968a', act: () => this.setState({ paletteOpen: false }) },
+        { icon: '⊕', text: 'New thread', hint: '⌘N', c: '#9c968a', act: () => this.setState({ paletteOpen: false }) },
+      ]},
+      { group: 'Workspace', items: [
+        { icon: '◫', text: 'Switch to work workspace', hint: '', c: '#9c968a', act: () => this.setState({ paletteOpen: false }) },
+        { icon: '◫', text: 'Switch to study workspace', hint: '', c: '#9c968a', act: () => this.setState({ paletteOpen: false }) },
+      ]},
+    ];
+    return groups;
+  }
+
+  patchData() {
+    const apiPatches = this.state.api?.patches?.items || this.state.api?.patches?.patches;
+    if (apiPatches?.length) { const qsc = { review: '#c9a86a', 'tests-fail': '#c5897a', approved: '#82a98c' }; const selP = this.state.selectedPatch || apiPatches[0].id; const queue = apiPatches.map(p => ({ ...p, c: qsc[p.status] || '#c9a86a' })); const selected = queue.find(p => p.id === selP) || queue[0]; return { queue: queue.map(p => ({ ...p, select: () => this.setState({ selectedPatch: p.id }), statusFg: qsc[p.status] || '#c9a86a', bg: p.id === selP ? '#211e1b' : 'transparent', bar: p.id === selP ? p.c : 'transparent' })), files: (selected.files || []).map(f => typeof f === 'string' ? { name: f, statusFg: '#c9a86a' } : { ...f, statusFg: '#c9a86a' }), diff: (selected.diff || []).map(d => ({ ...d, bg: 'transparent', fg: '#cdc8bc', sign: '' })) }; }
+    const files = [
+      { name: 'src/auth/middleware.ts', added: 24, removed: 9, status: 'approved' },
+      { name: 'src/auth/session.ts', added: 41, removed: 3, status: 'pending' },
+      { name: 'src/auth/tokens.ts', added: 18, removed: 0, status: 'pending' },
+    ];
+    const diff = [
+      { type: 'meta', text: '@@ -12,7 +12,9 @@ export async function authenticate(req) {' },
+      { type: 'ctx', text: '  const header = req.headers.authorization;' },
+      { type: 'ctx', text: '  if (!header) return reject(401);' },
+      { type: 'del', text: '  const token = header.replace("Bearer ", "");' },
+      { type: 'del', text: '  const user = await verifyJWT(token);' },
+      { type: 'add', text: '  const token = extractBearer(header);' },
+      { type: 'add', text: '  const session = await sessions.resolve(token);' },
+      { type: 'add', text: '  if (!session) return reject(401);' },
+      { type: 'add', text: '  const user = session.user;' },
+      { type: 'ctx', text: '  req.user = user;' },
+      { type: 'ctx', text: '  return next();' },
+    ];
+    const dc = { add: { bg: 'rgba(130,169,140,0.08)', fg: '#9fc4a8', sign: '+' }, del: { bg: 'rgba(197,137,122,0.08)', fg: '#d3a99e', sign: '−' }, ctx: { bg: 'transparent', fg: '#9c968a', sign: ' ' }, meta: { bg: 'rgba(127,166,176,0.06)', fg: '#7fa6b0', sign: ' ' } };
+    const sc = { approved: '#82a98c', pending: '#c9a86a' };
+    const queue = [
+      { id: 'p1', title: 'Refactor auth middleware', files: 3, added: 83, removed: 12, status: 'review', origin: 'Refactor auth middleware', c: '#c9a86a' },
+      { id: 'p2', title: 'Add session token rotation', files: 2, added: 47, removed: 4, status: 'review', origin: 'Refactor auth middleware', c: '#c9a86a' },
+      { id: 'p3', title: 'Update vector store config', files: 1, added: 12, removed: 8, status: 'tests-fail', origin: 'Migrate vector store', c: '#c5897a' },
+    ];
+    const qsc = { review: '#c9a86a', 'tests-fail': '#c5897a', approved: '#82a98c' };
+    const selP = this.state.selectedPatch;
+    return {
+      queue: queue.map(p => ({ ...p, select: () => this.setState({ selectedPatch: p.id }), statusFg: qsc[p.status], bg: p.id === selP ? '#211e1b' : 'transparent', bar: p.id === selP ? p.c : 'transparent' })),
+      files: files.map(f => ({ ...f, statusFg: sc[f.status] })),
+      diff: diff.map(d => ({ ...d, bg: dc[d.type].bg, fg: dc[d.type].fg, sign: dc[d.type].sign })),
+    };
+  }
+
+  dashboardData() {
+    const apiDash = this.state.api?.dashboard;
+    if (apiDash) return { stats: apiDash.stats || [], threads: apiDash.threads || [], activity: apiDash.activity || [], research: apiDash.research || [] };
+    return {
+      stats: [
+        { label: 'Active runs', value: '1', sub: 'researching', c: '#b3c46e' },
+        { label: 'Pending approvals', value: '1', sub: '1 patch waiting', c: '#c9a86a' },
+        { label: 'Memories', value: '24', sub: '+3 today', c: '#bda07a' },
+        { label: 'Research notes', value: '12', sub: '+2 today', c: '#9a93b4' },
+        { label: 'Today spend', value: '$0.34', sub: 'of $20.00 cap', c: '#82a98c' },
+        { label: 'Tools active', value: '3', sub: '2 ask-gated', c: '#7fa6b0' },
+      ],
+      threads: [
+        { title: 'Small-model fine-tuning for tool use', meta: 'researching · 11 msgs', dot: '#b3c46e', time: 'now' },
+        { title: 'Refactor auth middleware', meta: 'patch pending · 4 files', dot: '#c9a86a', time: '2h' },
+        { title: 'Q3 competitor landscape', meta: 'done · 11 entities', dot: '#6a655c', time: '1d' },
+      ],
+      activity: [
+        { text: 'web.search returned 8 results', label: 'tool', c: '#7fa6b0', time: '14:03' },
+        { text: 'research note created · 3 sources', label: 'research', c: '#9a93b4', time: '14:04' },
+        { text: 'wrote research/small-model-tooluse.md', label: 'file', c: '#82a98c', time: '14:04' },
+        { text: 'approval requested · write 3 files', label: 'approval', c: '#c9a86a', time: '14:05' },
+      ],
+      research: [
+        { title: 'Small-model fine-tuning for tool use', tags: 'ml · agents', time: '2m' },
+        { title: 'RL from execution feedback', tags: 'ml · rl', time: '2m' },
+        { title: 'Distillation under 7B', tags: 'efficiency', time: '14m' },
+      ],
+    };
+  }
+
+  toolsData() {
+    const apiTools = this.state.api?.tools?.items || this.state.api?.tools?.tools;
+    if (apiTools?.length) { const history = this.state.api?.tools?.calls || []; const mc = { auto: '#82a98c', ask: '#c9a86a', blocked: '#c5897a' }; return { catalog: apiTools.map(t => ({ ...t, c: mc[t.mode] || '#9c968a' })), history, selCall: history[0] || {}, setMode: (name, mode) => this.apiAction(api => api.patch('/api/tools/' + encodeURIComponent(name), { mode })) }; }
+    const catalog = [
+      { name: 'web.search', mode: 'auto', calls: 41, desc: 'Query the web for recent sources', c: '#82a98c' },
+      { name: 'web.fetch', mode: 'auto', calls: 28, desc: 'Fetch and extract a page', c: '#82a98c' },
+      { name: 'file.read', mode: 'auto', calls: 96, desc: 'Read workspace files into context', c: '#82a98c' },
+      { name: 'file.write', mode: 'ask', calls: 12, desc: 'Write or modify workspace files', c: '#c9a86a' },
+      { name: 'shell.exec', mode: 'ask', calls: 7, desc: 'Run a shell command', c: '#c9a86a' },
+      { name: 'memory.query', mode: 'auto', calls: 54, desc: 'Recall structured memory', c: '#82a98c' },
+      { name: 'network.post', mode: 'blocked', calls: 0, desc: 'Outbound POST requests', c: '#c5897a' },
+    ];
+    const history = [
+      { id: 'tc1', name: 'web.search', status: 'ok', thread: 'Small-model fine-tuning', time: '14:03', dur: '2.4s', tokens: '1.2k', cost: '$0.004', model: 'sonnet-4.6', input: 'query: "small language model fine-tuning tool use agents 2025"\ntop_k: 8\nrecency: 12mo', output: '8 results · 6 unique domains\n[1] arxiv.org/2503 — Toolformer-style SFT on 3B\n[2] arxiv.org/2504 — RL from tool feedback\n[3] blog.allenai.org — Tulu distillation' },
+      { id: 'tc2', name: 'memory.query', status: 'ok', thread: 'Small-model fine-tuning', time: '14:02', dur: '0.3s', tokens: '320', cost: '$0.001', model: 'haiku-4', input: 'entities: ["fine-tuning","tool-use"]\nscope: workspace', output: '2 related notes, 1 preference, 1 prior brief recalled' },
+      { id: 'tc3', name: 'web.fetch', status: 'retry', thread: 'Small-model fine-tuning', time: '14:03', dur: '1.9s', tokens: '880', cost: '$0.003', model: 'sonnet-4.6', input: 'url: arxiv.org/2503.xxxxx', output: '429 rate-limited → retried → 200 OK on attempt 2' },
+      { id: 'tc4', name: 'file.write', status: 'ok', thread: 'Small-model fine-tuning', time: '14:04', dur: '0.1s', tokens: '0', cost: '$0.000', model: '—', input: 'path: research/small-model-tooluse.md\nbytes: 4,210', output: 'wrote 142 lines · awaiting approval' },
+      { id: 'tc5', name: 'shell.exec', status: 'ok', thread: 'Refactor auth middleware', time: '11:19', dur: '4.2s', tokens: '0', cost: '$0.000', model: '—', input: 'cmd: npm test -- auth', output: '14 passing · 0 failing · 4.1s' },
+      { id: 'tc6', name: 'file.read', status: 'ok', thread: 'Refactor auth middleware', time: '11:17', dur: '0.1s', tokens: '1.4k', cost: '$0.000', model: '—', input: 'path: src/auth/middleware.ts', output: 'read 86 lines into context' },
+    ];
+    const sc = { ok: '#82a98c', retry: '#c9a86a', error: '#c5897a' };
+    const mc = { auto: '#82a98c', ask: '#c9a86a', blocked: '#c5897a' };
+    const sel = this.state.selectedTool;
+    const selCall = history.find(h => h.id === sel) || history[0];
+    return {
+      catalog: catalog.map(t => ({ ...t, modeFg: mc[t.mode] })),
+      history: history.map(h => ({ ...h, select: () => this.setState({ selectedTool: h.id }), statusFg: sc[h.status], bg: h.id === sel ? '#1f1c18' : 'transparent', bar: h.id === sel ? sc[h.status] : 'transparent' })),
+      selCall: { ...selCall, statusFg: sc[selCall.status] },
+    };
+  }
+
+  approvalsData() {
+    const apiApprovals = this.state.api?.approvals?.items || this.state.api?.approvals?.pending;
+    if (apiApprovals?.length) { const risk = { high: '#c5897a', medium: '#c9a86a', low: '#82a98c' }; const pending = apiApprovals.filter(a => a.status === 'pending' || !a.status); const history = (this.state.api?.approvals?.history || apiApprovals.filter(a => a.status && a.status !== 'pending')); const decorate = a => ({ ...a, c: risk[a.risk] || '#c9a86a', riskFg: risk[a.risk] || '#c9a86a', select: () => this.setState({ selectedApproval: a.id }) }); return { pending: pending.map(decorate), history: history.map(decorate), selected: decorate((pending[0] || history[0] || {})), isPending: this.state.approvalTab === 'pending' }; }
+    const pending = [
+      { id: 'ap1', type: 'patch', title: 'Write 3 files to workspace', scope: 'src/auth/*.ts', risk: 'medium', time: '2m ago', origin: 'Refactor auth middleware', detail: 'Apply the auth middleware patch: 3 files, +83 −12. Tests pass, lint clean.', c: '#c9a86a', riskFg: '#c9a86a' },
+    ];
+    const history = [
+      { id: 'ap2', type: 'command', title: 'Run npm test -- auth', scope: 'shell.exec', risk: 'low', time: '11:19', origin: 'Refactor auth middleware', detail: 'Execute the auth test suite.', decision: 'approved', c: '#7fa6b0', riskFg: '#82a98c' },
+      { id: 'ap3', type: 'memory write', title: 'Store preference: briefs < 400 words', scope: 'memory.write', risk: 'low', time: '14:02', origin: 'Small-model fine-tuning', detail: 'Persist a stated length preference to memory.', decision: 'approved', c: '#bda07a', riskFg: '#82a98c' },
+      { id: 'ap4', type: 'network', title: 'POST results to webhook', scope: 'network.post', risk: 'high', time: 'Yesterday', origin: 'Q3 competitor landscape', detail: 'Send the generated report to an external webhook.', decision: 'rejected', c: '#c5897a', riskFg: '#c5897a' },
+      { id: 'ap5', type: 'file write', title: 'Overwrite vector store config', scope: 'infra/relay.toml', risk: 'medium', time: '2d', origin: 'Migrate vector store', detail: 'Replace the relay configuration file.', decision: 'approved', c: '#82a98c', riskFg: '#c9a86a' },
+    ];
+    const typeIcon = { patch: '⧉', command: '›_', 'memory write': '◈', network: '↗', 'file write': '✎', 'tool call': '⛁', 'model switch': '⛁' };
+    const tab = this.state.approvalTab;
+    const list = tab === 'pending' ? pending : history;
+    const sel = this.state.selectedApproval;
+    let selAp = [...pending, ...history].find(a => a.id === sel) || pending[0];
+    return {
+      isPending: tab === 'pending', isHistory: tab === 'history',
+      pendingTabBg: tab === 'pending' ? '#1f1c18' : 'transparent', pendingTabBar: tab === 'pending' ? '#c9a86a' : 'transparent', pendingTabFg: tab === 'pending' ? '#e3ddd0' : '#9c968a',
+      historyTabBg: tab === 'history' ? '#1f1c18' : 'transparent', historyTabBar: tab === 'history' ? '#c9a86a' : 'transparent', historyTabFg: tab === 'history' ? '#e3ddd0' : '#9c968a',
+      selectPending: () => this.setState({ approvalTab: 'pending', selectedApproval: 'ap1' }),
+      selectHistory: () => this.setState({ approvalTab: 'history', selectedApproval: 'ap2' }),
+      list: list.map(a => ({ ...a, icon: typeIcon[a.type] || '•', select: () => this.setState({ selectedApproval: a.id }), bg: a.id === sel ? '#1f1c18' : '#161412', bar: a.id === sel ? a.c : 'transparent', decided: !!a.decision, decisionFg: a.decision === 'approved' ? '#82a98c' : '#c5897a' })),
+      selAp: { ...selAp, icon: typeIcon[selAp.type] || '•', decided: !!selAp.decision, decisionFg: selAp.decision === 'approved' ? '#82a98c' : '#c5897a' },
+    };
+  }
+
+  renderVals() {
+    const s = this.state;
+    return {
+      workspace: s.api?.status?.workspace?.name || 'personal',
+      model: s.api?.status?.model?.id || 'claude-sonnet-4.6',
+      modelShort: (s.api?.status?.model?.id || 'sonnet-4.6').split('/').pop(),
+      agentState: s.api?.status?.agentState || 'researching',
+      composer: s.composer,
+      apiError: s.apiError,
+      navItems: this.navData(),
+      threads: this.threadData(),
+      messages: this.messageData(),
+      isDashboard: s.section === 'dashboard',
+      isChat: s.section === 'chat',
+      isTools: s.section === 'tools',
+      isApprovals: s.section === 'approvals',
+      dashboard: this.dashboardData(),
+      tools: this.toolsData(),
+      approvals: this.approvalsData(),
+      isResearch: s.section === 'research',
+      isMemories: s.section === 'memories',
+      isGraph: s.section === 'graph',
+      isFiles: s.section === 'files',
+      isRuns: s.section === 'runs',
+      isSettings: s.section === 'settings',
+      settingsBg: s.section === 'settings' ? '#1f1c18' : 'transparent',
+      settingsFg: s.section === 'settings' ? '#e3ddd0' : '#9c968a',
+      paletteOpen: s.paletteOpen,
+      modelsOpen: s.modelsOpen,
+      patchOpen: s.patchOpen,
+      openPalette: () => this.setState({ paletteOpen: true }),
+      closePalette: () => this.setState({ paletteOpen: false }),
+      openModels: () => this.setState({ modelsOpen: true }),
+      closeModels: () => this.setState({ modelsOpen: false }),
+      openPatch: () => this.setState({ patchOpen: true }),
+      closePatch: () => this.setState({ patchOpen: false }),
+      openWorkspace: () => {},
+      goResearch: () => this.go('research'),
+      goSettings: () => this.go('settings'),
+      openChat: () => this.go('chat'),
+      goRuns: () => this.go('runs'),
+      goApprovals: () => this.go('approvals'),
+      goTools: () => this.go('tools'),
+      noop: () => {},
+      research: this.researchData(),
+      memory: this.memoryData(),
+      graph: this.graphData(),
+      files: this.filesData(),
+      runsView: this.runsData(),
+      models: this.modelsData(),
+      palette: this.paletteData(),
+      patch: this.patchData(),
+      toolPerms: [
+        { name: 'web.search / fetch', mode: 'auto', c: '#82a98c' },
+        { name: 'file.read', mode: 'auto', c: '#82a98c' },
+        { name: 'file.write', mode: 'ask', c: '#c9a86a' },
+        { name: 'shell.exec', mode: 'ask', c: '#c9a86a' },
+        { name: 'network.post', mode: 'blocked', c: '#c5897a' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

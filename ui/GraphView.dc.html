@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display: grid; grid-template-columns: 300px 1fr; height: 100%; min-height: 0;">
+  <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+      <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Entities</span>
+      <span style="font-size: 10px; color: #6a655c;">7 nodes · 38 edges</span>
+    </div>
+    <div style="flex: 1; overflow-y: auto; padding: 6px 0;">
+      <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="7">
+        <button onClick="{{ n.select }}" style="width: 100%; text-align: left; display: flex; align-items: center; gap: 11px; padding: 10px 16px; background: {{ n.bg }}; border: none; border-left: 2px solid {{ n.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+          <span style="width: 9px; height: 9px; border-radius: 50%; background: {{ n.c }}; flex-shrink: 0;"></span>
+          <div style="flex: 1;">
+            <div style="font-size: 13px; color: #d3cec2;">{{ n.name }}</div>
+            <div style="font-size: 10px; color: #6a655c;">{{ n.type }}</div>
+          </div>
+          <span style="font-size: 10.5px; color: #6a655c;">{{ n.conns }} ⇆</span>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="overflow-y: auto; min-height: 0; padding: 32px 36px 48px;">
+    <div style="max-width: 860px; margin: 0 auto;">
+      <div style="display: flex; align-items: center; gap: 16px; padding-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 28px;">
+        <span style="width: 48px; height: 48px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.12); display: inline-flex; align-items: center; justify-content: center; color: {{ selNode.c }}; font-size: 22px;">◈</span>
+        <div style="flex: 1;">
+          <div style="font-size: 22px; color: #e3ddd0;">{{ selNode.name }}</div>
+          <div style="font-size: 12px; color: #6a655c;">{{ selNode.type }} · {{ selNode.conns }} connections · central node</div>
+        </div>
+        <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 5px 12px; border-radius: 2px; font-family: inherit; font-size: 11px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">edit relationships</button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #bda07a; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #bda07a;"></span>Memories</div>
+          <sc-for list="{{ adjMem }}" as="x" hint-placeholder-count="3">
+            <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+          </sc-for>
+        </div>
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #b3c46e; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #b3c46e;"></span>Conversations</div>
+          <sc-for list="{{ adjChats }}" as="x" hint-placeholder-count="2">
+            <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+          </sc-for>
+        </div>
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #9a93b4; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #9a93b4;"></span>Research</div>
+          <sc-for list="{{ adjRes }}" as="x" hint-placeholder-count="2">
+            <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+          </sc-for>
+        </div>
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #82a98c; margin-bottom: 12px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #82a98c;"></span>Files &amp; People</div>
+          <sc-for list="{{ adjFiles }}" as="x" hint-placeholder-count="1">
+            <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+          </sc-for>
+          <sc-for list="{{ adjPeople }}" as="x" hint-placeholder-count="1">
+            <div style="font-size: 13px; color: #b6b0a4; padding: 8px 12px; margin-bottom: 6px; background: #17150f; border: 1px solid rgba(255,255,255,0.06); border-radius: 2px;">{{ x }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { selectedNode: 'n_jordan' };
+  renderVals() {
+    const nodes = [
+      { id: 'n_jordan', name: 'Jordan', type: 'person', conns: 14 },
+      { id: 'n_mlplat', name: 'ML Platform', type: 'project', conns: 11 },
+      { id: 'n_core', name: 'keylime-core', type: 'repo', conns: 9 },
+      { id: 'n_maya', name: 'Maya Chen', type: 'person', conns: 6 },
+      { id: 'n_ft', name: 'Fine-tuning brief', type: 'research', conns: 5 },
+      { id: 'n_auth', name: 'Auth refactor', type: 'task', conns: 4 },
+      { id: 'n_acme', name: 'Acme Research', type: 'company', conns: 3 },
+    ];
+    const typeColor = { person: '#bda07a', project: '#82a98c', repo: '#7fa6b0', research: '#9a93b4', task: '#c9a86a', company: '#c5897a', system: '#9c968a' };
+    const adjacency = {
+      n_jordan: {
+        memories: ['Preferred name: Jordan', 'Role: Staff engineer', 'Brief length preference'],
+        chats: ['Small-model fine-tuning', 'Refactor auth middleware'],
+        research: ['Fine-tuning brief', 'Q3 competitor landscape'],
+        files: ['research/small-model-tooluse.md'],
+        people: ['Maya Chen (manager)'],
+      },
+    };
+    const sel = this.state.selectedNode;
+    const selNode = nodes.find(n => n.id === sel) || nodes[0];
+    const adj = adjacency[sel] || adjacency.n_jordan;
+    return {
+      nodes: nodes.map(n => ({ ...n, select: () => this.setState({ selectedNode: n.id }), c: typeColor[n.type], bg: n.id === sel ? '#1f1c18' : 'transparent', bar: n.id === sel ? typeColor[n.type] : 'transparent' })),
+      selNode: { ...selNode, c: typeColor[selNode.type] },
+      adjMem: adj.memories, adjChats: adj.chats, adjRes: adj.research, adjFiles: adj.files, adjPeople: adj.people,
+    };
+  }
+}
+</script>
+</body>
+</html>

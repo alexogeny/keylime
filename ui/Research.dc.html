@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0;">
+  <div style="border-right: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; min-height: 0; background: #141210;">
+    <div style="padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px;">
+        <span style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #9c968a;">Research Library</span>
+        <span style="font-size: 10px; color: #6a655c;">12 notes</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #100f0c; border: 1px solid rgba(255,255,255,0.07); border-radius: 2px;">
+        <span style="color: #524e47; font-size: 12px;">⌕</span>
+        <input placeholder="filter notes, tags, sources…" style="flex: 1; background: transparent; border: none; outline: none; color: #c7c1b4; font-family: inherit; font-size: 12px;" />
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;">
+        <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(154,147,180,0.3); color: #9a93b4; border-radius: 2px; background: rgba(154,147,180,0.08);">ml</span>
+        <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; border-radius: 2px;">agents</span>
+        <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; border-radius: 2px;">market</span>
+        <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; border-radius: 2px;">infra</span>
+      </div>
+    </div>
+    <div style="flex: 1; overflow-y: auto;">
+      <sc-for list="{{ list }}" as="r" hint-placeholder-count="6">
+        <button onClick="{{ r.select }}" style="width: 100%; text-align: left; display: flex; flex-direction: column; gap: 7px; padding: 13px 16px; background: {{ r.bg }}; border: none; border-bottom: 1px solid rgba(255,255,255,0.04); border-left: 2px solid {{ r.bar }}; cursor: pointer; font-family: inherit;" style-hover="background: #1b1815;">
+          <div style="font-size: 13px; color: #d3cec2; line-height: 1.4;">{{ r.title }}</div>
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 10px; color: #6a655c;">
+            <span style="color: {{ r.confFg }};">● {{ r.conf }}</span>
+            <span>{{ r.sources }} src</span>
+            <span>{{ r.claims }} claims</span>
+            <span>⇆ {{ r.backlinks }}</span>
+            <span style="flex: 1;"></span>
+            <span>{{ r.recency }}</span>
+          </div>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="overflow-y: auto; min-height: 0;">
+    <div style="max-width: 760px; margin: 0 auto; padding: 40px 48px 56px;">
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 11px; color: #6a655c; margin-bottom: 18px;">
+        <span style="color: #9a93b4;">RESEARCH NOTE</span>
+        <span>·</span>
+        <span>auto-generated</span>
+        <span>·</span>
+        <span>{{ selNote.recency }}</span>
+        <span style="flex: 1;"></span>
+        <button style="background: transparent; border: 1px solid rgba(255,255,255,0.1); color: #9c968a; padding: 3px 9px; border-radius: 2px; font-family: inherit; font-size: 10.5px; cursor: pointer;" style-hover="border-color: rgba(255,255,255,0.2); color: #d8d3c7;">⇱ open source chat</button>
+      </div>
+      <h1 style="font-family: 'Newsreader', serif; font-weight: 500; font-size: 33px; line-height: 1.2; color: #e6e0d3; margin: 0 0 8px; letter-spacing: -0.01em;">{{ selNote.title }}</h1>
+      <div style="display: flex; gap: 7px; margin-bottom: 26px;">
+        <sc-for list="{{ selNote.tags }}" as="tag" hint-placeholder-count="3">
+          <span style="font-size: 10.5px; padding: 2px 9px; border: 1px solid rgba(154,147,180,0.25); color: #9a93b4; border-radius: 2px; background: rgba(154,147,180,0.06);">{{ tag }}</span>
+        </sc-for>
+      </div>
+      <div style="font-family: 'Newsreader', serif; font-size: 18px; line-height: 1.72; color: #cfc9bc;" innerHTML="{{ detail.body }}"></div>
+
+      <div style="margin-top: 36px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.08);">
+        <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6a655c; margin-bottom: 14px;">Sources</div>
+        <sc-for list="{{ detail.sources }}" as="s" hint-placeholder-count="3">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <span style="width: 20px; height: 20px; border: 1px solid rgba(154,147,180,0.3); color: #9a93b4; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0;">{{ s.n }}</span>
+            <div style="flex: 1;">
+              <div style="font-size: 13px; color: #cdc8bc;">{{ s.title }}</div>
+              <div style="font-size: 11px; color: #6a655c;">{{ s.host }}</div>
+            </div>
+            <span style="font-size: 10.5px; color: #82a98c;">● {{ s.conf }}</span>
+            <span style="font-size: 11px; color: #524e47;">↗</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="margin-top: 28px;">
+        <div style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6a655c; margin-bottom: 12px;">Related &amp; backlinks</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <sc-for list="{{ detail.related }}" as="rel" hint-placeholder-count="3">
+            <span style="font-size: 12px; padding: 5px 12px; background: #1a1714; border: 1px solid rgba(255,255,255,0.08); color: #b6b0a4; border-radius: 2px; cursor: pointer;">⇆ {{ rel }}</span>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { selectedResearch: 'r1' };
+  renderVals() {
+    const notes = [
+      { id: 'r1', title: 'Small-model fine-tuning for tool use', tags: ['ml', 'agents', 'fine-tuning'], sources: 3, claims: 7, conf: 'high', recency: '2m ago', backlinks: 4 },
+      { id: 'r2', title: 'RL from execution feedback', tags: ['ml', 'rl'], sources: 5, claims: 9, conf: 'high', recency: '2m ago', backlinks: 2 },
+      { id: 'r3', title: 'Distillation under 7B parameters', tags: ['ml', 'efficiency'], sources: 4, claims: 6, conf: 'medium', recency: '14m ago', backlinks: 3 },
+      { id: 'r4', title: 'Q3 competitor landscape', tags: ['market', 'strategy'], sources: 11, claims: 18, conf: 'medium', recency: '1d ago', backlinks: 6 },
+      { id: 'r5', title: 'Vector store local migration notes', tags: ['infra', 'eng'], sources: 2, claims: 4, conf: 'high', recency: '2d ago', backlinks: 1 },
+      { id: 'r6', title: 'Schema adherence benchmarks', tags: ['ml', 'eval'], sources: 6, claims: 12, conf: 'low', recency: '3d ago', backlinks: 2 },
+    ];
+    const details = {
+      r1: {
+        body: 'Recent work converges on three levers for closing the gap between small (1–7B) models and frontier systems on agentic tool use.<br><br><b>Supervised fine-tuning</b> on synthetic tool-call traces closes most of the gap on schema adherence and argument validity. Models trained on 50–100k verified traces reach 90%+ valid-call rates [1].<br><br><b>RL from execution feedback</b> adds robustness on multi-step plans, where SFT alone tends to compound errors. Reward shaping on successful tool returns is the dominant signal [2].<br><br><b>Distillation</b> from a stronger teacher remains the most cost-effective path under 7B, trading a small accuracy loss for a 6–10× inference cost reduction [3].',
+        sources: [
+          { n: '1', title: 'Toolformer-style SFT on 3B models', host: 'arxiv.org/2503', conf: 'high' },
+          { n: '2', title: 'RL from tool feedback', host: 'arxiv.org/2504', conf: 'high' },
+          { n: '3', title: 'Tulu tool-use distillation', host: 'blog.allenai.org', conf: 'medium' },
+        ],
+        related: ['RL from execution feedback', 'Distillation under 7B parameters', 'Schema adherence benchmarks'],
+      },
+    };
+    const sel = this.state.selectedResearch;
+    const detail = details[sel] || details.r1;
+    const selNote = notes.find(n => n.id === sel) || notes[0];
+    return {
+      list: notes.map(n => ({
+        ...n,
+        select: () => this.setState({ selectedResearch: n.id }),
+        bg: n.id === sel ? '#1f1c18' : '#161412',
+        bar: n.id === sel ? '#9a93b4' : 'transparent',
+        confFg: n.conf === 'high' ? '#82a98c' : (n.conf === 'medium' ? '#c9a86a' : '#c5897a'),
+      })),
+      detail, selNote,
+    };
+  }
+}
+</script>
+</body>
+</html>

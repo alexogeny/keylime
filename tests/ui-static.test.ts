@@ -1,0 +1,29 @@
+import { describe, expect, test } from "bun:test";
+
+async function text(path: string) { return Bun.file(path).text(); }
+
+describe("graphite control-plane UI", () => {
+  test("main shell loads API client and wires live state hooks", async () => {
+    const html = await text("ui/keylime.dc.html");
+    expect(html).toContain("./keylime-api.js");
+    expect(html).toContain("loadApi()");
+    expect(html).toContain("KeylimeAPI.loadAll");
+    expect(html).toContain("/api/chat/threads/current/messages");
+    expect(html).toContain("api?.status?.model");
+  });
+
+  test("API client targets contract endpoints", async () => {
+    const js = await text("ui/keylime-api.js");
+    for (const route of ["/api/system", "/api/status", "/api/screens/dashboard", "/api/chat/threads/current", "/api/research", "/api/memory", "/api/graph", "/api/workspace", "/api/runs", "/api/tools", "/api/approvals", "/api/models", "/api/settings", "/api/patches", "/api/events"]) {
+      expect(js).toContain(route);
+    }
+    expect(js).toContain("EventSource");
+  });
+
+  test("split view files exist for remaining major panes", async () => {
+    for (const path of ["ui/RunsView.dc.html", "ui/SettingsView.dc.html", "ui/ChatView.dc.html", "ui/Research.dc.html", "ui/MemoryBrowser.dc.html", "ui/ToolsView.dc.html", "ui/ApprovalsView.dc.html", "ui/FilesView.dc.html", "ui/GraphView.dc.html"]) {
+      const html = await text(path);
+      expect(html).toContain("<x-dc>");
+    }
+  });
+});

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="./support.js"></script><script src="./keylime-api.js"></script></head>
+<body><x-dc>
+<div style="height:100%;display:flex;flex-direction:column;background:#131210;color:#d8d3c7;font-family:'IBM Plex Mono',monospace;">
+  <div style="padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between;align-items:center;">
+    <div><div style="font-size:11px;color:#9c968a;text-transform:uppercase;letter-spacing:.12em;">Runs / Activity</div><div style="font-size:18px;color:#e3ddd0;">Agent trace inspector</div></div>
+    <button onClick="{{ refresh }}" style="background:#1f1c18;border:1px solid rgba(255,255,255,.1);color:#b3c46e;padding:6px 10px;font-family:inherit;">refresh</button>
+  </div>
+  <div style="display:grid;grid-template-columns:320px 1fr;min-height:0;flex:1;">
+    <div style="overflow:auto;border-right:1px solid rgba(255,255,255,.07);">
+      <sc-for list="{{ runs }}" as="r"><button onClick="{{ r.select }}" style="width:100%;text-align:left;background:{{ r.bg }};border:0;border-left:2px solid {{ r.bar }};border-bottom:1px solid rgba(255,255,255,.04);padding:12px;color:#cdc8bc;font-family:inherit;">
+        <div style="font-size:12px;color:#e3ddd0;">{{ r.prompt }}</div><div style="font-size:11px;color:#8c867b;">{{ r.model }} · {{ r.status }} · {{ r.time }}</div>
+      </button></sc-for>
+    </div>
+    <div style="padding:18px;overflow:auto;"><div style="color:#e3ddd0;font-size:16px;">{{ selected.prompt }}</div><div style="color:#9c968a;margin-top:6px;">{{ selected.model }} · {{ selected.status }} · {{ selected.cost }}</div>
+      <sc-for list="{{ trace }}" as="t"><div style="margin-top:12px;border:1px solid rgba(255,255,255,.07);padding:10px;background:#161412;"><span style="color:{{ t.c }}">{{ t.icon }}</span> <b>{{ t.label }}</b><div style="color:#9c968a;">{{ t.text }}</div></div></sc-for>
+    </div>
+  </div>
+</div>
+</x-dc><script type="text/x-dc" data-dc-script>
+class Component extends DCLogic { state={runs:[],selected:null,trace:[]}; componentDidMount(){this.refresh()} async refresh(){const d=await KeylimeAPI.get('/api/runs').catch(()=>({items:[]}));const runs=(d.items||[]).map((r,i)=>({...r,prompt:r.prompt||r.id,time:KeylimeAPI.rel(r.time||r.startedAt),bg:i===0?'#1f1c18':'#161412',bar:i===0?'#b3c46e':'transparent',select:()=>this.setState({selected:r})}));this.setState({runs,selected:runs[0]||{},trace:[]})} renderVals(){return {...this.state,refresh:()=>this.refresh()}}}
+</script></body></html>
