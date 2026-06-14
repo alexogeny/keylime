@@ -192,6 +192,7 @@ const LINUX_SYSTEM_MUTATION_TOOLS = new Set([
   "backup_system_file", "restore_system_file_backup", "apply_system_file_patch",
   "safe_delete", "archive_path", "apply_permissions_change", "kill_process",
 ]);
+const PROFILING_RUN_TOOLS = new Set(["run_python_profile", "run_typescript_profile", "run_rust_profile"]);
 
 export function classifyToolMutation(toolName: string, input: any): MutationClassification {
   const writePaths = writePathsForTool(toolName, input);
@@ -251,6 +252,11 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
     category = writePaths.length > 0 ? "file_replace" : "shell_mutation";
     reasons.push(`${toolName} mutates the local Linux system`);
     matchedPolicies.push("mutation.linux-system");
+  } else if (PROFILING_RUN_TOOLS.has(toolName)) {
+    score = 8;
+    category = "shell_mutation";
+    reasons.push(`${toolName} executes project code for profiling`);
+    matchedPolicies.push("mutation.profile-execution");
   }
 
   const protectedPath = writePaths.some(path => {

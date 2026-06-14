@@ -17,6 +17,7 @@ export type IntentId =
   | "rust_systems"
   | "rust_shell_emulator"
   | "linux_ops"
+  | "profiling"
   | "ui_design";
 
 export type CapabilityGroup =
@@ -32,6 +33,7 @@ export type CapabilityGroup =
   | "shoes"
   | "personal"
   | "linux"
+  | "profiling"
   | "safety";
 
 export type TemporalContext = {

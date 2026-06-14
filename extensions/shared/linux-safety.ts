@@ -4,7 +4,7 @@ import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
-export type CommandSpec = { command: string; args: string[]; label?: string; sudo?: boolean; stdin?: string };
+export type CommandSpec = { command: string; args: string[]; label?: string; sudo?: boolean; stdin?: string; cwd?: string };
 
 export const SYSTEM_FILE_ALLOW_PREFIXES = [
   "/etc/",
@@ -54,7 +54,7 @@ export function preview(text: string, max = 6000): string {
 
 export async function runCommand(spec: CommandSpec, options: { timeoutMs?: number; maxBuffer?: number } = {}) {
   const maxBuffer = options.maxBuffer ?? 1024 * 1024;
-  const child = spawn(spec.command, spec.args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(spec.command, spec.args, { cwd: spec.cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   let stdout = "";
   let stderr = "";
   let settled = false;

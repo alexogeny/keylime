@@ -182,6 +182,15 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "kill_process", group: "linux", domain: true, risk: "guarded" },
   { name: "run_system_check", group: "linux", domain: true, risk: "safe" },
 
+  { name: "inspect_profiler_availability", group: "profiling", domain: true, risk: "safe" },
+  { name: "plan_python_profile", group: "profiling", domain: true, risk: "safe" },
+  { name: "run_python_profile", group: "profiling", domain: true, risk: "guarded" },
+  { name: "plan_typescript_profile", group: "profiling", domain: true, risk: "safe" },
+  { name: "run_typescript_profile", group: "profiling", domain: true, risk: "guarded" },
+  { name: "plan_rust_profile", group: "profiling", domain: true, risk: "safe" },
+  { name: "run_rust_profile", group: "profiling", domain: true, risk: "guarded" },
+  { name: "inspect_profile_artifact", group: "profiling", domain: true, risk: "safe" },
+
   { name: "lookup_shoe", group: "shoes", domain: true, risk: "domain" },
   { name: "find_shoes_by_spec", group: "shoes", domain: true, risk: "domain" },
   { name: "compare_shoes", group: "shoes", domain: true, risk: "domain" },
@@ -208,7 +217,7 @@ export function domainToolNames(): string[] {
 
 export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
   const groups: Record<CapabilityGroup, string[]> = {
-    core: [], readonly: [], coding: [], repo: [], project: [], memory: [], "memory-lite": [], research: [], fetch: [], shoes: [], personal: [], linux: [], safety: [],
+    core: [], readonly: [], coding: [], repo: [], project: [], memory: [], "memory-lite": [], research: [], fetch: [], shoes: [], personal: [], linux: [], profiling: [], safety: [],
   };
   for (const policy of TOOL_POLICIES) {
     if (policy.group) groups[policy.group].push(policy.name);
