@@ -10,6 +10,9 @@ describe("graphite control-plane UI", () => {
     expect(html).toContain("KeylimeAPI.loadAll");
     expect(html).toContain("/api/chat/threads/current/messages");
     expect(html).toContain("api?.status?.model");
+    for (const view of ["Dashboard.dc.html", "ChatView.dc.html", "Research.dc.html", "MemoryBrowser.dc.html", "GraphView.dc.html", "FilesView.dc.html", "ToolsView.dc.html", "ApprovalsView.dc.html", "RunsView.dc.html", "SettingsView.dc.html"]) {
+      expect(html).toContain(`src="./${view}"`);
+    }
   });
 
   test("API client targets contract endpoints", async () => {
@@ -24,6 +27,7 @@ describe("graphite control-plane UI", () => {
     for (const path of ["ui/RunsView.dc.html", "ui/SettingsView.dc.html", "ui/ChatView.dc.html", "ui/Research.dc.html", "ui/MemoryBrowser.dc.html", "ui/ToolsView.dc.html", "ui/ApprovalsView.dc.html", "ui/FilesView.dc.html", "ui/GraphView.dc.html"]) {
       const html = await text(path);
       expect(html).toContain("<x-dc>");
+      expect(html).toContain("./keylime-api.js");
     }
   });
 });
