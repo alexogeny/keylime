@@ -25,12 +25,16 @@ describe("control-plane API extension", () => {
     expect(system.status).toBe(200);
     const s = await body(system);
     expect(s.ok).toBe(true);
-    expect(s.data.capabilities.chat).toBe(true);
-    expect(s.data.capabilities.structuredMemory).toBe(true);
+    expect(s.data.capabilities).toEqual(expect.arrayContaining(["chat", "memory", "research", "files", "patches", "models", "approvals", "tools", "graph", "runs", "modelSwitch"]));
+    expect(s.data.capabilityMap.structuredMemory).toBe(true);
 
     const status = await body(await handleControlPlaneRequest(req("/api/status"), state));
     expect(status.data.workspace.path).toBe(process.cwd());
     expect(status.data.model).toMatchObject({ id: "claude-test", provider: "anthropic" });
+    expect(status.data.provider).toMatchObject({ name: "anthropic" });
+    expect(status.data.agentState).toBe("idle");
+    expect(status.data.tokens).toHaveProperty("used");
+    expect(status.data.counts).toHaveProperty("approvalsPending");
   });
 
   test("chat endpoint normalizes current session entries and sends messages", async () => {
@@ -112,8 +116,45 @@ describe("control-plane API extension", () => {
     const action = await body(await handleControlPlaneRequest(req("/api/actions", { method: "POST", body: JSON.stringify({ type: "custom.do" }) }), state));
     expect(action.data.status).toBe("queued");
     const providers = await body(await handleControlPlaneRequest(req("/api/providers"), state));
-    expect(providers.data.providers).toEqual([]);
+    expect(providers.data.items).toEqual([]);
     const attachments = await body(await handleControlPlaneRequest(req("/api/attachments"), state));
-    expect(attachments.data.attachments).toEqual([]);
+    expect(attachments.data.items).toEqual([]);
+  });
+
+  test("frontend contract aliases return items and detail shapes", async () => {
+    const dataDir = `/tmp/keylime-control-plane-test-${Date.now()}-${Math.random()}`;
+    const state = { cwd: process.cwd(), dataDir, memoryFile: `${dataDir}/memories.json`, runtime: { agentState: "idle", model: { id: "m", provider: "p" } } } as any;
+    const threads = await body(await handleControlPlaneRequest(req("/api/chat/threads?q=current"), state));
+    expect(Array.isArray(threads.data.items)).toBe(true);
+    const runs = await body(await handleControlPlaneRequest(req("/api/runs?window=24h"), state));
+    expect(Array.isArray(runs.data.items)).toBe(true);
+    const tools = await body(await handleControlPlaneRequest(req("/api/tools"), state));
+    expect(Array.isArray(tools.data.items)).toBe(true);
+    const models = await body(await handleControlPlaneRequest(req("/api/models"), state));
+    expect(models.data.items[0]).toMatchObject({ provider: "p", active: true });
+    const settings = await body(await handleControlPlaneRequest(req("/api/settings"), state));
+    expect(settings.data).toHaveProperty("memorySettings");
+    expect(settings.data).toHaveProperty("agentDefaults");
+    const search = await body(await handleControlPlaneRequest(req("/api/search?q=read"), state));
+    expect(search.data).toHaveProperty("threads");
+    expect(search.data).toHaveProperty("files");
+    const events = await handleControlPlaneRequest(req("/api/events?since=abc"), state);
+    expect(events.headers.get("content-type")).toContain("text/event-stream");
+    expect(await events.text()).toContain("agent.state");
+  });
+
+  test("contract-specific mutations work", async () => {
+    const dataDir = `/tmp/keylime-control-plane-test-${Date.now()}-${Math.random()}`;
+    const state = { cwd: process.cwd(), dataDir, runtime: { agentState: "idle" } } as any;
+    expect((await body(await handleControlPlaneRequest(req("/api/chat/threads/current/interrupt", { method: "POST", body: "{}" }), state))).data.control.action).toBe("cancel");
+    expect((await body(await handleControlPlaneRequest(req("/api/chat/messages/m1/pin", { method: "POST", body: JSON.stringify({ pinned: false }) }), state))).data.message.pinned).toBe(false);
+    expect((await body(await handleControlPlaneRequest(req("/api/chat/messages/m1/bookmark", { method: "POST", body: JSON.stringify({ bookmarked: true }) }), state))).data.message.bookmarked).toBe(true);
+    expect((await body(await handleControlPlaneRequest(req("/api/approvals/a1/revoke", { method: "POST", body: "{}" }), state))).data.approval.status).toBe("pending");
+    expect((await body(await handleControlPlaneRequest(req("/api/research/r1/pin", { method: "POST", body: JSON.stringify({ pinned: true }) }), state))).data.entry.pinned).toBe(true);
+    expect((await body(await handleControlPlaneRequest(req("/api/tools/code_search", { method: "PATCH", body: JSON.stringify({ mode: "auto" }) }), state))).data.permission.mode).toBe("auto");
+    const form = new FormData();
+    form.set("file", new File(["abc"], "a.txt", { type: "text/plain" }));
+    const upload = await body(await handleControlPlaneRequest(req("/api/attachments", { method: "POST", body: form }), state));
+    expect(upload.data).toMatchObject({ name: "a.txt", size: 3 });
   });
 });
