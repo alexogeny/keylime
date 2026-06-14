@@ -8,6 +8,7 @@ import intentRouter from "../extensions/intent-router";
 import policyTools from "../extensions/policy-tools";
 import testRunner from "../extensions/test-runner";
 import toolResultCompactor from "../extensions/tool-result-compactor";
+import webUi from "../extensions/web-ui";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 describe("extension registration smoke", () => {
@@ -23,6 +24,7 @@ describe("extension registration smoke", () => {
     intentRouter(harness.pi);
     dangerGuard(harness.pi);
     gitCheckpoint(harness.pi);
+    webUi(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
       "list_files",
@@ -45,6 +47,8 @@ describe("extension registration smoke", () => {
       "intent-status",
       "danger-rules",
       "checkpoint",
+      "web-ui",
+      "web-ui-stop",
     ]));
     expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining([
       "tool_result",
