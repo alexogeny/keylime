@@ -364,6 +364,12 @@ If profiler output contains mangled Rust symbols, use `rustfilt`, or build with 
 
 Keep profiling and benchmarking dependencies dev-only by default (`[dev-dependencies]`, cargo subcommands, CI tools, local profilers). Promote them to runtime dependencies only when there is a clear production observability or operational requirement.
 
+When operating inside Keylime/Pi and asked to optimize real Rust repo code, prefer the profiling tools over ad-hoc shell commands:
+- Use `inspect_profiler_availability` if `cargo`, `perf`, `cargo-flamegraph`, or related tools may be missing.
+- Use `plan_rust_profile` before running code. Prefer `mode: "test"` or `"bench"` for repeatable workloads, `"run"` for binary workloads, and `"flamegraph"` when call-stack evidence is needed.
+- Use `run_rust_profile` only after the plan matches the workload; keep `timeout_ms` bounded and treat it as guarded project-code execution.
+- For pasted code blocks without a runnable crate/workload, do not invent measurements; provide a minimal Criterion/`std::time::Instant` harness or `cargo bench` plan the user can run.
+
 ### Measurement Ladder
 
 - **End-to-end timing:** `hyperfine`

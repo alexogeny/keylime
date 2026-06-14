@@ -41,6 +41,12 @@ Use minimal measurement unless user asks deeper profiling:
 - If needed, run `cProfile` to rank hot functions.
 - Suggest `py-spy` only for live/long-running processes.
 
+When operating inside Keylime/Pi and asked to optimize real repo code, prefer the profiling tools over ad-hoc shell commands:
+- Use `inspect_profiler_availability` if profiler/runtime availability is unclear.
+- Use `plan_python_profile` before running project code. Choose `mode: "script"`, `"module"`, or `"pytest"` based on the workload.
+- Use `run_python_profile` only after the plan is appropriate; keep `timeout_ms` bounded and store `.prof` output under `.pi/profiles/python/` when an artifact is useful.
+- For pasted code blocks without a repo workload, do not invent measurements; provide a minimal `time.perf_counter()` or `cProfile` snippet the user can run.
+
 ### 3) Vanilla-first optimization order
 Apply in this order:
 1. Simplify algorithm and data flow.
