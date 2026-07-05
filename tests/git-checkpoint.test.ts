@@ -148,7 +148,55 @@ describe("git checkpoint tool gating", () => {
     expect(prompts).toEqual(["Git user.name", "Git user.email"]);
     expect(execFileSync("git", ["config", "--local", "user.name"], { cwd }).toString().trim()).toBe("Keylime Agent");
     expect(execFileSync("git", ["config", "--local", "user.email"], { cwd }).toString().trim()).toBe("agent@example.com");
-    expect(notifications.join("\n")).toContain("Configured local Git identity");
+    expect(notifications.join("\n")).toContain("Configured local Git commit identity");
+  });
+
+  test("git-identity warns and asks before updating an existing local commit identity", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "keylime-identity-update-"));
+    execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "--local", "user.name", "Existing User"], { cwd });
+    execFileSync("git", ["config", "--local", "user.email", "existing@example.com"], { cwd });
+
+    const commands: Record<string, any> = {};
+    gitCheckpointExtension({
+      on: () => {},
+      registerCommand: (name: string, command: any) => { commands[name] = command; },
+      appendEntry: () => {},
+    } as any);
+
+    const prompts: Array<{ title: string; initial?: string }> = [];
+    const confirms: string[] = [];
+    const notifications: string[] = [];
+    const ctx = {
+      cwd,
+      ui: {
+        input: async (title: string, _message: string, initial?: string) => {
+          prompts.push({ title, initial });
+          return title.includes("email") ? "updated@example.com" : "Updated User";
+        },
+        confirm: async (_title: string, message: string) => {
+          confirms.push(message);
+          return true;
+        },
+        notify: (text: string) => notifications.push(text),
+        setStatus: () => {},
+      },
+      sessionManager: { getEntries: () => [] },
+    };
+
+    await commands["git-identity"].handler("", ctx);
+
+    expect(confirms[0]).toContain("already has a local Git commit identity configured");
+    expect(confirms[0]).toContain("Existing User <existing@example.com>");
+    expect(confirms[0]).toContain("does not configure Git push authentication");
+    expect(confirms[1]).toContain("affects commit authorship, not push authentication");
+    expect(prompts).toEqual([
+      { title: "Git user.name", initial: "Existing User" },
+      { title: "Git user.email", initial: "existing@example.com" },
+    ]);
+    expect(execFileSync("git", ["config", "--local", "user.name"], { cwd }).toString().trim()).toBe("Updated User");
+    expect(execFileSync("git", ["config", "--local", "user.email"], { cwd }).toString().trim()).toBe("updated@example.com");
+    expect(notifications.join("\n")).toContain("Updated local Git commit identity");
   });
 
   test("git-push requires confirmation and creates upstream branch on remote", async () => {
@@ -178,6 +226,7 @@ describe("git checkpoint tool gating", () => {
       ui: {
         confirm: async (_title: string, message: string) => {
           expect(message).toContain(`git push -u origin ${branch}`);
+          expect(message).toContain("Commit identity: Test <test@example.com>");
           expect(message).toContain("/git-identity configures commit author identity only");
           expect(message).toContain("Push authentication uses your Git remote credentials");
           return true;

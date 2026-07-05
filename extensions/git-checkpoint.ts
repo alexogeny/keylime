@@ -148,11 +148,23 @@ function setLocalGitIdentity(cwd: string, identity: GitIdentity): void {
 
 async function configureGitIdentityWithUserGate(cwd: string, ctx: any, reason: string): Promise<boolean> {
   if (!ctx?.ui?.input || !ctx?.ui?.confirm) {
-    ctx?.ui?.notify?.("Git identity is missing. Run `git config --local user.name` and `git config --local user.email`, or use a UI that supports prompts.", "error");
+    ctx?.ui?.notify?.("Git commit identity is missing. Run `git config --local user.name` and `git config --local user.email`, or use a UI that supports prompts.", "error");
     return false;
   }
 
   const current = getConfiguredGitIdentity(cwd);
+  let currentIdentity: GitIdentity | null = null;
+  try { currentIdentity = validateGitIdentity(current); } catch {}
+
+  if (currentIdentity) {
+    const update = await ctx.ui.confirm(
+      "Update local Git commit identity?",
+      `This repository already has a local Git commit identity configured:\n\n  ${currentIdentity.name} <${currentIdentity.email}>\n\n/git-identity controls commit author name/email only. It does not configure Git push authentication.\n\nUpdate this repository's local commit identity?`,
+      { timeout: 60_000 }
+    );
+    if (!update) return true;
+  }
+
   const name = await ctx.ui.input("Git user.name", `${reason}\n\nName for local git commits in this repository:`, current.name ?? "");
   const email = await ctx.ui.input("Git user.email", "Email for local git commits in this repository:", current.email ?? "");
 
@@ -165,14 +177,14 @@ async function configureGitIdentityWithUserGate(cwd: string, ctx: any, reason: s
   }
 
   const ok = await ctx.ui.confirm(
-    "Configure local Git identity?",
-    `This will run:\n\n  git config --local user.name ${JSON.stringify(identity.name)}\n  git config --local user.email ${JSON.stringify(identity.email)}\n\nThis changes only this repository's .git/config. Continue?`,
+    currentIdentity ? "Update local Git commit identity?" : "Configure local Git commit identity?",
+    `This will run:\n\n  git config --local user.name ${JSON.stringify(identity.name)}\n  git config --local user.email ${JSON.stringify(identity.email)}\n\nThis changes only this repository's .git/config and affects commit authorship, not push authentication. Continue?`,
     { timeout: 60_000 }
   );
   if (!ok) return false;
 
   setLocalGitIdentity(cwd, identity);
-  ctx.ui.notify(`Configured local Git identity as ${identity.name} <${identity.email}>`, "info");
+  ctx.ui.notify(`${currentIdentity ? "Updated" : "Configured"} local Git commit identity as ${identity.name} <${identity.email}>`, "info");
   return true;
 }
 
@@ -300,7 +312,7 @@ export default function (pi: ExtensionAPI) {
     let attempt = makeCheckpointAttempt(cwd);
     if (!attempt.checkpoint && attempt.reason === "missing-identity") {
       lastAutoCheckpointAt = now;
-      const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your identity.");
+      const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your commit identity.");
       if (!configured) return;
       attempt = makeCheckpointAttempt(cwd);
     }
@@ -334,11 +346,11 @@ export default function (pi: ExtensionAPI) {
   // ── /git-identity ───────────────────────────────────────────────────────
 
   pi.registerCommand("git-identity", {
-    description: "Configure this repository's local git user.name and user.email after explicit confirmation",
+    description: "Configure this repository's local Git commit user.name and user.email after explicit confirmation",
     handler: async (_args, ctx) => {
       const cwd = ctx.cwd;
       if (!isGitRepo(cwd)) {
-        ctx.ui.notify("Not a git repository — cannot configure git identity.", "error");
+        ctx.ui.notify("Not a git repository — cannot configure Git commit identity.", "error");
         return;
       }
       await configureGitIdentityWithUserGate(cwd, ctx, "Configure the identity Git will use for local commits in this repository.");
@@ -376,10 +388,15 @@ export default function (pi: ExtensionAPI) {
 
       const command = upstream ? "git push" : `git push -u ${remote} ${branch}`;
       const dirtyNote = hasChanges(cwd) ? "\n\nNote: uncommitted local changes will not be pushed." : "";
+      let commitIdentityNote = "\n\nCommit identity: not configured locally for this repository.";
+      try {
+        const identity = validateGitIdentity(getConfiguredGitIdentity(cwd));
+        commitIdentityNote = `\n\nCommit identity: ${identity.name} <${identity.email}>`;
+      } catch {}
       const authNote = "\n\nNote: /git-identity configures commit author identity only. Push authentication uses your Git remote credentials.";
       const ok = await ctx.ui.confirm(
         "Push current Git branch?",
-        `Repository: ${cwd}\nBranch: ${branch}\n${upstream ? `Upstream: ${upstream}` : `No upstream configured; this will create/set ${remote}/${branch}.`}\n\nCommand:\n  ${command}${dirtyNote}${authNote}`,
+        `Repository: ${cwd}\nBranch: ${branch}\n${upstream ? `Upstream: ${upstream}` : `No upstream configured; this will create/set ${remote}/${branch}.`}\n\nCommand:\n  ${command}${dirtyNote}${commitIdentityNote}${authNote}`,
         { timeout: 60_000 }
       );
       if (!ok) return;
@@ -417,7 +434,7 @@ export default function (pi: ExtensionAPI) {
 
       const cp = attempt.checkpoint;
       if (!cp) {
-        ctx.ui.notify(attempt.reason === "missing-identity" ? "Checkpoint cancelled: Git identity is still missing." : "Failed to create checkpoint.", "error");
+        ctx.ui.notify(attempt.reason === "missing-identity" ? "Checkpoint cancelled: Git commit identity is still missing." : "Failed to create checkpoint.", "error");
         return;
       }
       recordCheckpoint(cp, ctx);
