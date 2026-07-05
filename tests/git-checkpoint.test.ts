@@ -226,6 +226,45 @@ describe("git checkpoint tool gating", () => {
     expect(notifications.join("\n")).toContain("Updated local Git commit identity");
   });
 
+  test("git-push plans HTTPS to SSH remote switch when no native provider auth tool is available", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "keylime-push-ssh-plan-"));
+    execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd });
+    await writeFile(join(cwd, "tracked.txt"), "one\n", "utf8");
+    execFileSync("git", ["add", "tracked.txt"], { cwd });
+    execFileSync("git", ["commit", "-m", "init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", "https://bitbucket.org/team/repo"], { cwd });
+    const branch = execFileSync("git", ["branch", "--show-current"], { cwd }).toString().trim();
+
+    const commands: Record<string, any> = {};
+    gitCheckpointExtension({
+      on: () => {},
+      registerCommand: (name: string, command: any) => { commands[name] = command; },
+      appendEntry: () => {},
+    } as any);
+
+    const ctx = {
+      cwd,
+      waitForIdle: async () => {},
+      ui: {
+        confirm: async (_title: string, message: string) => {
+          expect(message).toContain(`git push -u origin ${branch}`);
+          expect(message).toContain("will switch origin to SSH before push");
+          expect(message).toContain("git remote set-url origin git@bitbucket.org:team/repo.git");
+          return false;
+        },
+        notify: () => {},
+        setStatus: () => {},
+      },
+      sessionManager: { getEntries: () => [] },
+    };
+
+    await commands["git-push"].handler("", ctx);
+
+    expect(execFileSync("git", ["remote", "get-url", "origin"], { cwd }).toString().trim()).toBe("https://bitbucket.org/team/repo");
+  });
+
   test("git-push requires confirmation and creates upstream branch on remote", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "keylime-push-work-"));
     const remote = await mkdtemp(join(tmpdir(), "keylime-push-remote-"));

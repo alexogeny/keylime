@@ -111,6 +111,32 @@ function setRemoteUrl(cwd: string, remote: string, url: string): void {
   execFileSync("git", ["remote", "set-url", validateGitRemoteName(remote), url], { cwd });
 }
 
+function gitAuthProviderForHttpsRemote(remoteUrl: string): Exclude<GitAuthProvider, "custom"> | null {
+  for (const provider of ["github", "gitlab", "bitbucket"] as const) {
+    if (gitAuthSshRemoteUrl(provider, remoteUrl)) return provider;
+  }
+  return null;
+}
+
+function nativeAuthToolForProvider(provider: Exclude<GitAuthProvider, "custom">): "gh" | "glab" | null {
+  if (provider === "github" && commandExists("gh")) return "gh";
+  if (provider === "gitlab" && commandExists("glab")) return "glab";
+  return null;
+}
+
+function setupNativeGitAuth(cwd: string, provider: Exclude<GitAuthProvider, "custom">): string | null {
+  const tool = nativeAuthToolForProvider(provider);
+  if (!tool) return null;
+  if (tool === "gh") {
+    execFileSync("gh", ["auth", "setup-git"], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    return "gh auth setup-git";
+  }
+  // glab owns GitLab auth state; `glab auth status` verifies credentials without
+  // prompting and avoids unexpectedly launching a login flow during /git-push.
+  execFileSync("glab", ["auth", "status"], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  return "glab auth status";
+}
+
 function commandExists(command: string): boolean {
   try { execFileSync(command, ["--version"], { stdio: "ignore" }); return true; }
   catch { return false; }
@@ -658,6 +684,12 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      const pushRemote = upstream ? validateGitRemoteName(upstream.split("/")[0] || remote) : remote;
+      const currentRemoteUrl = getRemoteUrl(cwd, pushRemote);
+      const httpsProvider = currentRemoteUrl ? gitAuthProviderForHttpsRemote(currentRemoteUrl) : null;
+      const nativeAuthTool = httpsProvider ? nativeAuthToolForProvider(httpsProvider) : null;
+      const sshRemoteUrl = httpsProvider && currentRemoteUrl ? gitAuthSshRemoteUrl(httpsProvider, currentRemoteUrl) : null;
+
       const command = upstream ? "git push" : `git push -u ${remote} ${branch}`;
       const dirtyNote = hasChanges(cwd) ? "\n\nNote: uncommitted local changes will not be pushed." : "";
       let commitIdentityNote = "\n\nCommit identity: not configured locally for this repository.";
@@ -665,15 +697,33 @@ export default function (pi: ExtensionAPI) {
         const identity = validateGitIdentity(getConfiguredGitIdentity(cwd));
         commitIdentityNote = `\n\nCommit identity: ${identity.name} <${identity.email}>`;
       } catch {}
+      const pushAuthPlan = nativeAuthTool && httpsProvider
+        ? `\n\nPush auth plan: ${httpsProvider} HTTPS remote detected; will use native ${nativeAuthTool} auth tooling before push. If native auth is unavailable, will switch ${pushRemote} to SSH:\n  git remote set-url ${pushRemote} ${sshRemoteUrl}`
+        : sshRemoteUrl
+          ? `\n\nPush auth plan: ${httpsProvider} HTTPS remote detected and no native auth tool is installed; will switch ${pushRemote} to SSH before push:\n  git remote set-url ${pushRemote} ${sshRemoteUrl}`
+          : "";
       const authNote = "\n\nNote: /git-identity configures commit author identity only. Push authentication uses your Git remote credentials.";
       const ok = await ctx.ui.confirm(
         "Push current Git branch?",
-        `Repository: ${cwd}\nBranch: ${branch}\n${upstream ? `Upstream: ${upstream}` : `No upstream configured; this will create/set ${remote}/${branch}.`}\n\nCommand:\n  ${command}${dirtyNote}${commitIdentityNote}${authNote}`,
+        `Repository: ${cwd}\nBranch: ${branch}\n${upstream ? `Upstream: ${upstream}` : `No upstream configured; this will create/set ${remote}/${branch}.`}\n\nCommand:\n  ${command}${dirtyNote}${commitIdentityNote}${pushAuthPlan}${authNote}`,
         { timeout: 60_000 }
       );
       if (!ok) return;
 
       try {
+        if (nativeAuthTool && httpsProvider) {
+          try {
+            const nativeCommand = setupNativeGitAuth(cwd, httpsProvider);
+            if (nativeCommand) ctx.ui.notify(`Prepared ${httpsProvider} HTTPS Git authentication with ${nativeCommand}.`, "info");
+          } catch (error) {
+            if (!sshRemoteUrl) throw error;
+            setRemoteUrl(cwd, pushRemote, sshRemoteUrl);
+            ctx.ui.notify(`Native ${httpsProvider} auth was unavailable; switched ${pushRemote} remote to SSH for push: ${sshRemoteUrl}`, "warning");
+          }
+        } else if (sshRemoteUrl) {
+          setRemoteUrl(cwd, pushRemote, sshRemoteUrl);
+          ctx.ui.notify(`Switched ${pushRemote} remote to SSH for push: ${sshRemoteUrl}`, "info");
+        }
         const pushed = pushCurrentBranch(cwd, remote);
         ctx.ui.notify(`Pushed ${pushed.branch}${pushed.upstream ? ` to ${pushed.upstream}` : ` and set upstream on ${remote}/${pushed.branch}`}.`, "info");
       } catch (error) {
