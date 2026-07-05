@@ -125,6 +125,7 @@ Behavior:
 - auto-checkpoints at agent turn end for major mutations,
 - `off|major|any` modes,
 - excludes local `.pi` state from staging,
+- `/git-auth` guides remote authentication setup for GitHub, GitLab, Bitbucket, and custom SSH hosts without collecting tokens/passwords,
 - `/git-identity` configures repo-local commit author `user.name` and `user.email` only after explicit user confirmation, and asks before updating an existing local commit identity,
 - auto-checkpoint commit identity failures prompt for name/email, then require confirmation before writing `.git/config`,
 - `/git-push` pushes the current branch after confirmation, using existing upstream or creating/setting `origin/<branch>`; push authentication is handled by Git remote credentials, not `/git-identity`,

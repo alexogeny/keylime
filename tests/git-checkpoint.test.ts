@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, isGitPushAuthError, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitRemoteName } from "../extensions/git-checkpoint";
+import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, gitAuthSshKeyPath, gitAuthSshTestCommand, isGitPushAuthError, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, normalizeGitAuthProvider, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitAuthHost, validateGitRemoteName } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -103,6 +103,21 @@ describe("git checkpoint tool gating", () => {
     expect(isGitPushAuthError({ stderr: "remote: Repository not found." })).toBe(true);
     expect(isGitPushAuthError({ stderr: "Permission denied (publickey)." })).toBe(true);
     expect(isGitPushAuthError({ stderr: "fatal: not a git repository" })).toBe(false);
+  });
+
+  test("normalizes git-auth provider helpers", () => {
+    expect(normalizeGitAuthProvider("gh")).toBe("github");
+    expect(normalizeGitAuthProvider("GitLab")).toBe("gitlab");
+    expect(normalizeGitAuthProvider("bb")).toBe("bitbucket");
+    expect(normalizeGitAuthProvider("custom")).toBe("custom");
+    expect(() => normalizeGitAuthProvider("sourcehut")).toThrow("Unsupported git auth provider");
+    expect(gitAuthSshKeyPath("github", "github.com")).toContain("keylime_github.com_ed25519");
+    expect(validateGitAuthHost("git.example.com")).toBe("git.example.com");
+    expect(() => validateGitAuthHost("bad host\nHost evil")).toThrow("Unsafe Git auth host");
+    expect(gitAuthSshKeyPath("custom", "git.example.com")).toContain("keylime_git.example.com_ed25519");
+    expect(gitAuthSshTestCommand("github")).toBe("ssh -T git@github.com");
+    expect(gitAuthSshTestCommand("bitbucket")).toBe("ssh -T git@bitbucket.org");
+    expect(gitAuthSshTestCommand("custom", "git.example.com")).toBe("ssh -T git.example.com");
   });
 
   test("validates git remote names for push", () => {

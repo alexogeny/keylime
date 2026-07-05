@@ -6,6 +6,9 @@
  *   /checkpoint        — manual checkpoint
  *   /undo              — hard-reset to the last checkpoint
  *   /checkpoint-log    — list checkpoints created this session
+ *   /git-auth          — guided remote authentication setup
+ *   /git-identity      — repo-local commit author identity setup
+ *   /git-push          — confirmed non-interactive push
  *
  * Integrates with danger-guard: that extension checks for "git-checkpoint"
  * custom session entries to show a safety note in its confirmation dialogs.
@@ -13,6 +16,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 export { autoCheckpointMode, classifyToolMutation, classifyToolResultMutation, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
@@ -36,6 +42,104 @@ function git(cwd: string, args: string[]): string {
 
 function gitBuffer(cwd: string, args: string[]): Buffer {
   return execFileSync("git", args, { cwd });
+}
+
+export type GitAuthProvider = "github" | "gitlab" | "bitbucket" | "custom";
+export type GitAuthMode = "ssh" | "https";
+
+const GIT_AUTH_PROVIDERS: GitAuthProvider[] = ["github", "gitlab", "bitbucket", "custom"];
+const GIT_AUTH_DEFAULT_HOSTS: Record<Exclude<GitAuthProvider, "custom">, string> = {
+  github: "github.com",
+  gitlab: "gitlab.com",
+  bitbucket: "bitbucket.org",
+};
+const GIT_AUTH_SSH_KEY_URLS: Record<Exclude<GitAuthProvider, "custom">, string> = {
+  github: "https://github.com/settings/ssh/new",
+  gitlab: "https://gitlab.com/-/user_settings/ssh_keys",
+  bitbucket: "https://bitbucket.org/account/settings/ssh-keys/",
+};
+const GIT_AUTH_HTTPS_URLS: Record<Exclude<GitAuthProvider, "custom">, string> = {
+  github: "https://github.com/settings/tokens",
+  gitlab: "https://gitlab.com/-/user_settings/personal_access_tokens",
+  bitbucket: "https://bitbucket.org/account/settings/app-passwords/",
+};
+
+export function normalizeGitAuthProvider(value: string): GitAuthProvider {
+  const normalized = String(value ?? "").trim().toLowerCase().replace(/\s+/g, "");
+  if (normalized === "gh" || normalized === "github") return "github";
+  if (normalized === "gl" || normalized === "gitlab") return "gitlab";
+  if (normalized === "bb" || normalized === "bitbucket") return "bitbucket";
+  if (normalized === "custom" || normalized === "ssh") return "custom";
+  throw new Error(`Unsupported git auth provider: ${value || "<empty>"}`);
+}
+
+export function validateGitAuthHost(host: string): string {
+  const trimmed = String(host ?? "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/.test(trimmed)) throw new Error(`Unsafe Git auth host: ${host}`);
+  if (trimmed.includes("..")) throw new Error(`Unsafe Git auth host: ${host}`);
+  return trimmed;
+}
+
+export function gitAuthSshKeyPath(provider: GitAuthProvider, host = provider === "custom" ? "custom" : GIT_AUTH_DEFAULT_HOSTS[provider]): string {
+  const safeHost = validateGitAuthHost(host).toLowerCase().replace(/[^a-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || provider;
+  return join(homedir(), ".ssh", `keylime_${safeHost}_ed25519`);
+}
+
+export function gitAuthSshTestCommand(provider: GitAuthProvider, host?: string): string {
+  const target = provider === "custom" ? (host || "<git-host>") : `git@${host || GIT_AUTH_DEFAULT_HOSTS[provider]}`;
+  return `ssh -T ${target}`;
+}
+
+function commandExists(command: string): boolean {
+  try { execFileSync(command, ["--version"], { stdio: "ignore" }); return true; }
+  catch { return false; }
+}
+
+function runInteractive(cwd: string, command: string, args: string[]): void {
+  execFileSync(command, args, { cwd, stdio: "inherit", env: { ...process.env, GIT_TERMINAL_PROMPT: "1" } });
+}
+
+function openUrl(url: string): boolean {
+  const attempts: Array<[string, string[]]> = process.platform === "darwin"
+    ? [["open", [url]]]
+    : process.platform === "win32"
+      ? [["cmd", ["/c", "start", "", url]]]
+      : [["xdg-open", [url]], ["gio", ["open", url]]];
+  for (const [command, args] of attempts) {
+    try { execFileSync(command, args, { stdio: "ignore" }); return true; }
+    catch {}
+  }
+  return false;
+}
+
+function generateSshKeyIfMissing(path: string, comment: string): boolean {
+  if (existsSync(path) && existsSync(`${path}.pub`)) return false;
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  execFileSync("ssh-keygen", ["-t", "ed25519", "-C", comment, "-f", path, "-N", ""], { stdio: "ignore" });
+  return true;
+}
+
+function publicKeyText(path: string): string {
+  return readFileSync(`${path}.pub`, "utf8").trim();
+}
+
+function appendSshConfigHost(host: string, keyPath: string): void {
+  const configPath = join(homedir(), ".ssh", "config");
+  const current = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  if (current.includes(`Host ${host}\n`) || current.includes(`Host ${host}\r\n`)) return;
+  appendFileSync(configPath, `\nHost ${host}\n  HostName ${host}\n  User git\n  IdentityFile ${keyPath}\n  IdentitiesOnly yes\n`, { mode: 0o600 });
+}
+
+function splitGitAuthArgs(args: string): { provider?: GitAuthProvider; mode?: GitAuthMode; host?: string } {
+  const parts = String(args ?? "").trim().split(/\s+/).filter(Boolean);
+  const result: { provider?: GitAuthProvider; mode?: GitAuthMode; host?: string } = {};
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    if (lower === "ssh" || lower === "https") result.mode = lower;
+    else if (!result.provider) result.provider = normalizeGitAuthProvider(part);
+    else result.host = part;
+  }
+  return result;
 }
 
 function splitNulPaths(buffer: Buffer): string[] {
@@ -341,6 +445,113 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     latestCheckpoint = null;
+  });
+
+  // ── /git-auth ───────────────────────────────────────────────────────────
+
+  pi.registerCommand("git-auth", {
+    description: "Guide Git remote authentication setup for GitHub, GitLab, Bitbucket, or a custom SSH host",
+    handler: async (args, ctx) => {
+      const cwd = ctx.cwd;
+      if (!isGitRepo(cwd)) {
+        ctx.ui.notify("Not a git repository — cannot configure Git remote authentication.", "error");
+        return;
+      }
+      if (!ctx?.ui?.confirm) {
+        ctx.ui.notify("Cannot configure Git authentication without an explicit confirmation UI.", "error");
+        return;
+      }
+
+      let parsed: { provider?: GitAuthProvider; mode?: GitAuthMode; host?: string };
+      try {
+        parsed = splitGitAuthArgs(String(args ?? ""));
+      } catch (error) {
+        ctx.ui.notify(String((error as Error).message ?? error), "error");
+        return;
+      }
+
+      let provider = parsed.provider;
+      if (!provider) {
+        if (!ctx?.ui?.select) {
+          ctx.ui.notify("Usage: /git-auth github|gitlab|bitbucket|custom [ssh|https] [custom-host]", "error");
+          return;
+        }
+        provider = normalizeGitAuthProvider(await ctx.ui.select("Choose Git provider", [...GIT_AUTH_PROVIDERS]));
+      }
+
+      let mode = parsed.mode;
+      if (!mode) {
+        if (provider === "custom") mode = "ssh";
+        else if (ctx?.ui?.select) mode = await ctx.ui.select("Choose Git authentication mode", ["ssh", "https"]) as GitAuthMode;
+        else mode = "ssh";
+      }
+
+      const host = parsed.host || (provider === "custom" ? await ctx.ui.input?.("Custom Git SSH host", "Hostname for SSH, e.g. git.example.com:", "git.example.com") : GIT_AUTH_DEFAULT_HOSTS[provider]);
+      try { if (host) validateGitAuthHost(host); } catch (error) {
+        ctx.ui.notify(String((error as Error).message ?? error), "error");
+        return;
+      }
+      if (provider === "custom" && !host) {
+        ctx.ui.notify("Custom Git authentication requires a host, e.g. /git-auth custom ssh git.example.com", "error");
+        return;
+      }
+
+      if (provider === "github" && commandExists("gh")) {
+        const ok = await ctx.ui.confirm("Authenticate GitHub?", `This will run:\n\n  gh auth login --web --git-protocol ${mode}\n  gh auth setup-git\n\nGitHub CLI owns the browser login and credential storage. Continue?`, { timeout: 60_000 });
+        if (!ok) return;
+        try {
+          runInteractive(cwd, "gh", ["auth", "login", "--web", "--git-protocol", mode]);
+          runInteractive(cwd, "gh", ["auth", "setup-git"]);
+          ctx.ui.notify("GitHub authentication configured via GitHub CLI.", "info");
+          return;
+        } catch (error) {
+          ctx.ui.notify(`GitHub authentication failed: ${gitErrorText(error).trim() || String(error)}`, "error");
+          return;
+        }
+      }
+
+      if (provider === "gitlab" && commandExists("glab")) {
+        const ok = await ctx.ui.confirm("Authenticate GitLab?", `This will run:\n\n  glab auth login --web --git-protocol ${mode}\n\nGitLab CLI owns the browser login and credential storage. Continue?`, { timeout: 60_000 });
+        if (!ok) return;
+        try {
+          runInteractive(cwd, "glab", ["auth", "login", "--web", "--git-protocol", mode]);
+          ctx.ui.notify("GitLab authentication configured via GitLab CLI.", "info");
+          return;
+        } catch (error) {
+          ctx.ui.notify(`GitLab authentication failed: ${gitErrorText(error).trim() || String(error)}`, "error");
+          return;
+        }
+      }
+
+      if (mode === "https" && provider !== "custom") {
+        const url = GIT_AUTH_HTTPS_URLS[provider];
+        const ok = await ctx.ui.confirm("Open HTTPS credential setup?", `No supported provider CLI was detected for automatic browser login.\n\nThis will open:\n  ${url}\n\nUse Git Credential Manager or the provider's token/app-password flow for HTTPS Git credentials. Keylime will not ask for or store tokens. Continue?`, { timeout: 60_000 });
+        if (!ok) return;
+        const opened = openUrl(url);
+        ctx.ui.notify(opened ? `Opened ${url}` : `Open this URL to configure HTTPS Git credentials: ${url}`, opened ? "info" : "warning");
+        return;
+      }
+
+      const sshHost = host || (provider === "custom" ? "<git-host>" : GIT_AUTH_DEFAULT_HOSTS[provider]);
+      const keyPath = gitAuthSshKeyPath(provider, sshHost);
+      const keyOk = await ctx.ui.confirm("Set up SSH key for Git?", `This will create a dedicated ed25519 SSH key if missing:\n\n  ${keyPath}\n\nThen Keylime will show the public key so you can add it to ${provider === "custom" ? sshHost : provider}. Continue?`, { timeout: 60_000 });
+      if (!keyOk) return;
+
+      try {
+        const created = generateSshKeyIfMissing(keyPath, `keylime-${provider}@${sshHost}`);
+        if (provider === "custom") {
+          const configOk = await ctx.ui.confirm("Add SSH config host entry?", `Add this entry to ~/.ssh/config?\n\nHost ${sshHost}\n  HostName ${sshHost}\n  User git\n  IdentityFile ${keyPath}\n  IdentitiesOnly yes`, { timeout: 60_000 });
+          if (configOk) appendSshConfigHost(sshHost, keyPath);
+        } else {
+          const url = GIT_AUTH_SSH_KEY_URLS[provider];
+          openUrl(url);
+        }
+        const pub = publicKeyText(keyPath);
+        ctx.ui.notify(`${created ? "Created" : "Using existing"} SSH key:\n${keyPath}\n\nAdd this public key to your Git provider:\n${pub}\n\nTest with: ${gitAuthSshTestCommand(provider, sshHost)}`, "info");
+      } catch (error) {
+        ctx.ui.notify(`SSH authentication setup failed: ${gitErrorText(error).trim() || String(error)}`, "error");
+      }
+    },
   });
 
   // ── /git-identity ───────────────────────────────────────────────────────
