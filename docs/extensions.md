@@ -168,7 +168,7 @@ Blocks in coding mode:
 - native repo inspection commands through `bash`: `ls`, `find`, `grep`, `egrep`, `fgrep`, `rg`, `jq`, `cat`, `head`, `tail`, `wc`,
 - raw mutating git commands.
 
-Prompts for protected paths such as `.env`, `.git`, `node_modules`, home credential dirs, and system paths.
+Prompts for protected paths such as `.env`, `.git`, `node_modules`, home credential dirs, and system paths. Small exact `apply_code_replacements` batches across a few explicit files stay below the high-risk confirmation threshold; broad globs, regexes, and replace-all edits still require confirmation.
 
 ## Research and web knowledge
 

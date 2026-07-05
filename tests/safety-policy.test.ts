@@ -16,6 +16,37 @@ describe("central mutation classification", () => {
     expect(broad).toMatchObject({ mutates: true, category: "file_replace", severity: "high", score: 8, requiresConfirmation: true, checkpointScore: "major" });
   });
 
+  test("does not require confirmation for small exact replacements across a few explicit files", () => {
+    const c = classifyToolMutation("apply_code_replacements", {
+      edits: [
+        { path: "README.md", oldText: "old", newText: "new", expectedReplacements: 1 },
+        { path: "docs/extensions.md", oldText: "old", newText: "new", expectedReplacements: 1 },
+        { path: "tests/example.test.ts", oldText: "old", newText: "new", expectedReplacements: 1 },
+      ],
+    });
+
+    expect(c).toMatchObject({ mutates: true, category: "file_replace", severity: "medium", score: 3, requiresConfirmation: false, checkpointScore: "minor" });
+    expect(c.reasons.join("\n")).toContain("small targeted replacements across 3 files");
+  });
+
+  test("still requires confirmation for multi-file regex or replace-all replacements", () => {
+    const regex = classifyToolMutation("apply_code_replacements", {
+      edits: [
+        { path: "src/a.ts", regex: "foo", newText: "bar" },
+        { path: "src/b.ts", regex: "foo", newText: "bar" },
+      ],
+    });
+    expect(regex).toMatchObject({ score: 8, requiresConfirmation: true, checkpointScore: "major" });
+
+    const replaceAll = classifyToolMutation("apply_code_replacements", {
+      edits: [
+        { path: "src/a.ts", oldText: "foo", newText: "bar", replaceAll: true },
+        { path: "src/b.ts", oldText: "foo", newText: "bar" },
+      ],
+    });
+    expect(replaceAll).toMatchObject({ score: 8, requiresConfirmation: true, checkpointScore: "major" });
+  });
+
   test("classifies create operations and keeps mutationScoreForTool compatible", () => {
     expect(classifyToolMutation("create_file", { path: "src/new.ts" })).toMatchObject({ category: "file_create", score: 2 });
     expect(classifyToolMutation("begin_file_write", { path: "src/large.ts" })).toMatchObject({ category: "readonly", score: 0 });
