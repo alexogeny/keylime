@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest } from "../extensions/git-checkpoint";
+import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitRemoteName } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -98,6 +98,13 @@ describe("git checkpoint tool gating", () => {
     expect(isMissingGitIdentityError({ stderr: "fatal: not a git repository" })).toBe(false);
   });
 
+  test("validates git remote names for push", () => {
+    expect(validateGitRemoteName("origin")).toBe("origin");
+    expect(validateGitRemoteName("team/upstream-1")).toBe("team/upstream-1");
+    expect(() => validateGitRemoteName("origin;rm -rf .")).toThrow("Unsafe git remote");
+    expect(() => validateGitRemoteName("../origin")).toThrow("Unsafe git remote");
+  });
+
   test("git-identity command requires prompt values and explicit confirmation before configuring local repo", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "keylime-identity-"));
     execFileSync("git", ["init"], { cwd, stdio: "ignore" });
@@ -135,5 +142,47 @@ describe("git checkpoint tool gating", () => {
     expect(execFileSync("git", ["config", "--local", "user.name"], { cwd }).toString().trim()).toBe("Keylime Agent");
     expect(execFileSync("git", ["config", "--local", "user.email"], { cwd }).toString().trim()).toBe("agent@example.com");
     expect(notifications.join("\n")).toContain("Configured local Git identity");
+  });
+
+  test("git-push requires confirmation and creates upstream branch on remote", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "keylime-push-work-"));
+    const remote = await mkdtemp(join(tmpdir(), "keylime-push-remote-"));
+    execFileSync("git", ["init", "--bare"], { cwd: remote, stdio: "ignore" });
+    execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd });
+    await writeFile(join(cwd, "tracked.txt"), "one\n", "utf8");
+    execFileSync("git", ["add", "tracked.txt"], { cwd });
+    execFileSync("git", ["commit", "-m", "init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["remote", "add", "origin", remote], { cwd });
+    const branch = execFileSync("git", ["branch", "--show-current"], { cwd }).toString().trim();
+
+    const commands: Record<string, any> = {};
+    gitCheckpointExtension({
+      on: () => {},
+      registerCommand: (name: string, command: any) => { commands[name] = command; },
+      appendEntry: () => {},
+    } as any);
+
+    const notifications: string[] = [];
+    const ctx = {
+      cwd,
+      waitForIdle: async () => {},
+      ui: {
+        confirm: async (_title: string, message: string) => {
+          expect(message).toContain(`git push -u origin ${branch}`);
+          return true;
+        },
+        notify: (text: string) => notifications.push(text),
+        setStatus: () => {},
+      },
+      sessionManager: { getEntries: () => [] },
+    };
+
+    await commands["git-push"].handler("", ctx);
+
+    expect(execFileSync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], { cwd }).toString().trim()).toBe(`origin/${branch}`);
+    expect(execFileSync("git", ["--git-dir", remote, "rev-parse", `refs/heads/${branch}`]).toString().trim()).toHaveLength(40);
+    expect(notifications.join("\n")).toContain("Pushed");
   });
 });

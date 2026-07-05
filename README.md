@@ -62,7 +62,7 @@ Examples:
 - `code-primitives.ts` — safe file inspection and mutation tools.
 - `repo-index/index.ts` — compact repo map and tiered `code_search`.
 - `danger-guard.ts` — runtime blocking/confirmation for risky tools and paths.
-- `git-checkpoint.ts` — rollback checkpoints, `/undo`, and explicitly gated local Git identity setup for checkpoint commits.
+- `git-checkpoint.ts` — rollback checkpoints, `/undo`, explicitly gated Git identity setup, and confirmed `/git-push`.
 - `git-tools.ts` — read-only git status, diff, history, and checkpoint inspection tools.
 - `test-runner.ts` — safe test/typecheck/lint runner.
 - `turn-context-composer.ts` — one bounded reminder per turn.

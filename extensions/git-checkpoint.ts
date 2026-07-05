@@ -205,6 +205,40 @@ function makeCheckpoint(cwd: string): Checkpoint | null {
   return makeCheckpointAttempt(cwd).checkpoint;
 }
 
+export function validateGitRemoteName(remote: string): string {
+  const trimmed = String(remote ?? "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/.test(trimmed)) throw new Error(`Unsafe git remote: ${remote}`);
+  if (trimmed.includes("..") || trimmed.includes("@{") || trimmed.includes("//")) throw new Error(`Unsafe git remote: ${remote}`);
+  return trimmed;
+}
+
+function currentPushBranch(cwd: string): string {
+  const branch = getCurrentBranch(cwd);
+  if (!branch || branch === "HEAD" || branch === "unknown") throw new Error("Cannot push from detached HEAD; check out a branch first.");
+  return branch;
+}
+
+function getUpstreamBranch(cwd: string): string | null {
+  try { return git(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]); }
+  catch { return null; }
+}
+
+function remoteExists(cwd: string, remote: string): boolean {
+  try { git(cwd, ["remote", "get-url", validateGitRemoteName(remote)]); return true; }
+  catch { return false; }
+}
+
+function pushCurrentBranch(cwd: string, remote = "origin"): { branch: string; upstream: string | null; command: string[]; output: string } {
+  const safeRemote = validateGitRemoteName(remote);
+  const branch = currentPushBranch(cwd);
+  const upstream = getUpstreamBranch(cwd);
+  if (!upstream && !remoteExists(cwd, safeRemote)) throw new Error(`Git remote not found: ${safeRemote}`);
+
+  const args = upstream ? ["push"] : ["push", "-u", safeRemote, branch];
+  const output = execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return { branch, upstream, command: ["git", ...args], output: String(output ?? "") };
+}
+
 export function shouldCheckpointTool(toolName: string, input: any): boolean {
   return mutationScoreForTool(toolName, input) > 0;
 }
@@ -290,6 +324,54 @@ export default function (pi: ExtensionAPI) {
         return;
       }
       await configureGitIdentityWithUserGate(cwd, ctx, "Configure the identity Git will use for local commits in this repository.");
+    },
+  });
+
+  // ── /git-push ────────────────────────────────────────────────────────────
+
+  pi.registerCommand("git-push", {
+    description: "Push the current branch to its upstream, or create/set the branch on origin after confirmation",
+    handler: async (args, ctx) => {
+      await ctx.waitForIdle?.();
+      const cwd = ctx.cwd;
+      if (!isGitRepo(cwd)) {
+        ctx.ui.notify("Not a git repository — cannot push.", "error");
+        return;
+      }
+      if (!ctx?.ui?.confirm) {
+        ctx.ui.notify("Cannot push without an explicit confirmation UI.", "error");
+        return;
+      }
+
+      let branch: string;
+      let remote: string;
+      let upstream: string | null;
+      try {
+        remote = validateGitRemoteName(String(args ?? "").trim() || "origin");
+        branch = currentPushBranch(cwd);
+        upstream = getUpstreamBranch(cwd);
+        if (!upstream && !remoteExists(cwd, remote)) throw new Error(`Git remote not found: ${remote}`);
+      } catch (error) {
+        ctx.ui.notify(String((error as Error).message ?? error), "error");
+        return;
+      }
+
+      const command = upstream ? "git push" : `git push -u ${remote} ${branch}`;
+      const dirtyNote = hasChanges(cwd) ? "\n\nNote: uncommitted local changes will not be pushed." : "";
+      const ok = await ctx.ui.confirm(
+        "Push current Git branch?",
+        `Repository: ${cwd}\nBranch: ${branch}\n${upstream ? `Upstream: ${upstream}` : `No upstream configured; this will create/set ${remote}/${branch}.`}\n\nCommand:\n  ${command}${dirtyNote}`,
+        { timeout: 60_000 }
+      );
+      if (!ok) return;
+
+      try {
+        const pushed = pushCurrentBranch(cwd, remote);
+        ctx.ui.notify(`Pushed ${pushed.branch}${pushed.upstream ? ` to ${pushed.upstream}` : ` and set upstream on ${remote}/${pushed.branch}`}.`, "info");
+      } catch (error) {
+        const text = gitErrorText(error).trim();
+        ctx.ui.notify(`Git push failed: ${text.slice(0, 1000) || String(error)}`, "error");
+      }
     },
   });
 
