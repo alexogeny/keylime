@@ -125,6 +125,8 @@ Behavior:
 - auto-checkpoints at agent turn end for major mutations,
 - `off|major|any` modes,
 - excludes local `.pi` state from staging,
+- `/git-identity` configures repo-local `user.name` and `user.email` only after explicit user confirmation,
+- auto-checkpoint identity failures prompt for name/email, then require confirmation before writing `.git/config`,
 - `/undo` resets to the latest checkpoint.
 
 ### `git-tools.ts`

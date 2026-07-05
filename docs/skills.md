@@ -14,6 +14,10 @@ Audit and design workflow for coding-agent harnesses. Use for Keylime/Pi extensi
 
 Rapid codebase orientation. Produces a mental model of entry points, data flow, abstractions, dependencies, tests, and build commands.
 
+### `change-planning`
+
+Repo-aware implementation planning. Produces constrained technical plans grounded in existing files, conventions, data models, contracts, and acceptance checks.
+
 ### `debug`
 
 Systematic debugging workflow: reproduce, isolate, hypothesize, fix, verify.

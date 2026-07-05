@@ -94,30 +94,115 @@ interface Checkpoint {
   hadChanges: boolean;
 }
 
-function makeCheckpoint(cwd: string): Checkpoint | null {
-  if (!isGitRepo(cwd)) return null;
+type CheckpointFailureReason = "not-git-repo" | "missing-identity" | "commit-failed" | "no-head";
 
-  const branch   = getCurrentBranch(cwd);
-  const changed  = hasChanges(cwd);
+interface CheckpointAttempt {
+  checkpoint: Checkpoint | null;
+  reason?: CheckpointFailureReason;
+  error?: string;
+}
+
+interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+function gitErrorText(error: unknown): string {
+  const e = error as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
+  return [e?.stderr, e?.stdout, e?.message].map(part => Buffer.isBuffer(part) ? part.toString("utf8") : String(part ?? "")).join("\n");
+}
+
+export function isMissingGitIdentityError(error: unknown): boolean {
+  const text = gitErrorText(error).toLowerCase();
+  return text.includes("author identity unknown") || text.includes("unable to auto-detect email address") || text.includes("please tell me who you are");
+}
+
+function getConfiguredGitIdentity(cwd: string): Partial<GitIdentity> {
+  const identity: Partial<GitIdentity> = {};
+  try { identity.name = git(cwd, ["config", "--get", "user.name"]); } catch {}
+  try { identity.email = git(cwd, ["config", "--get", "user.email"]); } catch {}
+  return identity;
+}
+
+function validateGitIdentity(identity: Partial<GitIdentity>): GitIdentity {
+  const name = String(identity.name ?? "").trim();
+  const email = String(identity.email ?? "").trim();
+  if (!name || name.length > 120 || /[\r\n\0]/.test(name)) throw new Error("Git user.name is required and must be a single line under 120 characters.");
+  if (!email || email.length > 254 || /[\s\r\n\0]/.test(email) || !email.includes("@")) throw new Error("Git user.email must be a single email-like value.");
+  return { name, email };
+}
+
+function setLocalGitIdentity(cwd: string, identity: GitIdentity): void {
+  execFileSync("git", ["config", "--local", "user.name", identity.name], { cwd });
+  execFileSync("git", ["config", "--local", "user.email", identity.email], { cwd });
+}
+
+async function configureGitIdentityWithUserGate(cwd: string, ctx: any, reason: string): Promise<boolean> {
+  if (!ctx?.ui?.input || !ctx?.ui?.confirm) {
+    ctx?.ui?.notify?.("Git identity is missing. Run `git config --local user.name` and `git config --local user.email`, or use a UI that supports prompts.", "error");
+    return false;
+  }
+
+  const current = getConfiguredGitIdentity(cwd);
+  const name = await ctx.ui.input("Git user.name", `${reason}\n\nName for local git commits in this repository:`, current.name ?? "");
+  const email = await ctx.ui.input("Git user.email", "Email for local git commits in this repository:", current.email ?? "");
+
+  let identity: GitIdentity;
+  try {
+    identity = validateGitIdentity({ name, email });
+  } catch (error) {
+    ctx.ui.notify(String((error as Error).message ?? error), "error");
+    return false;
+  }
+
+  const ok = await ctx.ui.confirm(
+    "Configure local Git identity?",
+    `This will run:\n\n  git config --local user.name ${JSON.stringify(identity.name)}\n  git config --local user.email ${JSON.stringify(identity.email)}\n\nThis changes only this repository's .git/config. Continue?`,
+    { timeout: 60_000 }
+  );
+  if (!ok) return false;
+
+  setLocalGitIdentity(cwd, identity);
+  ctx.ui.notify(`Configured local Git identity as ${identity.name} <${identity.email}>`, "info");
+  return true;
+}
+
+function makeCheckpointAttempt(cwd: string): CheckpointAttempt {
+  if (!isGitRepo(cwd)) return { checkpoint: null, reason: "not-git-repo" };
+
+  const branch = getCurrentBranch(cwd);
+  const changed = hasChanges(cwd);
 
   if (changed) {
     try {
       stageCheckpointChanges(cwd);
-      const ts  = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       execFileSync("git", ["commit", "-m", `pi: checkpoint ${ts}`, "--no-verify", "--quiet"], { cwd });
-    } catch { return null; }
+    } catch (error) {
+      return {
+        checkpoint: null,
+        reason: isMissingGitIdentityError(error) ? "missing-identity" : "commit-failed",
+        error: gitErrorText(error),
+      };
+    }
   }
 
   const hash = getCurrentHash(cwd);
-  if (!hash) return null;
+  if (!hash) return { checkpoint: null, reason: "no-head" };
 
   return {
-    hash,
-    branch,
-    cwd,
-    ts: new Date().toISOString(),
-    hadChanges: changed,
+    checkpoint: {
+      hash,
+      branch,
+      cwd,
+      ts: new Date().toISOString(),
+      hadChanges: changed,
+    },
   };
+}
+
+function makeCheckpoint(cwd: string): Checkpoint | null {
+  return makeCheckpointAttempt(cwd).checkpoint;
 }
 
 export function shouldCheckpointTool(toolName: string, input: any): boolean {
@@ -160,7 +245,15 @@ export default function (pi: ExtensionAPI) {
     mutationScoreThisTurn = 0;
     if (!isGitRepo(cwd) || !hasChanges(cwd)) return;
 
-    const cp = makeCheckpoint(cwd);
+    let attempt = makeCheckpointAttempt(cwd);
+    if (!attempt.checkpoint && attempt.reason === "missing-identity") {
+      lastAutoCheckpointAt = now;
+      const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your identity.");
+      if (!configured) return;
+      attempt = makeCheckpointAttempt(cwd);
+    }
+
+    const cp = attempt.checkpoint;
     if (!cp?.hadChanges) return;
     lastAutoCheckpointAt = now;
     recordCheckpoint(cp, ctx);
@@ -186,6 +279,20 @@ export default function (pi: ExtensionAPI) {
     latestCheckpoint = null;
   });
 
+  // ── /git-identity ───────────────────────────────────────────────────────
+
+  pi.registerCommand("git-identity", {
+    description: "Configure this repository's local git user.name and user.email after explicit confirmation",
+    handler: async (_args, ctx) => {
+      const cwd = ctx.cwd;
+      if (!isGitRepo(cwd)) {
+        ctx.ui.notify("Not a git repository — cannot configure git identity.", "error");
+        return;
+      }
+      await configureGitIdentityWithUserGate(cwd, ctx, "Configure the identity Git will use for local commits in this repository.");
+    },
+  });
+
   // ── /checkpoint ─────────────────────────────────────────────────────────
 
   pi.registerCommand("checkpoint", {
@@ -197,9 +304,15 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Not a git repository — nothing to checkpoint.", "error");
         return;
       }
-      const cp = makeCheckpoint(cwd);
+      let attempt = makeCheckpointAttempt(cwd);
+      if (!attempt.checkpoint && attempt.reason === "missing-identity") {
+        const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Checkpoint could not create a commit because Git does not know your identity.");
+        if (configured) attempt = makeCheckpointAttempt(cwd);
+      }
+
+      const cp = attempt.checkpoint;
       if (!cp) {
-        ctx.ui.notify("Failed to create checkpoint.", "error");
+        ctx.ui.notify(attempt.reason === "missing-identity" ? "Checkpoint cancelled: Git identity is still missing." : "Failed to create checkpoint.", "error");
         return;
       }
       recordCheckpoint(cp, ctx);

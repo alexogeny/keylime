@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest } from "../extensions/git-checkpoint";
+import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -90,5 +90,50 @@ describe("git checkpoint tool gating", () => {
     expect(shouldAutoCheckpointTurn(2, now - 46 * 60 * 1000, now, "major")).toBe(true);
     expect(shouldAutoCheckpointTurn(2, now - 1_000, now, "any")).toBe(true);
     expect(shouldAutoCheckpointTurn(8, now - 46 * 60 * 1000, now, "off")).toBe(false);
+  });
+
+  test("detects missing git identity errors", () => {
+    expect(isMissingGitIdentityError({ stderr: "Author identity unknown\n*** Please tell me who you are." })).toBe(true);
+    expect(isMissingGitIdentityError({ stderr: "fatal: unable to auto-detect email address" })).toBe(true);
+    expect(isMissingGitIdentityError({ stderr: "fatal: not a git repository" })).toBe(false);
+  });
+
+  test("git-identity command requires prompt values and explicit confirmation before configuring local repo", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "keylime-identity-"));
+    execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+
+    const commands: Record<string, any> = {};
+    gitCheckpointExtension({
+      on: () => {},
+      registerCommand: (name: string, command: any) => { commands[name] = command; },
+      appendEntry: () => {},
+    } as any);
+
+    const prompts: string[] = [];
+    const notifications: string[] = [];
+    const ctx = {
+      cwd,
+      ui: {
+        input: async (title: string) => {
+          prompts.push(title);
+          return title.includes("email") ? "agent@example.com" : "Keylime Agent";
+        },
+        confirm: async (_title: string, message: string) => {
+          expect(message).toContain("git config --local user.name");
+          expect(message).toContain("git config --local user.email");
+          return true;
+        },
+        notify: (text: string) => notifications.push(text),
+        setStatus: () => {},
+      },
+      sessionManager: { getEntries: () => [] },
+    };
+
+    await commands["git-identity"].handler("", ctx);
+
+    expect(prompts).toEqual(["Git user.name", "Git user.email"]);
+    expect(execFileSync("git", ["config", "--local", "user.name"], { cwd }).toString().trim()).toBe("Keylime Agent");
+    expect(execFileSync("git", ["config", "--local", "user.email"], { cwd }).toString().trim()).toBe("agent@example.com");
+    expect(notifications.join("\n")).toContain("Configured local Git identity");
   });
 });

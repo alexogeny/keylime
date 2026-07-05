@@ -62,7 +62,7 @@ Examples:
 - `code-primitives.ts` — safe file inspection and mutation tools.
 - `repo-index/index.ts` — compact repo map and tiered `code_search`.
 - `danger-guard.ts` — runtime blocking/confirmation for risky tools and paths.
-- `git-checkpoint.ts` — rollback checkpoints and `/undo`.
+- `git-checkpoint.ts` — rollback checkpoints, `/undo`, and explicitly gated local Git identity setup for checkpoint commits.
 - `git-tools.ts` — read-only git status, diff, history, and checkpoint inspection tools.
 - `test-runner.ts` — safe test/typecheck/lint runner.
 - `turn-context-composer.ts` — one bounded reminder per turn.
@@ -79,6 +79,7 @@ See [docs/extensions.md](docs/extensions.md) for the full extension map.
 
 - `agentic-programming` — audit/design workflow for coding-agent harnesses.
 - `repo-map` — rapid codebase orientation.
+- `change-planning` — repo-aware implementation planning.
 - `debug` — reproduce/isolate/hypothesize/fix workflow.
 - `refactor` — behavior-preserving restructuring workflow.
 - `typescript-engineering`, `python-codemod`, `rust-codemod`, `rust-systems` — language-specific engineering workflows.
