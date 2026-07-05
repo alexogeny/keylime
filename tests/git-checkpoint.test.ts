@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, gitAuthSshKeyPath, gitAuthSshTestCommand, isGitPushAuthError, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, normalizeGitAuthProvider, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitAuthHost, validateGitRemoteName } from "../extensions/git-checkpoint";
+import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, gitAuthSshKeyPath, gitAuthSshRemoteUrl, gitAuthSshTestCommand, isGitPushAuthError, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, normalizeGitAuthProvider, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitAuthHost, validateGitRemoteName } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -118,6 +118,18 @@ describe("git checkpoint tool gating", () => {
     expect(gitAuthSshTestCommand("github")).toBe("ssh -T git@github.com");
     expect(gitAuthSshTestCommand("bitbucket")).toBe("ssh -T git@bitbucket.org");
     expect(gitAuthSshTestCommand("custom", "git.example.com")).toBe("ssh -T git.example.com");
+  });
+
+  test("converts provider HTTPS remotes to SSH", () => {
+    expect(gitAuthSshRemoteUrl("github", "https://github.com/alexogeny/keylime")).toBe("git@github.com:alexogeny/keylime.git");
+    expect(gitAuthSshRemoteUrl("github", "https://github.com/alexogeny/keylime.git")).toBe("git@github.com:alexogeny/keylime.git");
+    expect(gitAuthSshRemoteUrl("github", "https://user@github.com/alexogeny/keylime/")).toBe("git@github.com:alexogeny/keylime.git");
+    expect(gitAuthSshRemoteUrl("gitlab", "https://gitlab.com/group/sub/project")).toBe("git@gitlab.com:group/sub/project.git");
+    expect(gitAuthSshRemoteUrl("bitbucket", "https://bitbucket.org/team/repo.git")).toBe("git@bitbucket.org:team/repo.git");
+    // Already SSH, wrong host, or unrelated URLs return null.
+    expect(gitAuthSshRemoteUrl("github", "git@github.com:alexogeny/keylime.git")).toBeNull();
+    expect(gitAuthSshRemoteUrl("github", "https://gitlab.com/alexogeny/keylime")).toBeNull();
+    expect(gitAuthSshRemoteUrl("github", "https://evil.com/github.com/x")).toBeNull();
   });
 
   test("validates git remote names for push", () => {

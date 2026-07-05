@@ -125,7 +125,7 @@ Behavior:
 - auto-checkpoints at agent turn end for major mutations,
 - `off|major|any` modes,
 - excludes local `.pi` state from staging,
-- `/git-auth` guides remote authentication setup for GitHub, GitLab, Bitbucket, and custom SSH hosts without collecting tokens/passwords, and ensures SSH key config in `~/.ssh/config`,
+- `/git-auth` guides remote authentication setup for GitHub, GitLab, Bitbucket, and custom SSH hosts without collecting tokens/passwords, ensures SSH key config in `~/.ssh/config`, and offers to switch an HTTPS `origin` remote to SSH,
 - `/git-identity` configures repo-local commit author `user.name` and `user.email` only after explicit user confirmation, and asks before updating an existing local commit identity,
 - auto-checkpoint commit identity failures prompt for name/email, then require confirmation before writing `.git/config`,
 - `/git-push` pushes the current branch after confirmation, using existing upstream or creating/setting `origin/<branch>`; push authentication is handled by Git remote credentials, not `/git-identity`,
@@ -142,6 +142,19 @@ Read-only git inspection layer. Use these instead of raw git commands:
 - `inspect_at_checkpoint`
 
 Raw git mutation commands are blocked in coding mode; commits should happen only through checkpointing.
+
+## Linux ops
+
+### `linux-discovery.ts`
+
+Adds read-only discovery tools for system investigations:
+
+- `grep_paths` — bounded recursive grep with binary skips, excludes, and caps.
+- `find_paths` — safe `find` wrapper for names/globs/types under one root.
+- `file_tree_matches` — combined find + content search, path-only by default.
+- `inspect_package_metadata` — read-only OS/developer package metadata.
+
+`grep_paths`, `find_paths`, and `file_tree_matches` are routed to Linux ops only and also check for active Linux capability at execution time. `inspect_package_metadata` is available in coding mode because package metadata is useful for development debugging.
 
 ## Safety
 

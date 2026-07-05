@@ -90,6 +90,27 @@ export function gitAuthSshTestCommand(provider: GitAuthProvider, host?: string):
   return `ssh -T ${target}`;
 }
 
+/**
+ * Convert an HTTPS remote URL for a known provider to its SSH equivalent.
+ * Returns null when the URL is not an HTTPS URL for that provider (e.g. it is
+ * already SSH, points at a different host, or is otherwise unrecognized).
+ */
+export function gitAuthSshRemoteUrl(provider: Exclude<GitAuthProvider, "custom">, remoteUrl: string): string | null {
+  const host = GIT_AUTH_DEFAULT_HOSTS[provider].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(remoteUrl ?? "").trim().match(new RegExp(`^https://(?:[^/@]+@)?${host}/(.+?)(?:\\.git)?/?$`, "i"));
+  if (!match) return null;
+  return `git@${GIT_AUTH_DEFAULT_HOSTS[provider]}:${match[1]}.git`;
+}
+
+function getRemoteUrl(cwd: string, remote = "origin"): string | null {
+  try { return git(cwd, ["remote", "get-url", remote]); }
+  catch { return null; }
+}
+
+function setRemoteUrl(cwd: string, remote: string, url: string): void {
+  execFileSync("git", ["remote", "set-url", validateGitRemoteName(remote), url], { cwd });
+}
+
 function commandExists(command: string): boolean {
   try { execFileSync(command, ["--version"], { stdio: "ignore" }); return true; }
   catch { return false; }
@@ -567,6 +588,27 @@ export default function (pi: ExtensionAPI) {
         }
         const pub = publicKeyText(keyPath);
         ctx.ui.notify(`${created ? "Created" : "Using existing"} SSH key:\n${keyPath}\n\nSSH config: ${configStatus} ~/.ssh/config entry for ${sshHost}.\n\nAdd this public key to your Git provider:\n${pub}\n\nTest with: ${gitAuthSshTestCommand(provider, sshHost)}`, "info");
+
+        // Offer to switch the origin remote from HTTPS to SSH so /git-push uses the key.
+        if (provider !== "custom") {
+          const currentRemote = getRemoteUrl(cwd, "origin");
+          const sshRemote = currentRemote ? gitAuthSshRemoteUrl(provider, currentRemote) : null;
+          if (currentRemote && sshRemote) {
+            const switchOk = await ctx.ui.confirm(
+              "Switch origin remote to SSH?",
+              `The 'origin' remote currently uses HTTPS:\n\n  ${currentRemote}\n\nSwitch it to SSH so /git-push uses your SSH key?\n\n  git remote set-url origin ${sshRemote}`,
+              { timeout: 60_000 }
+            );
+            if (switchOk) {
+              try {
+                setRemoteUrl(cwd, "origin", sshRemote);
+                ctx.ui.notify(`Set origin remote to ${sshRemote}. Once the key is added to ${provider}, /git-push will use SSH.`, "info");
+              } catch (error) {
+                ctx.ui.notify(`Failed to update origin remote: ${gitErrorText(error).trim() || String(error)}`, "error");
+              }
+            }
+          }
+        }
       } catch (error) {
         ctx.ui.notify(`SSH authentication setup failed: ${gitErrorText(error).trim() || String(error)}`, "error");
       }
