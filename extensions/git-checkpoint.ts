@@ -117,6 +117,15 @@ export function isMissingGitIdentityError(error: unknown): boolean {
   return text.includes("author identity unknown") || text.includes("unable to auto-detect email address") || text.includes("please tell me who you are");
 }
 
+export function isGitPushAuthError(error: unknown): boolean {
+  const text = gitErrorText(error).toLowerCase();
+  return text.includes("could not read username")
+    || text.includes("authentication failed")
+    || text.includes("terminal prompts disabled")
+    || text.includes("repository not found")
+    || text.includes("permission denied");
+}
+
 function getConfiguredGitIdentity(cwd: string): Partial<GitIdentity> {
   const identity: Partial<GitIdentity> = {};
   try { identity.name = git(cwd, ["config", "--get", "user.name"]); } catch {}
@@ -235,7 +244,16 @@ function pushCurrentBranch(cwd: string, remote = "origin"): { branch: string; up
   if (!upstream && !remoteExists(cwd, safeRemote)) throw new Error(`Git remote not found: ${safeRemote}`);
 
   const args = upstream ? ["push"] : ["push", "-u", safeRemote, branch];
-  const output = execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const output = execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      GCM_INTERACTIVE: "Never",
+    },
+  });
   return { branch, upstream, command: ["git", ...args], output: String(output ?? "") };
 }
 
@@ -358,9 +376,10 @@ export default function (pi: ExtensionAPI) {
 
       const command = upstream ? "git push" : `git push -u ${remote} ${branch}`;
       const dirtyNote = hasChanges(cwd) ? "\n\nNote: uncommitted local changes will not be pushed." : "";
+      const authNote = "\n\nNote: /git-identity configures commit author identity only. Push authentication uses your Git remote credentials.";
       const ok = await ctx.ui.confirm(
         "Push current Git branch?",
-        `Repository: ${cwd}\nBranch: ${branch}\n${upstream ? `Upstream: ${upstream}` : `No upstream configured; this will create/set ${remote}/${branch}.`}\n\nCommand:\n  ${command}${dirtyNote}`,
+        `Repository: ${cwd}\nBranch: ${branch}\n${upstream ? `Upstream: ${upstream}` : `No upstream configured; this will create/set ${remote}/${branch}.`}\n\nCommand:\n  ${command}${dirtyNote}${authNote}`,
         { timeout: 60_000 }
       );
       if (!ok) return;
@@ -369,6 +388,10 @@ export default function (pi: ExtensionAPI) {
         const pushed = pushCurrentBranch(cwd, remote);
         ctx.ui.notify(`Pushed ${pushed.branch}${pushed.upstream ? ` to ${pushed.upstream}` : ` and set upstream on ${remote}/${pushed.branch}`}.`, "info");
       } catch (error) {
+        if (isGitPushAuthError(error)) {
+          ctx.ui.notify("Git push failed because remote authentication is not configured. `/git-identity` only sets commit author name/email for this repo. Configure Git credentials, `gh auth login`, a credential helper/PAT, or use an SSH remote/key, then try `/git-push` again.", "error");
+          return;
+        }
         const text = gitErrorText(error).trim();
         ctx.ui.notify(`Git push failed: ${text.slice(0, 1000) || String(error)}`, "error");
       }

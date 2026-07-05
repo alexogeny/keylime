@@ -127,7 +127,7 @@ Behavior:
 - excludes local `.pi` state from staging,
 - `/git-identity` configures repo-local `user.name` and `user.email` only after explicit user confirmation,
 - auto-checkpoint identity failures prompt for name/email, then require confirmation before writing `.git/config`,
-- `/git-push` pushes the current branch after confirmation, using existing upstream or creating/setting `origin/<branch>`,
+- `/git-push` pushes the current branch after confirmation, using existing upstream or creating/setting `origin/<branch>`; push authentication is handled by Git remote credentials, not `/git-identity`,
 - `/undo` resets to the latest checkpoint.
 
 ### `git-tools.ts`

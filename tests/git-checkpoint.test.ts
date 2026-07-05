@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitRemoteName } from "../extensions/git-checkpoint";
+import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, isGitPushAuthError, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitRemoteName } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -98,6 +98,13 @@ describe("git checkpoint tool gating", () => {
     expect(isMissingGitIdentityError({ stderr: "fatal: not a git repository" })).toBe(false);
   });
 
+  test("detects git push authentication errors", () => {
+    expect(isGitPushAuthError({ stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" })).toBe(true);
+    expect(isGitPushAuthError({ stderr: "remote: Repository not found." })).toBe(true);
+    expect(isGitPushAuthError({ stderr: "Permission denied (publickey)." })).toBe(true);
+    expect(isGitPushAuthError({ stderr: "fatal: not a git repository" })).toBe(false);
+  });
+
   test("validates git remote names for push", () => {
     expect(validateGitRemoteName("origin")).toBe("origin");
     expect(validateGitRemoteName("team/upstream-1")).toBe("team/upstream-1");
@@ -171,6 +178,8 @@ describe("git checkpoint tool gating", () => {
       ui: {
         confirm: async (_title: string, message: string) => {
           expect(message).toContain(`git push -u origin ${branch}`);
+          expect(message).toContain("/git-identity configures commit author identity only");
+          expect(message).toContain("Push authentication uses your Git remote credentials");
           return true;
         },
         notify: (text: string) => notifications.push(text),
