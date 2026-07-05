@@ -16,7 +16,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
@@ -123,11 +123,32 @@ function publicKeyText(path: string): string {
   return readFileSync(`${path}.pub`, "utf8").trim();
 }
 
-function appendSshConfigHost(host: string, keyPath: string): void {
+function ensureSshConfigHost(host: string, keyPath: string): "added" | "updated" | "unchanged" {
+  const safeHost = validateGitAuthHost(host);
   const configPath = join(homedir(), ".ssh", "config");
+  mkdirSync(dirname(configPath), { recursive: true, mode: 0o700 });
   const current = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
-  if (current.includes(`Host ${host}\n`) || current.includes(`Host ${host}\r\n`)) return;
-  appendFileSync(configPath, `\nHost ${host}\n  HostName ${host}\n  User git\n  IdentityFile ${keyPath}\n  IdentitiesOnly yes\n`, { mode: 0o600 });
+  const lines = current.split(/\r?\n/);
+  const hostLine = `Host ${safeHost}`;
+  const start = lines.findIndex(line => line.trim() === hostLine);
+  const desired = [`  HostName ${safeHost}`, "  User git", `  IdentityFile ${keyPath}`, "  IdentitiesOnly yes"];
+
+  if (start === -1) {
+    appendFileSync(configPath, `${current.trim() ? "\n" : ""}${hostLine}\n${desired.join("\n")}\n`, { mode: 0o600 });
+    return "added";
+  }
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*Host\s+\S+/.test(lines[i])) { end = i; break; }
+  }
+  const block = lines.slice(start, end);
+  const additions = desired.filter(line => !block.some(existing => existing.trim() === line.trim()));
+  if (additions.length === 0) return "unchanged";
+
+  lines.splice(end, 0, ...additions);
+  writeFileSync(configPath, lines.join("\n"), { mode: 0o600 });
+  return "updated";
 }
 
 function splitGitAuthArgs(args: string): { provider?: GitAuthProvider; mode?: GitAuthMode; host?: string } {
@@ -534,20 +555,18 @@ export default function (pi: ExtensionAPI) {
 
       const sshHost = host || (provider === "custom" ? "<git-host>" : GIT_AUTH_DEFAULT_HOSTS[provider]);
       const keyPath = gitAuthSshKeyPath(provider, sshHost);
-      const keyOk = await ctx.ui.confirm("Set up SSH key for Git?", `This will create a dedicated ed25519 SSH key if missing:\n\n  ${keyPath}\n\nThen Keylime will show the public key so you can add it to ${provider === "custom" ? sshHost : provider}. Continue?`, { timeout: 60_000 });
+      const keyOk = await ctx.ui.confirm("Set up SSH key for Git?", `This will create a dedicated ed25519 SSH key if missing and ensure ~/.ssh/config uses it for ${sshHost}:\n\n  ${keyPath}\n\nThen Keylime will show the public key so you can add it to ${provider === "custom" ? sshHost : provider}. Continue?`, { timeout: 60_000 });
       if (!keyOk) return;
 
       try {
         const created = generateSshKeyIfMissing(keyPath, `keylime-${provider}@${sshHost}`);
-        if (provider === "custom") {
-          const configOk = await ctx.ui.confirm("Add SSH config host entry?", `Add this entry to ~/.ssh/config?\n\nHost ${sshHost}\n  HostName ${sshHost}\n  User git\n  IdentityFile ${keyPath}\n  IdentitiesOnly yes`, { timeout: 60_000 });
-          if (configOk) appendSshConfigHost(sshHost, keyPath);
-        } else {
+        const configStatus = ensureSshConfigHost(sshHost, keyPath);
+        if (provider !== "custom") {
           const url = GIT_AUTH_SSH_KEY_URLS[provider];
           openUrl(url);
         }
         const pub = publicKeyText(keyPath);
-        ctx.ui.notify(`${created ? "Created" : "Using existing"} SSH key:\n${keyPath}\n\nAdd this public key to your Git provider:\n${pub}\n\nTest with: ${gitAuthSshTestCommand(provider, sshHost)}`, "info");
+        ctx.ui.notify(`${created ? "Created" : "Using existing"} SSH key:\n${keyPath}\n\nSSH config: ${configStatus} ~/.ssh/config entry for ${sshHost}.\n\nAdd this public key to your Git provider:\n${pub}\n\nTest with: ${gitAuthSshTestCommand(provider, sshHost)}`, "info");
       } catch (error) {
         ctx.ui.notify(`SSH authentication setup failed: ${gitErrorText(error).trim() || String(error)}`, "error");
       }
