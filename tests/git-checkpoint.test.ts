@@ -65,6 +65,25 @@ describe("git checkpoint tool gating", () => {
     expect(await readFile(join(cwd, ".pi", "usage", "usage.ndjson"), "utf8")).toBe("{}\n");
   });
 
+  test("staging always locally ignores and unstages .pi state", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "keylime-checkpoint-ignore-"));
+    execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd });
+
+    await mkdir(join(cwd, ".pi", "usage"), { recursive: true });
+    await writeFile(join(cwd, ".pi", "usage", "usage.ndjson"), "{}\n", "utf8");
+    await writeFile(join(cwd, "tracked.txt"), "one\n", "utf8");
+
+    execFileSync("git", ["add", "--force", ".pi/usage/usage.ndjson"], { cwd });
+    stageCheckpointChangesForTest(cwd);
+
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd }).toString();
+    expect(staged).toContain("tracked.txt");
+    expect(staged).not.toContain(".pi");
+    expect(await readFile(join(cwd, ".git", "info", "exclude"), "utf8")).toContain(".pi/");
+  });
+
   test("scores mutations for low-noise auto-checkpointing", () => {
     expect(mutationScoreForTool("create_directory", { path: "x" })).toBe(1);
     expect(mutationScoreForTool("create_file", { path: "x" })).toBe(2);

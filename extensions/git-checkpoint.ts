@@ -18,11 +18,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 export { autoCheckpointMode, classifyToolMutation, classifyToolResultMutation, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
 const CHECKPOINT_EXCLUDED_PATHS = [".pi"];
+const PI_IGNORE_ENTRY = ".pi/";
 
 export function checkpointPathspecs(): string[] {
   return ["--", ".", ...CHECKPOINT_EXCLUDED_PATHS.map(path => `:!${path}`)];
@@ -34,6 +35,26 @@ export function checkpointAddArgs(): string[] {
 
 export function checkpointAddCommand(): string {
   return ["git", ...checkpointAddArgs().map(arg => arg.startsWith(":!") ? `'${arg}'` : arg)].join(" ");
+}
+
+function gitCommonDir(cwd: string): string {
+  const dir = git(cwd, ["rev-parse", "--git-common-dir"]);
+  return isAbsolute(dir) ? dir : join(cwd, dir);
+}
+
+function ensurePiIgnored(cwd: string): void {
+  const infoDir = join(gitCommonDir(cwd), "info");
+  const excludePath = join(infoDir, "exclude");
+  mkdirSync(infoDir, { recursive: true });
+  const current = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
+  const lines = current.split(/\r?\n/).map(line => line.trim());
+  if (lines.includes(PI_IGNORE_ENTRY) || lines.includes(".pi")) return;
+  appendFileSync(excludePath, `${current.endsWith("\n") || current.length === 0 ? "" : "\n"}${PI_IGNORE_ENTRY}\n`);
+}
+
+function unstagePiState(cwd: string): void {
+  try { execFileSync("git", ["reset", "-q", "--", ".pi"], { cwd, stdio: "ignore" }); }
+  catch {}
 }
 
 function git(cwd: string, args: string[]): string {
@@ -219,6 +240,10 @@ export function stageCheckpointChangesForTest(cwd: string): void {
 }
 
 function stageCheckpointChanges(cwd: string): void {
+  // Keep Pi session/tool-result state local-only in every repository, even when
+  // the repo does not have a committed .gitignore entry for it.
+  ensurePiIgnored(cwd);
+
   // Stage tracked modifications/deletions, excluding volatile local Pi state.
   execFileSync("git", checkpointAddArgs(), { cwd });
 
@@ -227,6 +252,10 @@ function stageCheckpointChanges(cwd: string): void {
   // files exist under .pi or other ignored directories.
   const untracked = splitNulPaths(gitBuffer(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...checkpointPathspecs()]));
   if (untracked.length > 0) execFileSync("git", ["add", "--", ...untracked], { cwd });
+
+  // If .pi was already staged manually before checkpointing, unstage it so the
+  // checkpoint commit never contains Pi local state.
+  unstagePiState(cwd);
 }
 
 function validateCheckpointHash(hash: string): string {
