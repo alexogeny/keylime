@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { currentCapabilityEnabled } from "./shared/intent";
+import { isCapabilityActive } from "./shared/intent";
 import { normalizeAbs, preview, riskyFilesystemTarget, runCommand, textResult } from "./shared/linux-safety";
 
 const linuxOpsGuidelines = [
@@ -22,7 +22,7 @@ const PACKAGE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9+._:@/-]*$/;
 type CommandError = Error & { stdout?: string; stderr?: string; code?: number | null };
 
 function requireLinuxOpsCapability(): void {
-  if (!currentCapabilityEnabled("linux")) throw new Error("This system discovery tool is only available under linux_ops/linux capability routing.");
+  if (!isCapabilityActive("linux")) throw new Error("This system discovery tool is only available under linux_ops/linux capability routing.");
 }
 
 function safeRoot(input: string): string {

@@ -64,7 +64,7 @@ Examples:
 - `danger-guard.ts` — runtime blocking/confirmation for risky tools and paths.
 - `git-checkpoint.ts` — rollback checkpoints, `/undo`, guided `/git-auth` with SSH config setup and HTTPS→SSH remote switching, explicitly gated Git commit identity setup, and confirmed non-interactive `/git-push` that uses native provider auth when available or switches HTTPS remotes to SSH.
 - `git-tools.ts` — read-only git status, diff, history, and checkpoint inspection tools.
-- `linux-discovery.ts` — Linux-ops-only read-only grep/find/file-tree discovery plus package metadata inspection.
+- `linux-*.ts` — capability-gated Linux operations for discovery, packages, systemd, config files, hardware, logs, networking, filesystems, users, processes, health checks, and advanced diagnostics; mutations use approval and expiring plan tokens.
 - `test-runner.ts` — safe test/typecheck/lint runner.
 - `turn-context-composer.ts` — one bounded reminder per turn.
 - `tool-result-compactor.ts` — stores oversized tool results under `.pi/tool-results` and returns compact summaries/previews.

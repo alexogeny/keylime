@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import linuxPackages from "../extensions/linux-packages";
 import linuxSystemd from "../extensions/linux-systemd";
 import linuxFiles from "../extensions/linux-files";
@@ -9,10 +12,14 @@ import linuxFilesystem from "../extensions/linux-filesystem";
 import linuxUsers from "../extensions/linux-users";
 import linuxProcesses from "../extensions/linux-processes";
 import linuxChecks from "../extensions/linux-checks";
-import { isSafeSystemPath, denylistedSystemdUnit, riskyFilesystemTarget, sudoPrefix } from "../extensions/shared/linux-safety";
+import linuxDiagnostics from "../extensions/linux-diagnostics";
+import linuxDiscovery from "../extensions/linux-discovery";
+import { consumeOperationPlan, createOperationPlan, isSafeSystemPath, denylistedSystemdUnit, operationTarget, resolveWithinRoots, riskyFilesystemTarget, sudoPrefix, validateHttpUrl, validateMode, validateOperand, validateSignal } from "../extensions/shared/linux-safety";
+import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 function registerAll() {
+  setCurrentRoute(classifyIntent("linux systemd apt pacman logs filesystem network diagnostics"));
   const harness = mockPiFixture();
   linuxPackages(harness.pi);
   linuxSystemd(harness.pi);
@@ -24,6 +31,8 @@ function registerAll() {
   linuxUsers(harness.pi);
   linuxProcesses(harness.pi);
   linuxChecks(harness.pi);
+  linuxDiagnostics(harness.pi);
+  linuxDiscovery(harness.pi);
   return harness;
 }
 
@@ -40,7 +49,10 @@ describe("linux operations tools", () => {
       "disk_usage_summary", "find_large_files", "plan_delete", "safe_delete",
       "inspect_user", "inspect_groups", "inspect_permissions", "plan_chmod", "apply_permissions_change",
       "list_processes", "inspect_process", "plan_kill_process", "kill_process",
-      "run_system_check",
+      "run_system_check", "grep_paths", "find_paths", "file_tree_matches",
+      "apt_remove", "pacman_plan_remove", "pacman_remove", "systemd_plan_action", "systemd_list_timers", "systemd_reload",
+      "inspect_routes", "inspect_resolver", "plan_archive_path", "apply_ownership_change",
+      "inspect_boot", "inspect_pressure", "inspect_disk_health", "inspect_open_deleted_files", "inspect_containers", "inspect_kernel_modules", "inspect_time_sync", "inspect_security_updates",
     ]));
   });
 
@@ -80,5 +92,52 @@ describe("linux operations tools", () => {
     expect(schema).toContain("validator");
     expect(schema).not.toContain("command");
     expect(schema).not.toContain("args");
+  });
+
+  test("guarded mutation schemas require plan tokens", () => {
+    const { tools } = registerAll();
+    for (const name of ["apt_install", "apt_remove", "pacman_install", "pacman_remove", "systemd_restart", "safe_delete", "archive_path", "apply_permissions_change", "apply_ownership_change", "kill_process", "apply_system_file_patch"]) {
+      expect(JSON.stringify(tools[name].parameters)).toContain("plan_token");
+    }
+  });
+
+  test("operation plans are single-use and bound to kind and target", () => {
+    const target = operationTarget({ path: "/tmp/example", mode: "600" });
+    const plan = createOperationPlan("chmod", target);
+    expect(() => consumeOperationPlan(plan.planToken, "chmod", target)).not.toThrow();
+    expect(() => consumeOperationPlan(plan.planToken, "chmod", target)).toThrow("valid plan_token");
+    const mismatch = createOperationPlan("chmod", target);
+    expect(() => consumeOperationPlan(mismatch.planToken, "chown", target)).toThrow("does not match");
+  });
+
+  test("validates option-like operands and constrained mutation values", () => {
+    expect(() => validateOperand("--help", "host")).toThrow("Invalid host");
+    expect(validateOperand("example.com", "host")).toBe("example.com");
+    expect(validateSignal("sigterm")).toBe("TERM");
+    expect(() => validateSignal("SEGV")).toThrow("Unsupported");
+    expect(validateMode("0640")).toBe("0640");
+    expect(() => validateMode("--reference=/tmp/x")).toThrow("Invalid chmod mode");
+    expect(validateHttpUrl("https://example.com/a")).toBe("https://example.com/a");
+    expect(() => validateHttpUrl("file:///etc/passwd")).toThrow("HTTP(S)");
+  });
+
+  test("resolved-root checks reject symlinks escaping an allowed log root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "keylime-linux-root-"));
+    const outside = await mkdtemp(path.join(os.tmpdir(), "keylime-linux-outside-"));
+    try {
+      await mkdir(path.join(root, "logs"));
+      await writeFile(path.join(outside, "secret.log"), "secret");
+      await symlink(path.join(outside, "secret.log"), path.join(root, "logs", "escape.log"));
+      await expect(resolveWithinRoots(path.join(root, "logs", "escape.log"), [path.join(root, "logs")])).rejects.toThrow("outside the allowed roots");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("Linux tools reject execution when Linux capability is inactive", async () => {
+    const { tools } = registerAll();
+    setCurrentRoute(classifyIntent("write a typescript function"));
+    await expect(tools.inspect_kernel.execute("id", {})).rejects.toThrow("linux_ops/linux");
   });
 });

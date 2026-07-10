@@ -1,10 +1,94 @@
 import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import path from "node:path";
+import { isCapabilityActive } from "./intent";
 
 const execFileAsync = promisify(execFile);
 
 export type CommandSpec = { command: string; args: string[]; label?: string; sudo?: boolean; stdin?: string; cwd?: string };
+
+type OperationPlan = { kind: string; target: string; expiresAt: number };
+const operationPlans = new Map<string, OperationPlan>();
+const PLAN_TTL_MS = 10 * 60 * 1000;
+
+export function requireLinuxCapability(): void {
+  if (!isCapabilityActive("linux")) throw new Error("This tool requires active linux_ops/linux capability routing.");
+}
+
+export function registerLinuxTool(pi: any, definition: any): void {
+  const execute = definition.execute;
+  pi.registerTool({
+    ...definition,
+    async execute(...args: any[]) {
+      requireLinuxCapability();
+      return execute(...args);
+    },
+  });
+}
+
+export function createOperationPlan(kind: string, target: string): { planToken: string; expiresAt: string } {
+  const now = Date.now();
+  for (const [token, plan] of operationPlans) if (plan.expiresAt <= now) operationPlans.delete(token);
+  while (operationPlans.size >= 256) operationPlans.delete(operationPlans.keys().next().value as string);
+  const planToken = randomUUID();
+  const expiresAt = now + PLAN_TTL_MS;
+  operationPlans.set(planToken, { kind, target, expiresAt });
+  return { planToken, expiresAt: new Date(expiresAt).toISOString() };
+}
+
+export function consumeOperationPlan(planToken: string, kind: string, target: string): void {
+  const plan = operationPlans.get(planToken);
+  operationPlans.delete(planToken);
+  if (!plan) throw new Error("A valid plan_token from the matching plan tool is required");
+  if (plan.expiresAt <= Date.now()) throw new Error("The operation plan has expired; run the plan tool again");
+  if (plan.kind !== kind || plan.target !== target) throw new Error("The operation plan does not match this request");
+}
+
+export function operationTarget(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+export function validateOperand(value: string, label: string): string {
+  if (!value || value.length > 500 || /[\0\r\n]/.test(value) || value.startsWith("-")) throw new Error(`Invalid ${label}`);
+  return value;
+}
+
+export function validateSignal(value = "TERM"): string {
+  const signal = value.toUpperCase().replace(/^SIG/, "");
+  if (!new Set(["TERM", "INT", "HUP", "QUIT", "USR1", "USR2", "STOP", "CONT", "KILL"]).has(signal)) throw new Error("Unsupported process signal");
+  return signal;
+}
+
+export function validateMode(value: string): string {
+  if (!/^(?:[0-7]{3,4}|[ugoa]*[+=-][rwxXstugo]+(?:,[ugoa]*[+=-][rwxXstugo]+)*)$/.test(value)) throw new Error("Invalid chmod mode");
+  return value;
+}
+
+export function validateHttpUrl(value: string): string {
+  if (value.length > 2000 || /[\0\r\n]/.test(value)) throw new Error("Invalid URL");
+  const parsed = new URL(value);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Only HTTP(S) URLs are supported");
+  return parsed.toString();
+}
+
+export async function resolveWithinRoots(input: string, roots: string[]): Promise<string> {
+  const target = await realpath(normalizeAbs(input));
+  for (const root of roots) {
+    try {
+      const resolvedRoot = await realpath(normalizeAbs(root));
+      if (target === resolvedRoot || target.startsWith(`${resolvedRoot}${path.sep}`)) return target;
+    } catch {}
+  }
+  throw new Error(`Path is outside the allowed roots: ${target}`);
+}
+
+export async function resolveSafeSystemPath(input: string): Promise<string> {
+  const target = await realpath(normalizeAbs(input));
+  if (!isSafeSystemPath(target)) throw new Error(`Unsafe system file path: ${target}`);
+  return target;
+}
 
 export const SYSTEM_FILE_ALLOW_PREFIXES = [
   "/etc/",

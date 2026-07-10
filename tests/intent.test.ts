@@ -135,3 +135,11 @@ test("routes Linux sysadmin requests to Linux tools", () => {
   expect(route.capabilityGroups).toContain("linux");
   expect(route.capabilityGroups).toContain("safety");
 });
+
+  test("routes advanced Linux diagnostics to Linux tools", () => {
+    for (const prompt of ["inspect docker containers", "check nvme disk health", "why is linux boot slow", "inspect memory pressure and time sync"]) {
+      const route = classifyIntent(prompt);
+      expect(route.primaryIntent).toBe("linux_ops");
+      expect(route.capabilityGroups).toContain("linux");
+    }
+  });

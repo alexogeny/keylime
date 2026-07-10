@@ -103,8 +103,8 @@ export const INTENT_PROFILES: IntentProfileDefinition[] = [
   },
   {
     id: "linux_ops",
-    phrases: ["linux system", "ubuntu server", "debian package", "arch package", "cachy package", "systemd service", "journal logs", "apt install", "pacman install", "sudo password", "disk full", "network diagnostics", "linux permissions", "kill process"],
-    keywords: ["linux", "ubuntu", "debian", "arch", "cachy", "systemd", "journalctl", "service", "services", "apt", "apt-get", "pacman", "paru", "yay", "sudo", "kernel", "lsblk", "mount", "ports", "firewall", "chmod", "chown", "process", "disk", "logs", "sysadmin"],
+    phrases: ["linux system", "ubuntu server", "debian package", "arch package", "cachy package", "systemd service", "journal logs", "apt install", "pacman install", "sudo password", "disk full", "network diagnostics", "linux permissions", "kill process", "docker container", "podman container", "smart disk health", "nvme health", "time sync", "ntp status", "boot slow", "memory pressure", "security updates"],
+    keywords: ["linux", "ubuntu", "debian", "arch", "cachy", "systemd", "journalctl", "service", "services", "apt", "apt-get", "pacman", "paru", "yay", "sudo", "kernel", "lsblk", "mount", "ports", "firewall", "chmod", "chown", "process", "disk", "logs", "sysadmin", "docker", "podman", "container", "smartctl", "nvme", "ntp", "timedatectl", "boot", "pressure", "lsof"],
     capabilityGroups: ["readonly", "linux", "safety"],
     skills: ["agentic-programming"],
     minScore: 3,

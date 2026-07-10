@@ -145,16 +145,31 @@ Raw git mutation commands are blocked in coding mode; commits should happen only
 
 ## Linux ops
 
-### `linux-discovery.ts`
+Linux operations are selected by the `linux_ops` intent and `linux` capability group rather than a separate operational mode. Every tool routed exclusively to Linux checks the active Linux capability again at execution time. Mutations require explicit UI approval; high-impact operations also require a matching, single-use plan token that expires after ten minutes.
 
-Adds read-only discovery tools for system investigations:
+### Modules
 
-- `grep_paths` — bounded recursive grep with binary skips, excludes, and caps.
-- `find_paths` — safe `find` wrapper for names/globs/types under one root.
-- `file_tree_matches` — combined find + content search, path-only by default.
-- `inspect_package_metadata` — read-only OS/developer package metadata.
+- `linux-discovery.ts` — bounded grep/find/file-tree discovery and cross-package-manager metadata inspection.
+- `linux-packages.ts` — APT and Pacman search/query plus token-bound install and removal plans.
+- `linux-systemd.ts` — unit status/logs, timers, and token-bound restart/enable/disable actions; critical SSH, networking, and display units are refused.
+- `linux-files.ts` — symlink-resolved allowlisted config inspection, backup/restore, checksum-bound exact patches, validator presets, and privileged install fallback.
+- `linux-hardware.ts` — kernel, CPU, memory, block-device, mount, GPU, and interface inspection.
+- `linux-logs.ts` — journal inspection and bounded tail/search under resolved `/var/log`, user state, and user cache roots, with secret redaction.
+- `linux-network.ts` — listening ports, DNS/HTTP/ping/route probes, routes, resolver state, and firewall status.
+- `linux-filesystem.ts` — metadata, disk use, large/recent file discovery, token-bound quarantine deletion, and token-bound archive creation.
+- `linux-users.ts` — users, groups, permissions, and token-bound chmod/chown changes.
+- `linux-processes.ts` — bounded process inspection and identity-checked, token-bound signaling.
+- `linux-checks.ts` — predefined health, package, network, and GPU check suites.
+- `linux-diagnostics.ts` — boot analysis, pressure stalls, disk health, deleted-open files, containers, kernel modules, time sync, and available security updates.
 
-`grep_paths`, `find_paths`, and `file_tree_matches` are routed to Linux ops only and also check for active Linux capability at execution time. `inspect_package_metadata` is available in coding mode because package metadata is useful for development debugging.
+### Safety contracts
+
+- User-controlled command operands reject option-like values and are passed without a shell.
+- System and log paths are resolved through symlinks before allowlist checks.
+- Plan tokens are bound to normalized operation parameters, expire after ten minutes, and are consumed once.
+- Destructive deletion is implemented as quarantine under `~/.local/share/keylime/trash`.
+- System config edits create backups, retain checksum/count guards, use fixed validator presets, roll back failed validation, and can use reviewed sudo installation for root-owned files.
+- `inspect_package_metadata` remains available in coding mode because it is useful for dependency debugging; the system-discovery tools require Linux routing.
 
 ## Safety
 

@@ -71,4 +71,11 @@ describe("shared tool policy", () => {
     expect(resolution.active).not.toContain("lookup_shoe");
     expect(resolution.active).not.toContain("bash");
   });
+  test("Linux plans, mutations, and diagnostics are routed and risk-classified", () => {
+    const map = capabilityToolMap();
+    expect(map.linux).toEqual(expect.arrayContaining(["apt_remove", "pacman_remove", "systemd_plan_action", "plan_archive_path", "apply_ownership_change", "inspect_boot", "inspect_disk_health", "inspect_containers"]));
+    expect(toolPolicyFor("plan_archive_path")).toMatchObject({ group: "linux", risk: "safe" });
+    expect(toolPolicyFor("archive_path")).toMatchObject({ group: "linux", risk: "guarded" });
+    expect(toolPolicyFor("apply_ownership_change")).toMatchObject({ group: "linux", risk: "guarded" });
+  });
 });
