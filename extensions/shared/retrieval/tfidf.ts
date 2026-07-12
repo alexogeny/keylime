@@ -49,12 +49,16 @@ export class TFIDFStore {
   }
 
   add(id: string, text: string): void {
+    this.addTokens(id, tokenize(text, this.tokenOptions));
+  }
+
+  addTokens(id: string, tokens: readonly string[]): void {
     this.remove(id);
-    const unique = new Set(tokenize(text, this.tokenOptions));
-    for (const t of unique) this.df.set(t, (this.df.get(t) ?? 0) + 1);
+    const unique = new Set(tokens);
+    for (const token of unique) this.df.set(token, (this.df.get(token) ?? 0) + 1);
     this.N++;
     const raw: Record<string, number> = {};
-    for (const t of unique) raw[t] = 1;
+    for (const token of unique) raw[token] = 1;
     this.vectors.set(id, raw);
     this.revision++;
   }

@@ -3,7 +3,6 @@ import { tokenize } from "./tokenize";
 
 interface BM25Doc {
   id: string;
-  tokens: string[];
   tf: Map<string, number>;
   len: number;
 }
@@ -29,11 +28,14 @@ export class BM25Index {
   }
 
   add(id: string, text: string): void {
+    this.addTokens(id, tokenize(text, this.tokenOptions));
+  }
+
+  addTokens(id: string, tokens: readonly string[]): void {
     this.remove(id);
-    const tokens = tokenize(text, this.tokenOptions);
     const tf = new Map<string, number>();
-    for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + 1);
-    this.docs.set(id, { id, tokens, tf, len: tokens.length });
+    for (const token of tokens) tf.set(token, (tf.get(token) ?? 0) + 1);
+    this.docs.set(id, { id, tf, len: tokens.length });
     this.dirty = true;
   }
 

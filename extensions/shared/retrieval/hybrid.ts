@@ -1,7 +1,7 @@
 import { BM25Index } from "./bm25";
 import { JMLMIndex } from "./jmlm";
 import { TFIDFStore } from "./tfidf";
-import { documentText } from "./tokenize";
+import { documentText, tokenize } from "./tokenize";
 import type { HybridSearchOptions, ScoredResult, SearchDocument } from "./types";
 
 function normalizeScores(results: Array<{ id: string; score: number }>): Map<string, number> {
@@ -19,10 +19,10 @@ export class RetrievalIndex {
 
   add(doc: SearchDocument): void {
     this.docs.set(doc.id, doc);
-    const text = documentText(doc);
-    this.bm25.add(doc.id, text);
-    this.tfidf.add(doc.id, text);
-    this.jmlm.add(doc.id, text);
+    const tokens = tokenize(documentText(doc));
+    this.bm25.addTokens(doc.id, tokens);
+    this.tfidf.addTokens(doc.id, tokens);
+    this.jmlm.addTokens(doc.id, tokens);
   }
 
   remove(id: string): void {
