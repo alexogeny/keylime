@@ -143,7 +143,17 @@ async function memoryBundle(state?: ControlPlaneState) {
 async function graphBundle(state: ControlPlaneState) {
   const memory = splitMemory(await readCpMemoryStore(state));
   const research = (await readResearchIndex("")).slice(0, 100).map(normalizeResearchSummary);
-  const graph = buildGraph(memory, research, state.cwd); const overrides = await controlRead(state, "graph-overrides", { nodes: [], edges: [] } as any); return { nodes: [...graph.nodes, ...overrides.nodes.filter((n: any) => !n.deleted)].map((n: any) => ({ ...n, name: n.name ?? n.label, conns: graph.edges.filter((e: any) => e.from === n.id || e.to === n.id).length })), edges: [...graph.edges, ...overrides.edges.filter((e: any) => !e.deleted)], clusters: graph.clusters };
+  const graph = buildGraph(memory, research, state.cwd);
+  const overrides = await controlRead(state, "graph-overrides", { nodes: [], edges: [] } as any);
+  const edges = [...graph.edges, ...overrides.edges.filter((edge: any) => !edge.deleted)];
+  const connectionCounts = new Map<string, number>();
+  for (const edge of edges) {
+    connectionCounts.set(edge.from, (connectionCounts.get(edge.from) ?? 0) + 1);
+    connectionCounts.set(edge.to, (connectionCounts.get(edge.to) ?? 0) + 1);
+  }
+  const nodes = [...graph.nodes, ...overrides.nodes.filter((node: any) => !node.deleted)]
+    .map((node: any) => ({ ...node, name: node.name ?? node.label, conns: connectionCounts.get(node.id) ?? 0 }));
+  return { nodes, edges, clusters: graph.clusters };
 }
 
 async function graphNodeBundle(state: ControlPlaneState, id: string) {

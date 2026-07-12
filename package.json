@@ -7,10 +7,11 @@
     "test": "bun test tests",
     "test:core": "bun test tests/retrieval.test.ts tests/json-store.test.ts tests/ollama-embeddings.test.ts",
     "typecheck": "tsc --noEmit",
-    "bench": "bun run bench:retrieval && bun run bench:core",
+    "bench": "bun run bench:retrieval && bun run bench:core && bun run bench:systems",
     "bench:retrieval": "bun tests/benchmarks/retrieval.bench.ts",
     "bench:core": "bun tests/benchmarks/keylime-core.bench.ts",
-    "check": "bun run typecheck && bun test tests"
+    "check": "bun run typecheck && bun test tests",
+    "bench:systems": "bun tests/benchmarks/keylime-systems.bench.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.6",

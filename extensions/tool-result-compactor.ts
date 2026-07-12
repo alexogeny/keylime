@@ -42,12 +42,24 @@ export function compactToolResultContent(content: any, options: CompactToolResul
     return { shouldCompact: false, originalChars: text.length, compactedText: text, summary: [] };
   }
 
-  const lines = text.split(/\r?\n/);
-  const interesting = lines.filter(line =>
-    /fail|error|exception|trace|warning|denied|blocked|changed|created|updated|deleted|match|result/i.test(line)
-  ).slice(0, maxSummaryLines);
+  const interesting: string[] = [];
+  const interestingPattern = /fail|error|exception|trace|warning|denied|blocked|changed|created|updated|deleted|match|result/i;
+  let lineCount = 0;
+  let lineStart = 0;
+  while (lineStart <= text.length) {
+    const newline = text.indexOf("\n", lineStart);
+    const rawEnd = newline === -1 ? text.length : newline;
+    const end = rawEnd > lineStart && text.charCodeAt(rawEnd - 1) === 13 ? rawEnd - 1 : rawEnd;
+    if (interesting.length < maxSummaryLines) {
+      const line = text.slice(lineStart, end);
+      if (interestingPattern.test(line)) interesting.push(line);
+    }
+    lineCount++;
+    if (newline === -1) break;
+    lineStart = newline + 1;
+  }
   const summary = [
-    `Original output: ${text.length} chars, ${lines.length} lines`,
+    `Original output: ${text.length} chars, ${lineCount} lines`,
     ...interesting,
   ];
   return {

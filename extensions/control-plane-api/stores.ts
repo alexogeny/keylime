@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, normalize } from "node:path";
-import { loadAllSearchEntries, loadSearchEntry } from "../shared/web-search-store";
+import { loadSearchEntry, loadSearchIndex } from "../shared/web-search-store";
 import { readJsonFile, writeJsonFile } from "../shared/json-store";
 import { isPathWithin } from "../shared/path-policy";
 import { MEMORY_FILE } from "../user-memory/store";
@@ -27,7 +27,7 @@ export async function writeMemoryStore(store: unknown) {
 
 export async function readResearchIndex(query = "") {
   const q = query.toLowerCase();
-  const entries = await loadAllSearchEntries();
+  const entries = (await loadSearchIndex()).entries;
   return entries
     .filter((e: any) => !q || [e.id, e.query, e.provider, e.summary, e.distilled?.summary, ...(e.distilled?.tags ?? []), ...(e.distilled?.categories ?? [])].filter(Boolean).join(" ").toLowerCase().includes(q))
     .sort((a: any, b: any) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
