@@ -73,7 +73,7 @@ export function registerTools(pi: ExtensionAPI): void {
       detail: Type.Optional(Type.Boolean({ description: "Details" })),
       gender: Type.Optional(stringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
-    async execute(_id, params) {
+    async execute(_id, params): Promise<any> {
       const gender = params.gender as Gender | undefined;
       const hits = textSearch(params.query, allVariants(), params.top_k ?? 5);
       if (hits.length === 0) {
@@ -119,13 +119,13 @@ export function registerTools(pi: ExtensionAPI): void {
       gender:           Type.Optional(stringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
 
-    async execute(_id, params) {
+    async execute(_id, params): Promise<any> {
       const gender = params.gender as Gender | undefined;
       let pool = allVariants();
       pool = applyFilter(pool, params as any);
 
       // Sort — use gender-resolved weight if sorting by weight
-      const sortBy = params.sort_by ?? "year";
+      const sortBy = String(params.sort_by ?? "year") as "year" | "drop" | "stack" | "weight" | "price";
       pool.sort((a, b) => {
         switch (sortBy) {
           case "drop":    return a.variant.spec.drop - b.variant.spec.drop;
@@ -162,7 +162,7 @@ export function registerTools(pi: ExtensionAPI): void {
       }),
     }),
 
-    async execute(_id, params) {
+    async execute(_id, params): Promise<any> {
       const found = params.shoes.map((q) => {
         const hits = textSearch(q, allVariants(), 1);
         return hits.length > 0 ? { query: q, ...hits[0] } : null;
@@ -223,7 +223,7 @@ export function registerTools(pi: ExtensionAPI): void {
     promptSnippet: "Overview of the shoe catalog",
     parameters: Type.Object({}),
 
-    async execute() {
+    async execute(): Promise<any> {
       const all = allVariants();
       const brands   = new Set(all.map((x) => x.shoe.brand));
       const models   = new Set(all.map((x) => x.shoe.id));
@@ -328,7 +328,7 @@ export function registerTools(pi: ExtensionAPI): void {
       womensWidths:      Type.Optional(Type.Array(Type.String())),
     }),
 
-    async execute(_id, p) {
+    async execute(_id, p): Promise<any> {
       const shoes = await readCustom();
 
       const variant: ShoeVariant = {
@@ -422,7 +422,7 @@ export function registerTools(pi: ExtensionAPI): void {
       gender:  Type.Optional(stringEnum(["mens", "womens"] as const, { description: "Gender" })),
     }),
 
-    async execute(_id, params) {
+    async execute(_id, params): Promise<any> {
       const gender = params.gender as Gender | undefined;
       // Parse spec constraints from the query
       const specFilter = parseNaturalQuery(params.query);

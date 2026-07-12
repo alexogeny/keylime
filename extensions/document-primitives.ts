@@ -205,7 +205,7 @@ function extractPdfRough(buffer: Buffer, pages?: string): { text: string; totalP
     const pieces = [
       ...[...text.matchAll(/\(((?:\\.|[^\\)])*)\)\s*Tj/g)].map(m => m[1]),
       ...[...text.matchAll(/\[((?:\s*\((?:\\.|[^\\)])*\)\s*-?\d*)+)\]\s*TJ/g)].map(m => [...m[1].matchAll(/\((?:\\.|[^\\)])*\)/g)].map(x => x[0].slice(1, -1)).join("")),
-    ].map(s => s.replace(/\\([nrtbf()\\])/g, (_m, c) => ({ n: "\n", r: "\r", t: "\t", b: "", f: "", "(": "(", ")": ")", "\\": "\\" }[c] ?? c)));
+    ].map(s => s.replace(/\\([nrtbf()\\])/g, (_m, c) => (({ n: "\n", r: "\r", t: "\t", b: "", f: "", "(": "(", ")": ")", "\\": "\\" } as Record<string, string>)[c] ?? c)));
     if (pieces.length) streams.push(pieces.join(" "));
   }
   const totalPages = pdfPageCount(raw);

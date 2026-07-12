@@ -40,9 +40,10 @@ export function registerMemoryDetector(options: RegisterMemoryDetectorOptions): 
     const userTexts: string[] = [];
     for (const msg of event.messages) {
       if (msg.role !== "user") continue;
-      for (const part of msg.content) {
-        if (part.type === "text") userTexts.push(part.text);
-      }
+      const text = typeof msg.content === "string"
+        ? msg.content
+        : msg.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+      if (text) userTexts.push(text);
     }
     if (userTexts.length === 0) return;
     const fullUserText = userTexts.join(" ");

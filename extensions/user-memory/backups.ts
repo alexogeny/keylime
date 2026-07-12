@@ -6,7 +6,7 @@ import { pruneFilesByNewest } from "../shared/retention";
 import { safeTimestampForFilename } from "../shared/time-format";
 import type { EntityStore } from "./entity.js";
 
-type MemoryStoreLike = { version: 1; memories: unknown[] };
+type MemoryStoreLike = { version: number; memories: unknown[] };
 
 export function backupDirFor(dataDir: string): string {
   return join(dataDir, "backups");
@@ -57,7 +57,7 @@ export async function backupLabels(dataDir: string, files: string[]): Promise<st
 }
 
 export async function loadMemoryBackup<T extends MemoryStoreLike>(dataDir: string, file: string): Promise<T> {
-  return readJsonFile<T>(join(backupDirFor(dataDir), file), { version: 1, memories: [] } as T);
+  return readJsonFile<T>(join(backupDirFor(dataDir), file), { version: 1, memories: [] } as unknown as T);
 }
 
 export async function restoreEntityBackup(dataDir: string, memoryBackupFile: string): Promise<boolean> {

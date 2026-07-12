@@ -25,6 +25,7 @@ import {
   loadSearchIndex,
   saveSearchEntry,
   saveSearchIndex,
+  webSearchPaths,
 } from "./shared/web-search-store";
 import type { SearchEntry } from "./shared/web-search-types";
 import { summarizeText } from "./shared/content-distill";
@@ -122,7 +123,7 @@ async function getKey(name: string): Promise<string | undefined> {
 async function searchSerper(
   query: string,
   num: number,
-  signal: AbortSignal,
+  signal: AbortSignal | undefined,
   key: string,
 ): Promise<SearchEntry["raw"]> {
   const res = await fetch("https://google.serper.dev/search", {
@@ -147,7 +148,7 @@ async function searchSerper(
 async function searchTavily(
   query: string,
   num: number,
-  signal: AbortSignal,
+  signal: AbortSignal | undefined,
   key: string,
 ): Promise<SearchEntry["raw"]> {
   const res = await fetch("https://api.tavily.com/search", {
@@ -172,7 +173,7 @@ async function searchTavily(
 async function searchBing(
   query: string,
   num: number,
-  signal: AbortSignal,
+  signal: AbortSignal | undefined,
   key: string,
 ): Promise<SearchEntry["raw"]> {
   const params = new URLSearchParams({ q: query, count: String(num) });
@@ -231,7 +232,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
           "SERPER_API_KEY (serper.dev, 2500 free/mo), " +
           "TAVILY_API_KEY (tavily.com, 1000 free/mo), " +
           "BING_API_KEY (Azure Bing, 1000 free/mo). " +
-          `Or add a key to ${CONFIG_FILE}`
+          `Or add a key to ${webSearchPaths().configFile}`
         );
       }
       const { provider, key } = found;
@@ -239,7 +240,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
       await ensureWebSearchDirs();
       const num = Math.min(params.num_results ?? 8, 20);
 
-      onUpdate?.({ content: [{ type: "text", text: `Searching "${params.query}" via ${provider}…` }] });
+      onUpdate?.({ content: [{ type: "text", text: `Searching "${params.query}" via ${provider}…` }], details: {} });
 
       let raw: SearchEntry["raw"];
       switch (provider) {

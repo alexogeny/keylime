@@ -22,7 +22,7 @@ export function registerMemoryEntityTools(pi: ExtensionAPI, deps: EntityToolDeps
       name: Type.String({ description: "Entity name" }),
     }),
 
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       await deps.ensureLoaded();
       const entityStore = deps.getEntityStore();
       const store = deps.getStore();
@@ -71,7 +71,7 @@ export function registerMemoryEntityTools(pi: ExtensionAPI, deps: EntityToolDeps
       limit: Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 100 })),
     }),
 
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       await deps.ensureLoaded();
       const entityStore = deps.getEntityStore();
       let pool = [...entityStore.entities];

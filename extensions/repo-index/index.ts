@@ -473,7 +473,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
 
     async execute(_id, params, _signal, onUpdate, ctx) {
       const cwd        = ctx.cwd;
-      const mode       = params.mode ?? "auto";
+      const mode = String(params.mode ?? "auto") as "auto" | "structural" | "lexical";
       const maxResults = Math.min(params.max_results ?? 30, 100);
       const globArgs   = params.file_glob
         ? params.file_glob.split(/\s+/).map(glob => glob.trim()).filter(Boolean).flatMap(glob => ["--glob", glob])
@@ -481,7 +481,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
       const includeHidden = params.include_hidden ?? shouldIncludeHidden(params.file_glob);
       const hiddenArgs = includeHidden ? ["--hidden"] : [];
 
-      onUpdate?.({ content: [{ type: "text", text: `Searching (${mode}): "${params.query}"…` }] });
+      onUpdate?.({ content: [{ type: "text", text: `Searching (${mode}): "${params.query}"…` }], details: {} });
 
       // ── Structural search ─────────────────────────────────────────────────
       const tryStructural = async (): Promise<string> => {

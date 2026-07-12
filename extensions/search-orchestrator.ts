@@ -32,7 +32,7 @@ async function getStats() {
 }
 
 function hasTools(pi: ExtensionAPI, ...names: string[]): boolean {
-  const active = new Set(pi.getActiveTools().map(t => t.name));
+  const active = new Set(pi.getActiveTools().map(tool => typeof tool === "string" ? tool : (tool as unknown as { name: string }).name));
   return names.every(n => active.has(n));
 }
 
@@ -194,12 +194,12 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
     }),
 
     async execute(_id, params, _signal, onUpdate) {
-      const depth   = params.depth ?? "standard";
+      const depth = String(params.depth ?? "standard") as "quick" | "standard" | "deep";
       const numSearches = depth === "quick" ? 1 : depth === "standard" ? 3 : 5;
       const recency = params.recency_required ?? false;
       const focus   = params.focus_tags ?? [];
 
-      onUpdate?.({ content: [{ type: "text", text: `Planning ${depth} research on "${params.topic}"…` }] });
+      onUpdate?.({ content: [{ type: "text", text: `Planning ${depth} research on "${params.topic}"…` }], details: {} });
 
       const stats      = await getStats();
       const hasMemory  = hasTools(pi, "recall_web_knowledge");

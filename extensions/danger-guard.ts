@@ -181,7 +181,7 @@ export default function (pi: ExtensionAPI) {
 
     // ── Bash: pattern matching ──────────────────────────────────────────────
     if (isToolCallEventType("bash", event)) {
-      const cmd = event.input.command ?? "";
+      const cmd = (event.input as { command?: string }).command ?? "";
       const hit = checkCommand(cmd, rules);
       if (!hit) return;
       if (!classification.mutates) {

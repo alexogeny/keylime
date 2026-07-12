@@ -140,7 +140,7 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
       only_distilled: Type.Optional(Type.Boolean({ description: "Require distilled entries" })),
     }),
 
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       const all = await loadAllEntries();
       if (all.length === 0) {
         return {
@@ -264,7 +264,7 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
       only_distilled: Type.Optional(Type.Boolean({ description: "Only distilled" })),
     }),
 
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       const index = await loadIndex();
       let entries = [...index.entries].sort((a, b) => b.timestamp - a.timestamp);
 
@@ -327,7 +327,7 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
       include_raw: Type.Optional(Type.Boolean({ description: "Include raw results" })),
     }),
 
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       const entry = await loadEntry(params.search_id);
       if (!entry) throw new Error(`search_id not found: ${params.search_id}`);
 

@@ -171,7 +171,7 @@ export async function editProfileFactSection(ctx: any, args: {
   completeness: (values: ProfileFactValues, section: ProfileFactSection) => number;
 }): Promise<ProfileFactValues | null> {
   const before = { ...args.values };
-  const result = await ctx.ui.custom<ProfileFactFormResult>((tui: { requestRender: () => void }, theme: any, _kb: unknown, done: (result: ProfileFactFormResult) => void) => {
+  const result: ProfileFactFormResult = await ctx.ui.custom((tui: { requestRender: () => void }, theme: any, _kb: unknown, done: (result: ProfileFactFormResult) => void) => {
     const form = new ProfileFactForm({ theme, section: args.section, fields: args.fields, values: args.values, completeness: args.completeness, done });
     return {
       render: (width: number) => form.render(width),

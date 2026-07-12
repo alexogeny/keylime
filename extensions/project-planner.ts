@@ -290,7 +290,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
     }),
 
     async execute(_id, params, _signal, onUpdate, ctx) {
-      onUpdate?.({ content: [{ type: "text", text: `Saving project plan for "${params.name}"…` }] });
+      onUpdate?.({ content: [{ type: "text", text: `Saving project plan for "${params.name}"…` }], details: {} });
 
       const existing = await loadProject(ctx.cwd);
       const now      = Date.now();
@@ -468,7 +468,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
         `# ${padded}. ${params.topic}`,
         ``,
         `Date: ${new Date(decision.timestamp).toISOString().slice(0, 10)}`,
-        `Status: ${params.status.charAt(0).toUpperCase() + params.status.slice(1)}`,
+        `Status: ${String(params.status).charAt(0).toUpperCase() + String(params.status).slice(1)}`,
       ];
       if (params.supersedes != null)
         madrLines.push(`Supersedes: ADR-${String(params.supersedes).padStart(4, "0")}`);
@@ -485,7 +485,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
 
       const madrPath = join(docsDir, filename);
       await writeFile(madrPath, madrLines.join("\n") + "\n", "utf8");
-      onUpdate?.({ content: [{ type: "text", text: `Writing ${madrPath}...` }] });
+      onUpdate?.({ content: [{ type: "text", text: `Writing ${madrPath}...` }], details: {} });
 
       return {
         content: [{

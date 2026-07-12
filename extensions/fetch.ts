@@ -819,7 +819,7 @@ export default function (pi: ExtensionAPI) {
       ], { description: "Fallback policy" })),
     }),
     async execute(_toolCallId, params, _signal, onUpdate) {
-      onUpdate?.({ content: [{ type: "text", text: `Fetching ${params.url}...` }] });
+      onUpdate?.({ content: [{ type: "text", text: `Fetching ${params.url}...` }], details: {} });
 
       if (shouldSkip(params.url)) {
         return {

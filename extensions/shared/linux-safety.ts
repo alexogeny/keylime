@@ -108,6 +108,7 @@ export function normalizeAbs(input: string): string {
 export function isSafeSystemPath(input: string): boolean {
   const target = normalizeAbs(input);
   if (SYSTEM_FILE_DENY_PREFIXES.some(prefix => target === prefix.slice(0, -1) || target.startsWith(prefix))) return false;
+  if (/^\/home\/[^/]+\/\.config\/.+/.test(target)) return true;
   return SYSTEM_FILE_ALLOW_PREFIXES.some(prefix => target.startsWith(prefix));
 }
 
@@ -193,5 +194,5 @@ export async function sudoPrefix(ctx: any, spec: CommandSpec): Promise<CommandSp
 }
 
 export function textResult(text: string, details?: Record<string, unknown>, isError = false) {
-  return { content: [{ type: "text", text }], details, isError };
+  return { content: [{ type: "text" as const, text }], details: details ?? {}, isError };
 }

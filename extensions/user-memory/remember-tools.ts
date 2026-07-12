@@ -33,7 +33,7 @@ export function registerRememberTools(pi: ExtensionAPI, deps: MemoryToolDeps): v
       sensitivity: Type.Optional(SENSITIVITY_SCHEMA),
       expiry_tier: Type.Optional(Type.String({ description: "How long to keep: '2d' (today), '7d' (this week), '30d' (this month), or omit for permanent" })),
     }),
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       return deps.rememberStructuredMemory(params as WizardRememberParams);
     },
   });
@@ -60,11 +60,11 @@ export function registerRememberTools(pi: ExtensionAPI, deps: MemoryToolDeps): v
       sensitivity: Type.Optional(SENSITIVITY_SCHEMA),
       confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
     }),
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       const rememberParams = convertTimelineDraftToRememberParams({
         subkind: params.subkind,
         label: params.label,
-        data: params.data ?? {},
+        data: (params.data ?? {}) as Record<string, string | boolean | undefined>,
         interval: {
           start: params.start ? { value: params.start, precision: "unknown" } : undefined,
           end: params.end ? { value: params.end, precision: "unknown" } : undefined,

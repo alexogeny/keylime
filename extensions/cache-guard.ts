@@ -19,8 +19,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { formatCompactNumber } from "./shared/format";
 import { rawTextFromContent } from "./shared/message-content";
+import { formatCompactNumber } from "./shared/format";
 import { headTailWithMarker } from "./shared/output-preview";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ export default function cacheGuardExtension(pi: ExtensionAPI) {
 
       readIndex.set(path, {
         latestIdx:     i,
-        latestContent: getTextContent(msg.content),
+        latestContent: rawTextFromContent(msg.content),
       });
     }
 
@@ -171,7 +171,7 @@ export default function cacheGuardExtension(pi: ExtensionAPI) {
           const entry = readIndex.get(path);
           if (entry && entry.latestIdx !== i) {
             // This is an older read of the same path
-            const thisContent = getTextContent(msg.content);
+            const thisContent = rawTextFromContent(msg.content);
             if (thisContent === entry.latestContent) {
               localPruned++;
               return {

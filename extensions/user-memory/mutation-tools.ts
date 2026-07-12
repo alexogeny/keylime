@@ -24,7 +24,7 @@ export function registerMemoryMutationTools(pi: ExtensionAPI, deps: MemoryToolDe
       expires_at: Type.Optional(Type.Number()),
       note: Type.Optional(Type.String({ description: "Reason for the update (not stored, just for logging)" })),
     }),
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       await deps.ensureLoaded();
       const mem = deps.getStore().memories.find(m => m.id.startsWith(params.id_prefix));
       if (!mem) throw new Error(`No memory found with ID prefix "${params.id_prefix}"`);
@@ -58,7 +58,7 @@ export function registerMemoryMutationTools(pi: ExtensionAPI, deps: MemoryToolDe
       id_prefix: Type.String({ description: "First 8+ characters of the memory ID" }),
       reason: Type.Optional(Type.String({ description: "Why forgetting this memory" })),
     }),
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       await deps.ensureLoaded();
       const store = deps.getStore();
       const idx = store.memories.findIndex(m => m.id.startsWith(params.id_prefix));
@@ -83,7 +83,7 @@ export function registerMemoryMutationTools(pi: ExtensionAPI, deps: MemoryToolDe
       upcoming: Type.Optional(Type.Boolean({ description: "Only show memories with a future expiry date" })),
       limit: Type.Optional(Type.Number({ description: "Limit", minimum: 1, maximum: 100 })),
     }),
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       await deps.ensureLoaded();
       const store = deps.getStore();
       const now = Date.now();

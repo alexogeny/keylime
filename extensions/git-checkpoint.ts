@@ -573,7 +573,9 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("Usage: /git-auth github|gitlab|bitbucket|custom [ssh|https] [custom-host]", "error");
           return;
         }
-        provider = normalizeGitAuthProvider(await ctx.ui.select("Choose Git provider", [...GIT_AUTH_PROVIDERS]));
+        const selectedProvider = await ctx.ui.select("Choose Git provider", [...GIT_AUTH_PROVIDERS]);
+        if (!selectedProvider) return;
+        provider = normalizeGitAuthProvider(selectedProvider);
       }
 
       let mode = parsed.mode;
@@ -583,7 +585,7 @@ export default function (pi: ExtensionAPI) {
         else mode = "ssh";
       }
 
-      const host = parsed.host || (provider === "custom" ? await ctx.ui.input?.("Custom Git SSH host", "Hostname for SSH, e.g. git.example.com:", "git.example.com") : GIT_AUTH_DEFAULT_HOSTS[provider]);
+      const host = parsed.host || (provider === "custom" ? await ctx.ui.input?.("Custom Git SSH host", "Hostname for SSH, e.g. git.example.com:") : GIT_AUTH_DEFAULT_HOSTS[provider]);
       try { if (host) validateGitAuthHost(host); } catch (error) {
         ctx.ui.notify(String((error as Error).message ?? error), "error");
         return;

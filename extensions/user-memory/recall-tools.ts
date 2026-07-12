@@ -20,7 +20,7 @@ export function registerRecallMemoryTools(pi: ExtensionAPI, deps: MemoryToolDeps
       tags: Type.Optional(Type.Array(Type.String(), { description: "Tags" })),
       include_expired: Type.Optional(Type.Boolean({ description: "Include expired" })),
     }),
-    async execute(_id, params, _signal) {
+    async execute(_id, params, _signal): Promise<any> {
       await deps.ensureLoaded();
       const store = deps.getStore();
       const now = Date.now();

@@ -16,7 +16,7 @@ function isSensitivity(value: string): value is MemoryWizardSensitivity {
   return (SENSITIVITY_TIERS as readonly string[]).includes(value);
 }
 
-function isTimelineSubkind(value: string): value is TimelineSubkind {
+export function isTimelineSubkind(value: string): value is TimelineSubkind {
   return (TIMELINE_SUBKINDS as readonly string[]).includes(value);
 }
 
@@ -42,7 +42,7 @@ function datePrecision(value: string | undefined, approximate = false): Timeline
   return "approximate";
 }
 
-function cleanTimelineDate(value: string | undefined, approximate = false): TimelineDatePoint | undefined {
+export function cleanTimelineDate(value: string | undefined, approximate = false): TimelineDatePoint | undefined {
   const cleaned = value?.trim();
   const precision = datePrecision(cleaned, approximate);
   if (precision === "unknown") return undefined;

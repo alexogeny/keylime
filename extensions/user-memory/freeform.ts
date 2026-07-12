@@ -21,15 +21,15 @@ export type MemoryWizardValidationResult =
   | { ok: true; draft: MemoryWizardDraft }
   | { ok: false; errors: string[] };
 
-function isMemoryCategory(value: string): value is MemoryCategory {
+export function isMemoryCategory(value: string): value is MemoryCategory {
   return (MEMORY_CATEGORIES as readonly string[]).includes(value);
 }
 
-function isSensitivity(value: string): value is MemoryWizardSensitivity {
+export function isSensitivity(value: string): value is MemoryWizardSensitivity {
   return (SENSITIVITY_TIERS as readonly string[]).includes(value);
 }
 
-function isExpiryChoice(value: string): value is MemoryWizardExpiryChoice {
+export function isExpiryChoice(value: string): value is MemoryWizardExpiryChoice {
   return (EXPIRY_CHOICES as readonly string[]).includes(value);
 }
 

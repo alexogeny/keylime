@@ -70,7 +70,7 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
 
       const results = [];
       for (const cmd of commands) {
-        onUpdate?.({ content: [{ type: "text", text: `Running ${cmd.label}…` }] });
+        onUpdate?.({ content: [{ type: "text", text: `Running ${cmd.label}…` }], details: {} });
         try {
           const result = await execFileAsync(cmd.command, cmd.args, {
             cwd: ctx.cwd,
