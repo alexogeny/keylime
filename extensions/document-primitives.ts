@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -155,22 +157,26 @@ function extractSheetRows(buffer: Buffer, sheetPath: string, maxRows: number): s
   return rows;
 }
 
+function parseCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let value = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"' && line[i + 1] === '"') { value += '"'; i += 1; }
+    else if (ch === '"') quoted = !quoted;
+    else if (ch === "," && !quoted) { values.push(value); value = ""; }
+    else value += ch;
+  }
+  values.push(value);
+  return values;
+}
+
 function csvRows(text: string, maxRows: number): string[][] {
   const rows: string[][] = [];
   for (const line of text.split(/\r?\n/)) {
     if (!line && rows.length > 0) continue;
-    const values: string[] = [];
-    let value = "";
-    let quoted = false;
-    for (let i = 0; i < line.length; i += 1) {
-      const ch = line[i];
-      if (ch === '"' && line[i + 1] === '"') { value += '"'; i += 1; }
-      else if (ch === '"') quoted = !quoted;
-      else if (ch === "," && !quoted) { values.push(value); value = ""; }
-      else value += ch;
-    }
-    values.push(value);
-    rows.push(values);
+    rows.push(parseCsvLine(line));
     if (rows.length >= maxRows) break;
   }
   return rows;
@@ -327,6 +333,52 @@ function imageMetadata(buffer: Buffer): Record<string, unknown> {
     return { format: "gif", width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
   }
   return { format: "unknown", width: null, height: null };
+}
+
+type CsvColumnStats = { missing: number; numericCount: number; sum: number; min: number; max: number; allNumeric: boolean; counts: Map<string, number> };
+
+async function analyzeCsvFile(path: string, maxRows: number): Promise<{ text: string; rows: number; columns: number; preview: string[][] }> {
+  const input = createReadStream(path, { encoding: "utf8" });
+  const reader = createInterface({ input, crlfDelay: Infinity });
+  let headers: string[] = [];
+  let rowCount = 0;
+  const preview: string[][] = [];
+  const stats: CsvColumnStats[] = [];
+  for await (const line of reader) {
+    if (!line && rowCount > 0) continue;
+    const row = parseCsvLine(line);
+    if (headers.length === 0) {
+      headers = row;
+      for (let i = 0; i < headers.length; i++) stats.push({ missing: 0, numericCount: 0, sum: 0, min: Infinity, max: -Infinity, allNumeric: true, counts: new Map() });
+      preview.push(row);
+      continue;
+    }
+    rowCount++;
+    if (preview.length < 12) preview.push(row);
+    for (let col = 0; col < headers.length; col++) {
+      const value = row[col] ?? "";
+      const column = stats[col];
+      if (value.trim() === "") { column.missing++; continue; }
+      const number = Number(value);
+      if (Number.isFinite(number)) {
+        column.numericCount++;
+        column.sum += number;
+        column.min = Math.min(column.min, number);
+        column.max = Math.max(column.max, number);
+      } else column.allNumeric = false;
+      if (column.counts.has(value)) column.counts.set(value, column.counts.get(value)! + 1);
+      else if (column.counts.size < 1_000) column.counts.set(value, 1);
+    }
+    if (rowCount + 1 >= maxRows) break;
+  }
+  const lines = [`Rows: ${rowCount}`, `Columns: ${headers.length}`, ""];
+  for (let col = 0; col < headers.length; col++) {
+    const column = stats[col];
+    lines.push(`Column: ${headers[col] || `column_${col + 1}`}`, `- missing: ${column.missing}`);
+    if (column.numericCount > 0 && column.allNumeric) lines.push(`- numeric: count=${column.numericCount} min=${column.min} max=${column.max} mean=${(column.sum / column.numericCount).toFixed(3)}`);
+    else lines.push(`- top values: ${[...column.counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([value, count]) => `${value} (${count})`).join(", ")}`);
+  }
+  return { text: lines.join("\n"), rows: rowCount, columns: headers.length, preview };
 }
 
 function analyzeRows(rows: string[][]): string {
@@ -503,9 +555,9 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     parameters: Type.Object({ path: Type.String(), max_rows: Type.Optional(Type.Number()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const path = resolveSafePath(ctx.cwd, params.path);
-      const rows = csvRows((await readFile(path)).toString("utf8"), clamp(params.max_rows, MAX_PREVIEW_ROWS, 2, 10_000));
-      const text = `CSV analysis: ${repoRelativePath(ctx.cwd, path)}\n${analyzeRows(rows)}\n\nPreview:\n${rowsToMarkdown(rows.slice(0, 12))}`;
-      return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), rows: Math.max(0, rows.length - 1), columns: rows[0]?.length ?? 0 } };
+      const analysis = await analyzeCsvFile(path, clamp(params.max_rows, MAX_PREVIEW_ROWS, 2, 10_000));
+      const text = `CSV analysis: ${repoRelativePath(ctx.cwd, path)}\n${analysis.text}\n\nPreview:\n${rowsToMarkdown(analysis.preview)}`;
+      return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), rows: analysis.rows, columns: analysis.columns, streaming: true, retainedRows: analysis.preview.length } };
     },
   });
 

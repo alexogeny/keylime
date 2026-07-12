@@ -14,7 +14,9 @@ export interface BM25Options extends TokenizeOptions {
 
 export class BM25Index {
   private docs = new Map<string, BM25Doc>();
+  private postings = new Map<string, Set<string>>();
   private idf: Map<string, number> = new Map();
+  lastSearchStats = { documentsVisited: 0, documentsScored: 0 };
   private avgLen = 0;
   private dirty = false;
   private k1: number;
@@ -36,11 +38,24 @@ export class BM25Index {
     const tf = new Map<string, number>();
     for (const token of tokens) tf.set(token, (tf.get(token) ?? 0) + 1);
     this.docs.set(id, { id, tf, len: tokens.length });
+    for (const term of tf.keys()) {
+      let ids = this.postings.get(term);
+      if (!ids) this.postings.set(term, ids = new Set());
+      ids.add(id);
+    }
     this.dirty = true;
   }
 
   remove(id: string): void {
-    if (this.docs.delete(id)) this.dirty = true;
+    const doc = this.docs.get(id);
+    if (!doc) return;
+    for (const term of doc.tf.keys()) {
+      const ids = this.postings.get(term);
+      ids?.delete(id);
+      if (ids?.size === 0) this.postings.delete(term);
+    }
+    this.docs.delete(id);
+    this.dirty = true;
   }
 
   private recompute(): void {
@@ -67,12 +82,28 @@ export class BM25Index {
 
   search(query: string, topK = 10, candidateIds?: ReadonlySet<string>): Array<{ id: string; score: number }> {
     this.recompute();
+    this.lastSearchStats = { documentsVisited: 0, documentsScored: 0 };
     if (this.docs.size === 0 || topK <= 0 || candidateIds?.size === 0) return [];
     const queryTokens = tokenize(query, this.tokenOptions);
     if (queryTokens.length === 0) return [];
+    const uniqueTerms = new Set(queryTokens);
+    const postingWork = [...uniqueTerms].reduce((sum, term) => sum + (this.postings.get(term)?.size ?? 0), 0);
+    const matchingIds = new Set<string>();
+    if (postingWork <= this.docs.size / 2) {
+      for (const term of uniqueTerms) {
+        for (const id of this.postings.get(term) ?? []) {
+          if (!candidateIds || candidateIds.has(id)) matchingIds.add(id);
+        }
+      }
+    } else {
+      for (const id of candidateIds ?? this.docs.keys()) matchingIds.add(id);
+    }
+    this.lastSearchStats.documentsVisited = matchingIds.size;
     const scores = new Map<string, number>();
-    for (const doc of this.docs.values()) {
-      if ((candidateIds && !candidateIds.has(doc.id)) || doc.len === 0) continue;
+    for (const id of matchingIds) {
+      const doc = this.docs.get(id)!;
+      if (doc.len === 0) continue;
+      this.lastSearchStats.documentsScored++;
       let score = 0;
       for (const t of queryTokens) {
         const idf = this.idf.get(t) ?? 0;

@@ -19,18 +19,22 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
-import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
+import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, writePathsForToolResult } from "./shared/safety-policy";
 export { autoCheckpointMode, classifyToolMutation, classifyToolResultMutation, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
 const CHECKPOINT_EXCLUDED_PATHS = [".pi"];
 const PI_IGNORE_ENTRY = ".pi/";
 
-export function checkpointPathspecs(): string[] {
+export function checkpointPathspecs(paths?: string[]): string[] {
+  if (paths?.length) {
+    const scoped = [...new Set(paths.map(path => path.replace(/\\/g, "/")).filter(path => path && path !== ".pi" && !path.startsWith(".pi/") && !path.startsWith("../") && path !== ".."))];
+    return ["--", ...scoped];
+  }
   return ["--", ".", ...CHECKPOINT_EXCLUDED_PATHS.map(path => `:!${path}`)];
 }
 
-export function checkpointAddArgs(): string[] {
-  return ["add", "-u", ...checkpointPathspecs()];
+export function checkpointAddArgs(paths?: string[]): string[] {
+  return ["add", "-u", ...checkpointPathspecs(paths)];
 }
 
 export function checkpointAddCommand(): string {
@@ -239,18 +243,19 @@ export function stageCheckpointChangesForTest(cwd: string): void {
   stageCheckpointChanges(cwd);
 }
 
-function stageCheckpointChanges(cwd: string): void {
+function stageCheckpointChanges(cwd: string, paths?: string[]): void {
   // Keep Pi session/tool-result state local-only in every repository, even when
   // the repo does not have a committed .gitignore entry for it.
   ensurePiIgnored(cwd);
 
+  const pathspecs = checkpointPathspecs(paths);
   // Stage tracked modifications/deletions, excluding volatile local Pi state.
-  execFileSync("git", checkpointAddArgs(), { cwd });
+  if (pathspecs.length > 1) execFileSync("git", ["add", "-u", ...pathspecs], { cwd });
 
   // Then stage only untracked files that Git itself says are non-ignored, again
   // excluding local Pi state. This avoids `git add -A` failing because ignored
   // files exist under .pi or other ignored directories.
-  const untracked = splitNulPaths(gitBuffer(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...checkpointPathspecs()]));
+  const untracked = splitNulPaths(gitBuffer(cwd, ["ls-files", "--others", "--exclude-standard", "-z", ...pathspecs]));
   if (untracked.length > 0) execFileSync("git", ["add", "--", ...untracked], { cwd });
 
   // If .pi was already staged manually before checkpointing, unstage it so the
@@ -389,7 +394,7 @@ async function configureGitIdentityWithUserGate(cwd: string, ctx: any, reason: s
   return true;
 }
 
-function makeCheckpointAttempt(cwd: string): CheckpointAttempt {
+function makeCheckpointAttempt(cwd: string, paths?: string[]): CheckpointAttempt {
   if (!isGitRepo(cwd)) return { checkpoint: null, reason: "not-git-repo" };
 
   const branch = getCurrentBranch(cwd);
@@ -397,7 +402,7 @@ function makeCheckpointAttempt(cwd: string): CheckpointAttempt {
 
   if (changed) {
     try {
-      stageCheckpointChanges(cwd);
+      stageCheckpointChanges(cwd, paths);
       const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       execFileSync("git", ["commit", "-m", `pi: checkpoint ${ts}`, "--no-verify", "--quiet"], { cwd });
     } catch (error) {
@@ -481,6 +486,7 @@ export default function (pi: ExtensionAPI) {
   let latestCheckpoint: Checkpoint | null = null;
   let mutationScoreThisTurn = 0;
   let lastAutoCheckpointAt = 0;
+  const writePathsThisTurn = new Set<string>();
 
   function recordCheckpoint(cp: Checkpoint, ctx: any): void {
     latestCheckpoint = cp;
@@ -495,11 +501,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("input", async () => {
     mutationScoreThisTurn = 0;
+    writePathsThisTurn.clear();
   });
 
   pi.on("tool_result", async (event: any) => {
     if (event.isError) return;
     mutationScoreThisTurn += mutationScoreForToolResult(event);
+    for (const path of writePathsForToolResult(event)) writePathsThisTurn.add(path);
   });
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -510,12 +518,14 @@ export default function (pi: ExtensionAPI) {
     mutationScoreThisTurn = 0;
     if (!isGitRepo(cwd) || !hasChanges(cwd)) return;
 
-    let attempt = makeCheckpointAttempt(cwd);
+    const scopedPaths = [...writePathsThisTurn];
+    writePathsThisTurn.clear();
+    let attempt = makeCheckpointAttempt(cwd, scopedPaths.length ? scopedPaths : undefined);
     if (!attempt.checkpoint && attempt.reason === "missing-identity") {
       lastAutoCheckpointAt = now;
       const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your commit identity.");
       if (!configured) return;
-      attempt = makeCheckpointAttempt(cwd);
+      attempt = makeCheckpointAttempt(cwd, scopedPaths.length ? scopedPaths : undefined);
     }
 
     const cp = attempt.checkpoint;

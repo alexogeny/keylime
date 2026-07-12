@@ -199,4 +199,10 @@ describe("code_search file_glob handling", () => {
     expect(isRepoIndexDirty()).toBe(false);
   });
 
+  test("uses the symbol index for exact structural lookups", async () => {
+    const tools = await registeredRepoIndexTools();
+    const result = await tools.code_search.execute("id", { query: "rgRun", mode: "structural", file_glob: "extensions/repo-index/index.ts", max_results: 5 }, undefined, undefined, { cwd: process.cwd() });
+    expect(result.details.engine).toBe("symbol-index");
+    expect(result.content[0].text).toContain("rgRun");
+  });
 });

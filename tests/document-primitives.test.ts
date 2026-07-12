@@ -121,4 +121,13 @@ describe("document primitives", () => {
     expect(doc.content[0].text).toContain("OCR fallback text from slide image");
     expect(doc.details.extraction_method).toBe("ocr");
   });
+  test("streams CSV analysis while retaining only preview rows", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "document-primitives-streaming-"));
+    const tools = registeredDocumentTools();
+    const rows = ["Name,Score", ...Array.from({ length: 2_000 }, (_, i) => `item-${i},${i}`)].join("\n");
+    await writeFile(join(cwd, "large.csv"), rows, "utf8");
+    const analysis = await tools.analyze_csv.execute("id", { path: "large.csv", max_rows: 2_001 }, undefined, undefined, { cwd });
+    expect(analysis.details).toMatchObject({ rows: 2000, columns: 2, streaming: true, retainedRows: 12 });
+    expect(analysis.content[0].text).toContain("mean=999.500");
+  });
 });

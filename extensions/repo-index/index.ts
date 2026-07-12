@@ -33,6 +33,7 @@ import { existsSync } from "node:fs";
 import { join, relative, dirname, extname, delimiter } from "node:path";
 import { repoRelativePath } from "../shared/path-policy";
 import { writePathsForToolResult } from "../shared/safety-policy";
+import { matchesGlob } from "../shared/code-primitives";
 
 const execFileAsync = promisify(execFile);
 
@@ -329,10 +330,11 @@ function formatSkeleton(allFiles: FileSymbols[], maxChars: number): string {
 interface IndexState {
   cwd:      string;
   skeleton: string;
+  symbols:  Map<string, Array<{ relPath: string; symbol: Symbol }>>;
   dirty:    boolean;
 }
 
-const state: IndexState = { cwd: "", skeleton: "", dirty: true };
+const state: IndexState = { cwd: "", skeleton: "", symbols: new Map(), dirty: true };
 
 export function shouldInjectRepoSkeleton(route: IntentRoute = getCurrentRoute()): boolean {
   return route.primaryIntent === "coding" || route.primaryIntent === "debugging" || route.primaryIntent === "refactor" || route.primaryIntent === "review";
@@ -370,7 +372,15 @@ async function rebuildIndex(cwd: string): Promise<void> {
   }
 
   state.skeleton = formatSkeleton(allFiles, SKELETON_MAX_CHARS);
-  state.dirty    = false;
+  state.symbols = new Map();
+  for (const file of allFiles) {
+    for (const symbol of file.symbols) {
+      const entries = state.symbols.get(symbol.name) ?? [];
+      entries.push({ relPath: file.relPath, symbol });
+      state.symbols.set(symbol.name, entries);
+    }
+  }
+  state.dirty = false;
 }
 
 // ─── Extension ───────────────────────────────────────────────────────────────
@@ -537,14 +547,27 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
 
       let output = "";
       let usedMode = mode;
+      let engine = "ripgrep";
+      const indexedStructural = async (): Promise<string> => {
+        await rebuildIndex(cwd);
+        return (state.symbols.get(params.query) ?? [])
+          .filter(entry => !params.file_glob || matchesGlob(entry.relPath, params.file_glob))
+          .slice(0, maxResults)
+          .map(entry => `${entry.relPath}:${entry.symbol.line}: ${entry.symbol.kind} ${entry.symbol.name}`)
+          .join("\n");
+      };
 
       if (mode === "structural") {
-        output = await tryStructural();
+        output = await indexedStructural();
+        if (output) engine = "symbol-index";
+        else output = await tryStructural();
       } else if (mode === "lexical") {
         output = await tryLexical();
       } else {
-        // auto: structural first
-        output = await tryStructural();
+        // auto: indexed structural lookup first, then structural ripgrep.
+        output = await indexedStructural();
+        if (output) engine = "symbol-index";
+        else output = await tryStructural();
         if (!output.trim()) {
           output   = await tryLexical();
           usedMode = "lexical";
@@ -582,7 +605,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
               `Tried in: ${cwd}${includeHidden ? " (including hidden files)" : ""}${scopedHint}\n` +
               `Tip: try mode='lexical' for text-only matches, add include_hidden=true for dot-directories, or check the repo map for nearby symbols.`,
           }],
-          details: { query: params.query, mode: usedMode, matches: 0 },
+          details: { query: params.query, mode: usedMode, engine, matches: 0 },
         };
       }
 
@@ -602,7 +625,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: `${header}\n\n${result}` }],
-        details: { query: params.query, mode: usedMode, lines: limited.length },
+        details: { query: params.query, mode: usedMode, engine, lines: limited.length },
       };
     },
   });

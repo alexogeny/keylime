@@ -328,4 +328,8 @@ describe("git checkpoint tool gating", () => {
     expect(execFileSync("git", ["--git-dir", remote, "rev-parse", `refs/heads/${branch}`]).toString().trim()).toHaveLength(40);
     expect(notifications.join("\n")).toContain("Pushed");
   });
+  test("builds path-scoped staging arguments for known changed files", () => {
+    expect(checkpointAddArgs(["src/a.ts", "docs/readme.md"])).toEqual(["add", "-u", "--", "src/a.ts", "docs/readme.md"]);
+    expect(checkpointAddArgs([".pi/state.json", "src/a.ts"])).toEqual(["add", "-u", "--", "src/a.ts"]);
+  });
 });

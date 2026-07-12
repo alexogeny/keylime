@@ -184,4 +184,12 @@ describe("RetrievalIndex hybrid search", () => {
     const results = index.search("alpha", { topK: 1, candidateMultiplier: 1, filter: doc => doc.kind === "allowed" });
     expect(results.map(result => result.id)).toEqual(["allowed"]);
   });
+  test("scores only posting-list candidates for selective queries", () => {
+    const index = new BM25Index();
+    for (let i = 0; i < 1_000; i++) index.add(`common-${i}`, `common document ${i}`);
+    index.add("needle-a", "rareneedle alpha");
+    index.add("needle-b", "rareneedle beta");
+    expect(index.search("rareneedle", 5).map(result => result.id)).toEqual(["needle-a", "needle-b"]);
+    expect(index.lastSearchStats).toEqual({ documentsVisited: 2, documentsScored: 2 });
+  });
 });
