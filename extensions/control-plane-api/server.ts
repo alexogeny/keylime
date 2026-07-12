@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { handleControlPlaneRequest } from "./routes";
+import { isPathWithin } from "../shared/path-policy";
 import type { ControlPlaneState, RuntimeState } from "./types";
 
 export const DEFAULT_CONTROL_PLANE_PORT = Number(process.env.KEYLIME_CONTROL_PLANE_PORT ?? 49714);
@@ -52,7 +53,7 @@ async function serveUiAsset(url: URL, cwd: string): Promise<Response> {
   if (!rel.startsWith("ui/")) return new Response("Not found", { status: 404 });
   const base = normalize(join(cwd, "ui"));
   const path = normalize(join(cwd, rel));
-  if (!path.startsWith(base) || !existsSync(path)) return new Response("Not found", { status: 404 });
+  if (!isPathWithin(base, path, { allowRoot: true }) || !existsSync(path)) return new Response("Not found", { status: 404 });
   const ext = path.split(".").pop()?.toLowerCase();
   const type = ext === "html" ? "text/html; charset=utf-8" : ext === "js" ? "text/javascript; charset=utf-8" : ext === "css" ? "text/css; charset=utf-8" : ext === "svg" ? "image/svg+xml" : "application/octet-stream";
   return new Response(await readFile(path), { headers: { "content-type": type, "cache-control": "no-cache" } });

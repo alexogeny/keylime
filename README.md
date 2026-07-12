@@ -156,10 +156,17 @@ bun run check:ocr-deps
 
 ## Development
 
-Run the full test suite:
+Install the repository-local dependencies, then run the full test suite:
 
 ```bash
-bun test tests
+bun install
+bun run check
+```
+
+Run the retrieval benchmark separately:
+
+```bash
+bun run bench
 ```
 
 The suite covers intent routing, code primitives, danger guards, git tools, checkpoints, repo search, test running, and turn-context composition.

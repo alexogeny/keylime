@@ -23,6 +23,7 @@ import { BM25Index } from "./shared/retrieval";
 import { createOllamaEmbedder } from "./shared/ollama-embeddings";
 import { cosineSimilarity } from "./shared/similarity";
 import { ageString } from "./shared/time-format";
+import { LruCache } from "./shared/lru-cache";
 
 // ─── Shared lexical retrieval ────────────────────────────────────────────────
 
@@ -31,16 +32,10 @@ import { ageString } from "./shared/time-format";
 const EMBED_MODEL = process.env.SEARCH_EMBED_MODEL ?? "nomic-embed-text";
 const EMBED_CACHE_LIMIT = 512;
 const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1500, embedTimeoutMs: 10000 });
-const embeddingCache = new Map<string, number[]>();
+const embeddingCache = new LruCache<string, number[]>({ maxEntries: EMBED_CACHE_LIMIT });
 
 function cacheEmbedding(key: string, embedding: number[]): void {
-  embeddingCache.delete(key);
   embeddingCache.set(key, embedding);
-  while (embeddingCache.size > EMBED_CACHE_LIMIT) {
-    const oldest = embeddingCache.keys().next().value;
-    if (!oldest) break;
-    embeddingCache.delete(oldest);
-  }
 }
 
 async function cachedEmbedding(key: string, text: string): Promise<number[] | null> {

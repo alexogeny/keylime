@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
+import { isPathWithin } from "../shared/path-policy";
 import { ok, fail, parseJson } from "./envelope";
 import { CAPABILITIES, buildGraph, inferAgentState, normalizeMessages, normalizeModel, normalizeResearchDetail, normalizeResearchSummary, normalizeToolCall, splitMemory } from "./normalizers";
 import { DEFAULT_DATA_DIR, listWorkspaceFiles, readJson, readMemoryStore, readResearchEntry, readResearchIndex, readToolResult, readToolResultIndex, writeJson, writeMemoryStore } from "./stores";
@@ -160,7 +161,7 @@ async function workspaceBundle(state: ControlPlaneState) {
 
 async function workspaceFileDetail(state: ControlPlaneState, id: string) {
   const target = normalize(join(state.cwd, id));
-  if (!target.startsWith(state.cwd)) throw new Error("unsafe workspace file path");
+  if (!isPathWithin(state.cwd, target)) throw new Error("unsafe workspace file path");
   const content = await readFile(target, "utf8").catch(() => "");
   const changes = await controlRead(state, "workspace-changes", [] as any[]);
   return { id, name: id.split("/").pop() ?? id, summary: content ? content.slice(0, 400) : undefined, content, diff: changes.filter((c: any) => c.file === id), added: 0, removed: 0, writtenBy: undefined, createdAt: undefined };

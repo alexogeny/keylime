@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 import { loadAllSearchEntries, loadSearchEntry } from "../shared/web-search-store";
 import { readJsonFile, writeJsonFile } from "../shared/json-store";
+import { isPathWithin } from "../shared/path-policy";
 import { MEMORY_FILE } from "../user-memory/store";
 
 export const DEFAULT_DATA_DIR = join(homedir(), ".pi", "data", "keylime-control-plane");
@@ -44,12 +45,12 @@ export async function findToolResultPath(cwd: string, id: string) {
   if (!/^[a-zA-Z0-9._-]+$/.test(id)) throw new Error("Unsafe tool result id");
   const base = join(cwd, ".pi", "tool-results");
   const direct = normalize(join(base, `${id}.json`));
-  if (!direct.startsWith(base)) throw new Error("Unsafe tool result path");
+  if (!isPathWithin(base, direct)) throw new Error("Unsafe tool result path");
   if (existsSync(direct)) return direct;
   const manifest = await readToolResultIndex(cwd);
   const hit = manifest.find((e: any) => e.id === id || e.result_id === id);
   const stored = typeof hit?.stored_at === "string" ? normalize(join(cwd, hit.stored_at)) : "";
-  if (stored && stored.startsWith(base) && existsSync(stored)) return stored;
+  if (stored && isPathWithin(base, stored) && existsSync(stored)) return stored;
   throw new Error("Tool result not found");
 }
 

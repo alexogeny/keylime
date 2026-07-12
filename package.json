@@ -1,0 +1,21 @@
+{
+  "name": "keylime-pi-extensions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test tests",
+    "test:core": "bun test tests/retrieval.test.ts tests/json-store.test.ts tests/ollama-embeddings.test.ts",
+    "typecheck": "tsc --noEmit",
+    "bench": "bun tests/benchmarks/retrieval.bench.ts",
+    "check": "bun run typecheck && bun test tests"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "typebox": "1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.4",
+    "typescript": "5.9.3"
+  }
+}
