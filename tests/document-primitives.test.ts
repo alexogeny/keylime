@@ -95,11 +95,16 @@ describe("document primitives", () => {
       path: "out/report.html",
       title: "Assessment Brief",
       subtitle: "Reporter style",
-      sections: [{ heading: "Overview", body: "This is the body." }],
+      sections: [{ heading: "Overview", body: "This is **important** and *carefully qualified*.\n\n- First result\n- Second result" }],
       references: ["Example reference"],
     }, undefined, undefined, { cwd });
     expect(report.content[0].text).toContain("Created reporter document out/report.html");
-    expect(await readFile(join(cwd, "out", "report.html"), "utf8")).toContain("--accent");
+    const reportHtml = await readFile(join(cwd, "out", "report.html"), "utf8");
+    expect(reportHtml).toContain("--accent");
+    expect(reportHtml).toContain('font-family:Georgia,"Times New Roman",Times,serif');
+    expect(reportHtml).toContain("<strong>important</strong>");
+    expect(reportHtml).toContain("<em>carefully qualified</em>");
+    expect(reportHtml).toContain("<ul><li>First result</li><li>Second result</li></ul>");
 
     const converted = await tools.convert_document.execute("id", { input_path: "source.md", output_path: "out/source.txt", output_format: "txt" }, undefined, undefined, { cwd });
     expect(converted.content[0].text).toContain("Converted source.md -> out/source.txt");

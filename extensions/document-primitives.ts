@@ -429,16 +429,31 @@ function extractCitationHints(text: string): string[] {
 }
 
 function reporterHtml(title: string, subtitle: string | undefined, author: string | undefined, sections: any[], references: string[] = []): string {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const esc = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const inline = (text: string) => esc(text)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
+  const markdown = (source: string) => source.trim().split(/\n{2,}/).map(block => {
+    const lines = block.split("\n");
+    const heading = lines.length === 1 && /^(#{1,4})\s+/.exec(lines[0]);
+    if (heading) return `<h${heading[1].length + 1}>${inline(lines[0].slice(heading[0].length))}</h${heading[1].length + 1}>`;
+    if (lines.every(line => /^\s*[-*+]\s+/.test(line))) return `<ul>${lines.map(line => `<li>${inline(line.replace(/^\s*[-*+]\s+/, ""))}</li>`).join("")}</ul>`;
+    if (lines.every(line => /^\s*\d+[.)]\s+/.test(line))) return `<ol>${lines.map(line => `<li>${inline(line.replace(/^\s*\d+[.)]\s+/, ""))}</li>`).join("")}</ol>`;
+    if (lines.every(line => /^\s*>/.test(line))) return `<blockquote>${lines.map(line => inline(line.replace(/^\s*>\s?/, ""))).join("<br>")}</blockquote>`;
+    return `<p>${lines.map(inline).join("<br>")}</p>`;
+  }).join("\n");
   const body = sections.map(section => {
     const level = clamp(section.level, 2, 1, 4);
-    return `<section><h${level}>${esc(section.heading)}</h${level}>${section.body.split("\n\n").map((p: string) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("\n")}</section>`;
+    return `<section><h${level}>${inline(section.heading)}</h${level}>${markdown(section.body)}</section>`;
   }).join("\n");
-  const refs = references.length ? `<section><h2>References</h2><ol>${references.map(ref => `<li>${esc(ref)}</li>`).join("")}</ol></section>` : "";
+  const refs = references.length ? `<section class="references"><h2>References</h2><ol>${references.map(ref => `<li>${inline(ref)}</li>`).join("")}</ol></section>` : "";
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-:root{--ink:#172033;--muted:#617085;--accent:#4f46e5;--paper:#fff;--wash:#f5f7fb}body{margin:0;background:var(--wash);color:var(--ink);font:16px/1.6 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.page{max-width:920px;margin:40px auto;background:var(--paper);padding:56px 64px;box-shadow:0 20px 60px #11182720;border-radius:18px}header{border-bottom:4px solid var(--accent);padding-bottom:24px;margin-bottom:34px}h1{font-size:42px;line-height:1.1;margin:0 0 10px}h2{font-size:25px;margin-top:34px;border-left:5px solid var(--accent);padding-left:12px}h3{font-size:20px;margin-top:26px}.subtitle,.meta{color:var(--muted)}section{break-inside:avoid}ol{padding-left:1.4rem}code{background:#eef2ff;padding:2px 5px;border-radius:5px}@media print{body{background:white}.page{box-shadow:none;margin:0;border-radius:0}}
-</style></head><body><main class="page"><header><h1>${esc(title)}</h1>${subtitle ? `<div class="subtitle">${esc(subtitle)}</div>` : ""}${author ? `<div class="meta">${esc(author)}</div>` : ""}</header>${body}${refs}</main></body></html>`;
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>
+:root{--ink:#181714;--muted:#5f5b52;--rule:#aaa397;--paper:#fff;--wash:#e9e7e1;--accent:#6b1f2a}*{box-sizing:border-box}html{font-size:11pt}body{margin:0;background:var(--wash);color:var(--ink);font-family:Georgia,"Times New Roman",Times,serif;line-height:1.58;text-rendering:optimizeLegibility}.page{width:min(100% - 2rem,8.5in);min-height:11in;margin:2rem auto;background:var(--paper);padding:.85in .9in 1in;box-shadow:0 5px 24px #19171422}header{text-align:center;margin:0 0 2.5rem;padding:0 0 1.5rem;border-bottom:1px solid var(--ink)}h1{max-width:42rem;margin:0 auto .8rem;font-size:2.15rem;line-height:1.15;font-weight:normal;letter-spacing:-.02em}h2{margin:2.1rem 0 .75rem;font-size:1.28rem;line-height:1.25;font-variant:small-caps;letter-spacing:.045em;border-bottom:1px solid var(--rule);padding-bottom:.2rem}h3{margin:1.55rem 0 .55rem;font-size:1.08rem;font-style:italic}h4,h5{font-size:1rem;margin:1.2rem 0 .4rem}.subtitle{font-size:1.12rem;font-style:italic;color:var(--muted)}.meta{margin-top:.65rem;font-size:.95rem;color:var(--muted)}p{margin:.2rem 0 .85rem;text-align:justify;hyphens:auto}section{break-inside:auto}strong{font-weight:700}em{font-style:italic}a{color:var(--accent);text-decoration-thickness:.06em;text-underline-offset:.13em}ul,ol{margin:.5rem 0 1rem;padding-left:1.55rem}li{padding-left:.2rem;margin:.18rem 0}blockquote{margin:1rem 1.7rem;padding-left:1rem;border-left:2px solid var(--rule);color:var(--muted);font-style:italic}code{font:90% "Courier New",monospace;background:#f2f0eb;padding:.08em .25em;border:1px solid #ddd8ce}.references{font-size:.92rem}.references ol{padding-left:1.8rem}.references li{margin-bottom:.5rem;padding-left:.35rem}header+section h2{margin-top:0}@page{size:letter;margin:.75in}@media print{html{font-size:10.5pt}body{background:#fff}.page{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}a{color:inherit}h1,h2,h3{break-after:avoid}p,li{orphans:3;widows:3}}@media(max-width:600px){.page{width:100%;margin:0;padding:2rem 1.4rem;box-shadow:none}h1{font-size:1.8rem}}
+</style></head><body><main class="page"><header><h1>${esc(title)}</h1>${subtitle ? `<div class="subtitle">${inline(subtitle)}</div>` : ""}${author ? `<div class="meta">${inline(author)}</div>` : ""}</header>${body}${refs}</main></body></html>`;
 }
 
 export default function documentPrimitivesExtension(pi: ExtensionAPI) {
