@@ -92,8 +92,7 @@ function lineStarts(text: string): number[] {
   return starts;
 }
 
-function lineColumnAt(text: string, index: number): { line: number; column: number } {
-  const starts = lineStarts(text);
+function lineColumnAt(starts: readonly number[], index: number): { line: number; column: number } {
   let low = 0;
   let high = starts.length - 1;
   while (low <= high) {
@@ -105,8 +104,7 @@ function lineColumnAt(text: string, index: number): { line: number; column: numb
   return { line: lineIdx + 1, column: index - starts[lineIdx] + 1 };
 }
 
-function contextForLine(text: string, line: number, contextLines: number): { lineText: string; before: string[]; after: string[] } {
-  const lines = text.split("\n");
+function contextForLine(lines: readonly string[], line: number, contextLines: number): { lineText: string; before: string[]; after: string[] } {
   const idx = line - 1;
   return {
     lineText: lines[idx] ?? "",
@@ -200,6 +198,8 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
   const contextLines = Math.max(0, options.contextLines ?? 2);
   const maxMatches = Math.max(1, options.maxMatches ?? 20);
   const matches: TextMatch[] = [];
+  const starts = lineStarts(text);
+  const lines = text.split("\n");
 
   const autoRegex = !options.regex && looksLikeRegexQuery(options.query);
   if (options.regex || autoRegex) {
@@ -208,8 +208,8 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
       const re = new RegExp(options.query, flags);
       for (const match of text.matchAll(re)) {
         if (match.index === undefined) continue;
-        const { line, column } = lineColumnAt(text, match.index);
-        matches.push({ index: match.index, line, column, text: match[0], ...contextForLine(text, line, contextLines) });
+        const { line, column } = lineColumnAt(starts, match.index);
+        matches.push({ index: match.index, line, column, text: match[0], ...contextForLine(lines, line, contextLines) });
         if (matches.length >= maxMatches) break;
       }
       return matches;
@@ -224,8 +224,8 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
   while (matches.length < maxMatches) {
     const index = haystack.indexOf(needle, from);
     if (index < 0) break;
-    const { line, column } = lineColumnAt(text, index);
-    matches.push({ index, line, column, text: text.slice(index, index + options.query.length), ...contextForLine(text, line, contextLines) });
+    const { line, column } = lineColumnAt(starts, index);
+    matches.push({ index, line, column, text: text.slice(index, index + options.query.length), ...contextForLine(lines, line, contextLines) });
     from = index + Math.max(1, options.query.length);
   }
   return matches;

@@ -1,5 +1,5 @@
 import { BM25Index, tokenize } from "./retrieval";
-import { jaccardText } from "./similarity";
+import { jaccardTokens } from "./similarity";
 
 export type ExtractMainContentOptions = {
   maxChars?: number;
@@ -151,6 +151,7 @@ export function mmrSelect<T>(candidates: Array<MMRCandidate<T>>, options: MMROpt
   const maxRel = Math.max(...candidates.map(c => c.relevance), 1);
   const remaining = [...candidates].sort((a, b) => b.relevance - a.relevance || a.id.localeCompare(b.id));
   const selected: Array<MMRCandidate<T>> = [];
+  const tokenSets = new Map(candidates.map(candidate => [candidate.id, new Set(tokenize(candidate.text))]));
 
   while (selected.length < limit && remaining.length > 0) {
     let bestIdx = 0;
@@ -158,7 +159,9 @@ export function mmrSelect<T>(candidates: Array<MMRCandidate<T>>, options: MMROpt
     for (let i = 0; i < remaining.length; i++) {
       const candidate = remaining[i];
       const rel = candidate.relevance / maxRel;
-      const redundancy = selected.length === 0 ? 0 : Math.max(...selected.map(s => jaccardText(candidate.text, s.text)));
+      const candidateTokens = tokenSets.get(candidate.id)!;
+      let redundancy = 0;
+      for (const prior of selected) redundancy = Math.max(redundancy, jaccardTokens(candidateTokens, tokenSets.get(prior.id)!));
       const score = lambda * rel - (1 - lambda) * redundancy;
       if (score > bestScore || (score === bestScore && candidate.id.localeCompare(remaining[bestIdx].id) < 0)) {
         bestScore = score;

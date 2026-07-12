@@ -221,23 +221,29 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "query_shoes", group: "shoes", domain: true, risk: "domain" },
 ];
 
+const TOOL_POLICY_BY_NAME = new Map(TOOL_POLICIES.map(policy => [policy.name, policy]));
+const KNOWN_TOOL_NAMES = new Set(TOOL_POLICY_BY_NAME.keys());
+const ALWAYS_ON_TOOL_NAMES = TOOL_POLICIES.filter(policy => policy.alwaysOn).map(policy => policy.name).sort();
+const DOMAIN_TOOL_NAMES = TOOL_POLICIES.filter(policy => policy.domain).map(policy => policy.name).sort();
+const DOMAIN_TOOL_NAME_SET = new Set(DOMAIN_TOOL_NAMES);
+
 export function toolPolicyFor(name: string): ToolPolicy | undefined {
-  return TOOL_POLICIES.find(policy => policy.name === name);
+  return TOOL_POLICY_BY_NAME.get(name);
 }
 
 export function knownToolNames(): Set<string> {
-  return new Set(TOOL_POLICIES.map(policy => policy.name));
+  return new Set(KNOWN_TOOL_NAMES);
 }
 
 export function alwaysOnToolNames(): string[] {
-  return TOOL_POLICIES.filter(policy => policy.alwaysOn).map(policy => policy.name).sort();
+  return [...ALWAYS_ON_TOOL_NAMES];
 }
 
 export function domainToolNames(): string[] {
-  return TOOL_POLICIES.filter(policy => policy.domain).map(policy => policy.name).sort();
+  return [...DOMAIN_TOOL_NAMES];
 }
 
-export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
+function buildCapabilityToolMap(): Record<CapabilityGroup, string[]> {
   const groups: Record<CapabilityGroup, string[]> = {
     core: [], readonly: [], coding: [], repo: [], project: [], memory: [], "memory-lite": [], research: [], fetch: [], shoes: [], personal: [], linux: [], profiling: [], safety: [],
   };
@@ -256,14 +262,20 @@ export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
   return groups;
 }
 
+const CAPABILITY_TOOL_MAP = buildCapabilityToolMap();
+
+export function capabilityToolMap(): Record<CapabilityGroup, string[]> {
+  return Object.fromEntries(Object.entries(CAPABILITY_TOOL_MAP).map(([group, names]) => [group, [...names]])) as Record<CapabilityGroup, string[]>;
+}
+
 export function resolveActiveToolSet(input: ActiveToolResolutionInput): ActiveToolResolution {
   const available = new Set(input.availableToolNames);
   const desired = new Set<string>();
-  const alwaysOn = alwaysOnToolNames();
-  const capabilityTools = capabilityToolMap();
+  const alwaysOn = ALWAYS_ON_TOOL_NAMES;
+  const capabilityTools = CAPABILITY_TOOL_MAP;
   const routed = [...new Set(input.groups.flatMap(group => capabilityTools[group] ?? []))].sort();
   const continuity = [...new Set(input.continuityToolNames ?? [])].sort();
-  const domainTools = new Set(domainToolNames());
+  const domainTools = DOMAIN_TOOL_NAME_SET;
   const preserved: string[] = [];
 
   for (const name of alwaysOn) desired.add(name);
@@ -282,7 +294,7 @@ export function resolveActiveToolSet(input: ActiveToolResolutionInput): ActiveTo
 
   return {
     active: [...desired].filter(name => available.has(name)).sort(),
-    alwaysOn,
+    alwaysOn: [...alwaysOn],
     routed,
     continuity,
     preserved: [...new Set(preserved)].sort(),
