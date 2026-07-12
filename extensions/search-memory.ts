@@ -189,19 +189,22 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
         };
       }
 
+      const entryMap = new Map(pool.map(entry => [entry.id, entry]));
+
       // Optional Ollama reranking
       const useOllama = await ollama.check();
+      let didRerank = false;
       let ranked = hits;
       if (useOllama) {
         const qEmbed = await cachedEmbedding(queryEmbeddingKey(params.query), params.query);
         if (qEmbed) {
-          const poolMap = new Map(pool.map(e => [e.id, e]));
           const documentEmbeddings = await cachedEmbeddings(hits.map(hit => {
-            const entry = poolMap.get(hit.id)!;
+            const entry = entryMap.get(hit.id)!;
             return { key: entryEmbeddingKey(entry), text: buildDocText(entry) };
           }));
+          didRerank = documentEmbeddings.size > 0;
           ranked = hits.map(hit => {
-            const entry = poolMap.get(hit.id)!;
+            const entry = entryMap.get(hit.id)!;
             const dEmbed = documentEmbeddings.get(entryEmbeddingKey(entry));
             if (!dEmbed) return hit;
             const semScore = cosineSimilarity(qEmbed, dEmbed);
@@ -210,10 +213,9 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
         }
       }
 
-      const entryMap = new Map(pool.map(e => [e.id, e]));
       const lines:   string[] = [
         `Found ${ranked.length} relevant past searches for "${params.query}"`,
-        useOllama ? `(Ollama-reranked with ${EMBED_MODEL})` : "(BM25 ranked)",
+        didRerank ? `(Ollama-reranked with ${EMBED_MODEL})` : "(BM25 ranked)",
         ``,
       ];
 
@@ -244,7 +246,7 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
         content: [{ type: "text", text: lines.join("\n") }],
         details: {
           count:       ranked.length,
-          reranked:    useOllama,
+          reranked:    didRerank,
           indexCacheHit,
           indexDocuments: pool.length,
           embeddingCacheSize: embeddingCache.size,

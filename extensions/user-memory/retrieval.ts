@@ -22,7 +22,7 @@ export async function hybridSearch(
   if (filterFn) pool = pool.filter(filterFn);
   const poolIds = new Set(pool.map(m => m.id));
 
-  const bm25Hits = deps.bm25.search(query, topK * 3).filter(h => poolIds.has(h.id));
+  const bm25Hits = deps.bm25.search(query, topK * 3, poolIds);
   const maxBM25 = bm25Hits[0]?.score ?? 1;
   const bm25Map = new Map(bm25Hits.map(h => [h.id, h.score / maxBM25]));
 

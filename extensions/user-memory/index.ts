@@ -142,18 +142,24 @@ export default function userMemoryExtension(pi: ExtensionAPI) {
     // a concurrent session, then write the merged result.  Prevents one
     // parallel pi window silently overwriting another's writes.
     const onDisk = await loadStore();
-    const diskIds = new Set(onDisk.memories.map(m => m.id));
-    const inMemIds = new Set(store.memories.map(m => m.id));
+    const inMemById = new Map(store.memories.map((memory, index) => [memory.id, { memory, index }]));
     store.profile = { ...onDisk.profile, ...store.profile };
     for (const [section, fields] of Object.entries(onDisk.profile)) {
       store.profile[section] = { ...fields, ...(store.profile[section] ?? {}) };
     }
-    // Add any memories present on disk but missing from our in-memory store
-    for (const m of onDisk.memories) {
-      if (!inMemIds.has(m.id)) {
-        store.memories.push(m);
-        bm25.add(m.id, memoryText(m));
-        tfidf.add(m.id, memoryText(m));
+    // Merge records written by concurrent sessions, preferring the newest revision.
+    for (const diskMemory of onDisk.memories) {
+      const local = inMemById.get(diskMemory.id);
+      if (!local) {
+        store.memories.push(diskMemory);
+        bm25.add(diskMemory.id, memoryText(diskMemory));
+        tfidf.add(diskMemory.id, memoryText(diskMemory));
+        continue;
+      }
+      if ((diskMemory.updated_at ?? 0) > (local.memory.updated_at ?? 0)) {
+        store.memories[local.index] = diskMemory;
+        bm25.add(diskMemory.id, memoryText(diskMemory));
+        tfidf.add(diskMemory.id, memoryText(diskMemory));
       }
     }
     await Promise.all([saveStore(store), saveEntityStore(entityStore)]);

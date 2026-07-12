@@ -1,3 +1,12 @@
+export function boundedNumber(value: unknown, options: { min: number; max: number; fallback: number }): number {
+  const number = Number(value);
+  return Math.max(options.min, Math.min(options.max, Number.isFinite(number) ? number : options.fallback));
+}
+
+export function boundedInteger(value: unknown, options: { min: number; max: number; fallback: number }): number {
+  return Math.floor(boundedNumber(value, options));
+}
+
 export function formatCompactNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;

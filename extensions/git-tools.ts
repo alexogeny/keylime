@@ -3,17 +3,18 @@ import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { isAbsolute, relative, resolve } from "node:path";
+import { boundedInteger } from "./shared/format";
+import { truncateWithMarker } from "./shared/output-preview";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_CHARS = 12_000;
 
 function clamp(n: number | undefined, min: number, max: number, fallback: number): number {
-  return Math.max(min, Math.min(max, Math.floor(n ?? fallback)));
+  return boundedInteger(n, { min, max, fallback });
 }
 
 function truncate(text: string, maxChars = MAX_OUTPUT_CHARS): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars).trimEnd()}\n… [truncated]`;
+  return truncateWithMarker(text, maxChars, "… [truncated]");
 }
 
 export function resolveGitSafePath(cwd: string, inputPath: string): string {

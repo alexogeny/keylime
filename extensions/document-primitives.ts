@@ -10,6 +10,8 @@ import { inflateRawSync } from "node:zlib";
 import { stringEnum } from "./shared/schema";
 import { repoRelativePath } from "./shared/path-policy";
 import { isProbablyBinary, resolveSafePath } from "./shared/code-primitives";
+import { boundedNumber } from "./shared/format";
+import { truncateWithMetadata } from "./shared/output-preview";
 import { classifyToolMutation } from "./shared/safety-policy";
 
 const MAX_EXTRACT_CHARS = 60_000;
@@ -22,7 +24,7 @@ type DocFormat = "auto" | "pdf" | "docx" | "xlsx" | "csv" | "txt" | "md" | "html
 type ZipEntry = { name: string; method: number; compressedSize: number; localHeaderOffset: number };
 
 function clamp(n: number | undefined, fallback: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, Number.isFinite(Number(n)) ? Number(n) : fallback));
+  return boundedNumber(n, { fallback, min, max });
 }
 
 function detectFormat(path: string, requested?: DocFormat): Exclude<DocFormat, "auto"> {
@@ -49,8 +51,8 @@ type ExtractionMethod = "embedded_text" | "ocr" | "mixed" | "none";
 type ExtractedDocument = { text: string; truncated: boolean; extraction_method?: ExtractionMethod; warnings?: string[] };
 
 function truncate(text: string, maxChars: number): { text: string; truncated: boolean } {
-  if (text.length <= maxChars) return { text, truncated: false };
-  return { text: `${text.slice(0, maxChars)}\n… truncated (${text.length - maxChars} chars omitted)`, truncated: true };
+  const result = truncateWithMetadata(text, maxChars);
+  return { text: result.text, truncated: result.truncated };
 }
 
 function parsePageSpec(spec: string | undefined, total: number): Set<number> | null {

@@ -5,6 +5,12 @@ export function headTail(text: string, chars: number, marker = "…"): string {
   return `${text.slice(0, head)}\n${marker}\n${text.slice(-tail)}`;
 }
 
+export function truncateWithMetadata(text: string, maxChars: number): { text: string; truncated: boolean; omittedChars: number } {
+  if (text.length <= maxChars) return { text, truncated: false, omittedChars: 0 };
+  const omittedChars = text.length - maxChars;
+  return { text: `${text.slice(0, maxChars)}\n… truncated (${omittedChars} chars omitted)`, truncated: true, omittedChars };
+}
+
 export function truncateWithMarker(text: string, maxChars: number, marker = "…"): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - marker.length)).trimEnd()}\n${marker}`;
