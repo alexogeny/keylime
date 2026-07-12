@@ -31,4 +31,6 @@ export interface HybridSearchOptions {
   heuristicWeight?: number;
   candidateMultiplier?: number;
   heuristic?: (doc: SearchDocument, query: string) => number;
+  allowedIds?: ReadonlySet<string>;
+  filter?: (doc: SearchDocument) => boolean;
 }

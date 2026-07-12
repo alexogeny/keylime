@@ -36,8 +36,14 @@ export class RetrievalIndex {
     const topK = options.topK ?? 10;
     if (topK <= 0 || this.docs.size === 0) return [];
     const candidateK = Math.max(topK, topK * (options.candidateMultiplier ?? 4));
-    const bm25 = this.bm25.search(query, candidateK);
-    const seedIds = bm25.length > 0 ? bm25.map(r => r.id) : [...this.docs.keys()];
+    const allowedIds = options.filter
+      ? new Set([...this.docs.values()]
+          .filter(doc => (!options.allowedIds || options.allowedIds.has(doc.id)) && options.filter!(doc))
+          .map(doc => doc.id))
+      : options.allowedIds;
+    if (allowedIds?.size === 0) return [];
+    const bm25 = this.bm25.search(query, candidateK, allowedIds);
+    const seedIds = bm25.length > 0 ? bm25.map(r => r.id) : [...(allowedIds ?? this.docs.keys())];
     const tfidf = this.tfidf.search(query, candidateK, seedIds);
     const jmlm = this.jmlm.search(query, candidateK, seedIds);
     const bm25n = normalizeScores(bm25);

@@ -61,9 +61,9 @@ export class JMLMIndex {
     return Math.exp(logLikelihood / q.length) * matched;
   }
 
-  search(query: string, topK = 10, candidateIds?: string[]): Array<{ id: string; score: number }> {
+  search(query: string, topK = 10, candidateIds?: Iterable<string>): Array<{ id: string; score: number }> {
     if (topK <= 0) return [];
-    const ids = candidateIds ?? [...this.docTf.keys()];
+    const ids = candidateIds ? [...candidateIds] : [...this.docTf.keys()];
     return ids
       .map(id => ({ id, score: this.score(query, id) }))
       .filter(r => r.score > 0)

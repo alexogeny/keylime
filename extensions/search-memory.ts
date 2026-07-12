@@ -33,22 +33,45 @@ const EMBED_CACHE_LIMIT = 512;
 const ollama = createOllamaEmbedder({ model: EMBED_MODEL, tagsTimeoutMs: 1500, embedTimeoutMs: 10000 });
 const embeddingCache = new Map<string, number[]>();
 
-async function cachedEmbedding(key: string, text: string): Promise<number[] | null> {
-  const cached = embeddingCache.get(key);
-  if (cached) {
-    embeddingCache.delete(key);
-    embeddingCache.set(key, cached);
-    return cached;
-  }
-  const embedding = await ollama.embed(text);
-  if (!embedding) return null;
+function cacheEmbedding(key: string, embedding: number[]): void {
+  embeddingCache.delete(key);
   embeddingCache.set(key, embedding);
   while (embeddingCache.size > EMBED_CACHE_LIMIT) {
     const oldest = embeddingCache.keys().next().value;
     if (!oldest) break;
     embeddingCache.delete(oldest);
   }
+}
+
+async function cachedEmbedding(key: string, text: string): Promise<number[] | null> {
+  const cached = embeddingCache.get(key);
+  if (cached) {
+    cacheEmbedding(key, cached);
+    return cached;
+  }
+  const embedding = await ollama.embed(text);
+  if (embedding) cacheEmbedding(key, embedding);
   return embedding;
+}
+
+async function cachedEmbeddings(items: Array<{ key: string; text: string }>): Promise<Map<string, number[]>> {
+  const result = new Map<string, number[]>();
+  const missing: Array<{ key: string; text: string }> = [];
+  for (const item of items) {
+    const cached = embeddingCache.get(item.key);
+    if (cached) {
+      cacheEmbedding(item.key, cached);
+      result.set(item.key, cached);
+    } else missing.push(item);
+  }
+  const embeddings = await ollama.embedMany(missing.map(item => item.text));
+  missing.forEach((item, index) => {
+    const embedding = embeddings[index];
+    if (!embedding) return;
+    cacheEmbedding(item.key, embedding);
+    result.set(item.key, embedding);
+  });
+  return result;
 }
 
 function entryEmbeddingKey(entry: SearchEntry): string {
@@ -173,18 +196,17 @@ export default function searchMemoryExtension(pi: ExtensionAPI) {
         const qEmbed = await cachedEmbedding(queryEmbeddingKey(params.query), params.query);
         if (qEmbed) {
           const poolMap = new Map(pool.map(e => [e.id, e]));
-          const reranked: Array<{ id: string; score: number }> = [];
-          for (const h of hits) {
-            const e = poolMap.get(h.id)!;
-            const dEmbed = await cachedEmbedding(entryEmbeddingKey(e), buildDocText(e));
-            if (dEmbed) {
-              const semScore = cosineSimilarity(qEmbed, dEmbed);
-              reranked.push({ id: h.id, score: 0.4 * h.score + 0.6 * semScore * 10 });
-            } else {
-              reranked.push(h);
-            }
-          }
-          ranked = reranked.sort((a, b) => b.score - a.score);
+          const documentEmbeddings = await cachedEmbeddings(hits.map(hit => {
+            const entry = poolMap.get(hit.id)!;
+            return { key: entryEmbeddingKey(entry), text: buildDocText(entry) };
+          }));
+          ranked = hits.map(hit => {
+            const entry = poolMap.get(hit.id)!;
+            const dEmbed = documentEmbeddings.get(entryEmbeddingKey(entry));
+            if (!dEmbed) return hit;
+            const semScore = cosineSimilarity(qEmbed, dEmbed);
+            return { id: hit.id, score: 0.4 * hit.score + 0.6 * semScore * 10 };
+          }).sort((a, b) => b.score - a.score);
         }
       }
 

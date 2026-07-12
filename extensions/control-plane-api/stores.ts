@@ -1,21 +1,19 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, normalize } from "node:path";
+import { join, normalize } from "node:path";
 import { loadAllSearchEntries, loadSearchEntry } from "../shared/web-search-store";
+import { readJsonFile, writeJsonFile } from "../shared/json-store";
 import { MEMORY_FILE } from "../user-memory/store";
 
 export const DEFAULT_DATA_DIR = join(homedir(), ".pi", "data", "keylime-control-plane");
 
 export async function readJson<T>(path: string, fallback: T): Promise<T> {
-  if (!existsSync(path)) return fallback;
-  try { return JSON.parse(await readFile(path, "utf8")) as T; }
-  catch { return fallback; }
+  return readJsonFile(path, fallback);
 }
 
 export async function writeJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2) + "\n", "utf8");
+  await writeJsonFile(path, value, { finalNewline: true });
 }
 
 export async function readMemoryStore() {
@@ -61,17 +59,20 @@ export async function readToolResult(cwd: string, id: string) {
 
 export async function listWorkspaceFiles(cwd: string, limit = 300) {
   const out: Array<{ path: string; kind: "file" | "directory" }> = [];
-  async function walk(dir: string, rel = "") {
-    if (out.length >= limit) return;
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const queue: Array<{ dir: string; rel: string }> = [{ dir: cwd, rel: "" }];
+  const ignored = new Set([".git", "node_modules", ".pi"]);
+  while (queue.length > 0 && out.length < limit) {
+    const current = queue.shift()!;
+    const entries = await readdir(current.dir, { withFileTypes: true }).catch(() => []);
+    entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      if (out.length >= limit) return;
-      if ([".git", "node_modules", ".pi"].includes(entry.name)) continue;
-      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-      out.push({ path: childRel, kind: entry.isDirectory() ? "directory" : "file" });
-      if (entry.isDirectory()) await walk(join(dir, entry.name), childRel);
+      if (out.length >= limit) break;
+      if (ignored.has(entry.name)) continue;
+      const childRel = current.rel ? `${current.rel}/${entry.name}` : entry.name;
+      const isDirectory = entry.isDirectory() && !entry.isSymbolicLink();
+      out.push({ path: childRel, kind: isDirectory ? "directory" : "file" });
+      if (isDirectory) queue.push({ dir: join(current.dir, entry.name), rel: childRel });
     }
   }
-  await walk(cwd);
   return out;
 }

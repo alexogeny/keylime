@@ -14,7 +14,7 @@ export interface BM25Options extends TokenizeOptions {
 }
 
 export class BM25Index {
-  private docs: BM25Doc[] = [];
+  private docs = new Map<string, BM25Doc>();
   private idf: Map<string, number> = new Map();
   private avgLen = 0;
   private dirty = false;
@@ -33,21 +33,17 @@ export class BM25Index {
     const tokens = tokenize(text, this.tokenOptions);
     const tf = new Map<string, number>();
     for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + 1);
-    this.docs.push({ id, tokens, tf, len: tokens.length });
+    this.docs.set(id, { id, tokens, tf, len: tokens.length });
     this.dirty = true;
   }
 
   remove(id: string): void {
-    const idx = this.docs.findIndex(d => d.id === id);
-    if (idx !== -1) {
-      this.docs.splice(idx, 1);
-      this.dirty = true;
-    }
+    if (this.docs.delete(id)) this.dirty = true;
   }
 
   private recompute(): void {
     if (!this.dirty) return;
-    const N = this.docs.length;
+    const N = this.docs.size;
     this.idf.clear();
     if (N === 0) {
       this.avgLen = 0;
@@ -56,7 +52,7 @@ export class BM25Index {
     }
     const df = new Map<string, number>();
     let total = 0;
-    for (const doc of this.docs) {
+    for (const doc of this.docs.values()) {
       total += doc.len;
       for (const t of doc.tf.keys()) df.set(t, (df.get(t) ?? 0) + 1);
     }
@@ -67,14 +63,14 @@ export class BM25Index {
     this.dirty = false;
   }
 
-  search(query: string, topK = 10): Array<{ id: string; score: number }> {
+  search(query: string, topK = 10, candidateIds?: ReadonlySet<string>): Array<{ id: string; score: number }> {
     this.recompute();
-    if (this.docs.length === 0 || topK <= 0) return [];
+    if (this.docs.size === 0 || topK <= 0 || candidateIds?.size === 0) return [];
     const queryTokens = tokenize(query, this.tokenOptions);
     if (queryTokens.length === 0) return [];
     const scores = new Map<string, number>();
-    for (const doc of this.docs) {
-      if (doc.len === 0) continue;
+    for (const doc of this.docs.values()) {
+      if ((candidateIds && !candidateIds.has(doc.id)) || doc.len === 0) continue;
       let score = 0;
       for (const t of queryTokens) {
         const idf = this.idf.get(t) ?? 0;
@@ -90,5 +86,5 @@ export class BM25Index {
       .map(([id, score]) => ({ id, score }));
   }
 
-  get size(): number { return this.docs.length; }
+  get size(): number { return this.docs.size; }
 }

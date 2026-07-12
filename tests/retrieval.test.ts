@@ -169,4 +169,19 @@ describe("RetrievalIndex hybrid search", () => {
     expect(index.search("context", { topK: 2 }).map(r => r.id)).toContain("ascii");
     expect(index.search("🚀", { topK: 2 })).toEqual([]);
   });
+  test("replaces document ids without growing the index", () => {
+    const index = new BM25Index();
+    index.add("same", "alpha original");
+    index.add("same", "beta replacement");
+    expect(index.size).toBe(1);
+    expect(index.search("alpha")).toEqual([]);
+    expect(index.search("beta")[0]?.id).toBe("same");
+  });
+  test("applies filters before candidate truncation", () => {
+    const index = new RetrievalIndex();
+    for (let i = 0; i < 20; i++) index.add({ id: `excluded-${i}`, kind: "excluded", body: "alpha alpha alpha" });
+    index.add({ id: "allowed", kind: "allowed", body: "alpha" });
+    const results = index.search("alpha", { topK: 1, candidateMultiplier: 1, filter: doc => doc.kind === "allowed" });
+    expect(results.map(result => result.id)).toEqual(["allowed"]);
+  });
 });
