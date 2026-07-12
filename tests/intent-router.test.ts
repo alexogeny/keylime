@@ -278,6 +278,35 @@ describe("context rerouting", () => {
   });
 });
 
+test("switch-intent linux_ops activates the execution capability guard", async () => {
+  const { default: intentRouterExtension, resetIntentRoutingForTests } = await import("../extensions/intent-router");
+  const { getCurrentRoute, isCapabilityActive } = await import("../extensions/shared/intent");
+  const { requireLinuxCapability } = await import("../extensions/shared/linux-safety");
+  const commands: Record<string, any> = {};
+  const calls: string[][] = [];
+  const mockPi = {
+    getAllTools: () => allToolNames.map(name => ({ name })),
+    getActiveTools: () => ["custom_safe_tool"],
+    setActiveTools: (names: string[]) => calls.push(names),
+    on: () => {},
+    registerCommand: (name: string, command: any) => { commands[name] = command; },
+  } as any;
+  const ctx = {
+    ui: { notify: () => {}, setStatus: () => {}, theme: { fg: (_style: string, text: string) => text } },
+  };
+
+  resetIntentRoutingForTests();
+  intentRouterExtension(mockPi);
+  await commands["switch-intent"].handler("linux_ops", ctx);
+
+  expect(getCurrentRoute().primaryIntent).toBe("linux_ops");
+  expect(isCapabilityActive("linux")).toBe(true);
+  expect(() => requireLinuxCapability()).not.toThrow();
+  expect(calls.at(-1)).toContain("inspect_kernel");
+
+  await commands["switch-intent"].handler("auto", ctx);
+});
+
 test("switch-intent programming forces coding tools until cleared", async () => {
   const { default: intentRouterExtension, routeForPrompt } = await import("../extensions/intent-router");
   const commands: Record<string, any> = {};

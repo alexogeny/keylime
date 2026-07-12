@@ -164,18 +164,32 @@ export function classifyIntent(prompt: string): IntentRoute {
   };
 }
 
-let currentRoute: IntentRoute = classifyIntent("");
+// Extension entrypoints may be transpiled or loaded in separate module graphs. Keep
+// authorization-relevant route state on the process-wide symbol registry so every
+// Keylime extension in this JavaScript realm consults the same active route.
+const ROUTE_STATE_KEY = Symbol.for("keylime.intent-route-state");
+type RouteState = { currentRoute: IntentRoute };
+
+function routeState(): RouteState {
+  const root = globalThis as Record<PropertyKey, unknown>;
+  const existing = root[ROUTE_STATE_KEY] as RouteState | undefined;
+  if (existing) return existing;
+
+  const initialized = { currentRoute: classifyIntent("") };
+  root[ROUTE_STATE_KEY] = initialized;
+  return initialized;
+}
 
 export function setCurrentRoute(route: IntentRoute): void {
-  currentRoute = route;
+  routeState().currentRoute = route;
 }
 
 export function getCurrentRoute(): IntentRoute {
-  return currentRoute;
+  return routeState().currentRoute;
 }
 
 export function isCapabilityActive(group: CapabilityGroup): boolean {
-  return currentRoute.capabilityGroups.includes(group);
+  return getCurrentRoute().capabilityGroups.includes(group);
 }
 
 export function routeSummary(route = currentRoute): string {
