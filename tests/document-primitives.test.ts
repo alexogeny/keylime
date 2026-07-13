@@ -95,16 +95,20 @@ describe("document primitives", () => {
       path: "out/report.html",
       title: "Assessment Brief",
       subtitle: "Reporter style",
-      sections: [{ heading: "Overview", body: "This is **important** and *carefully qualified*.\n\n- First result\n- Second result" }],
+      sections: [{ heading: "Overview", body: "This is **important** and *carefully qualified*.\n\n- First result\n- Second result\n\n##### Detailed finding\n\n| Measure | Result |\n|:--------|-------:|\n| Accuracy | 98% |" }],
       references: ["Example reference"],
     }, undefined, undefined, { cwd });
     expect(report.content[0].text).toContain("Created reporter document out/report.html");
     const reportHtml = await readFile(join(cwd, "out", "report.html"), "utf8");
-    expect(reportHtml).toContain("--accent");
-    expect(reportHtml).toContain('font-family:Georgia,"Times New Roman",Times,serif');
+    expect(reportHtml).toContain("--paper:#fff");
+    expect(reportHtml).toContain('font-family:"Times New Roman",Times,serif');
     expect(reportHtml).toContain("<strong>important</strong>");
     expect(reportHtml).toContain("<em>carefully qualified</em>");
     expect(reportHtml).toContain("<ul><li>First result</li><li>Second result</li></ul>");
+    expect(reportHtml).toContain("<h5>Detailed finding</h5>");
+    expect(reportHtml).toContain('<table><thead><tr><th style="text-align:left">Measure</th><th style="text-align:right">Result</th></tr></thead>');
+    expect(reportHtml).not.toContain("gradient");
+    expect(reportHtml).not.toContain("box-shadow");
 
     const converted = await tools.convert_document.execute("id", { input_path: "source.md", output_path: "out/source.txt", output_format: "txt" }, undefined, undefined, { cwd });
     expect(converted.content[0].text).toContain("Converted source.md -> out/source.txt");
