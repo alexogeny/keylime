@@ -121,6 +121,14 @@ describe("fetch parser and classifier helpers", () => {
     expect(path).not.toContain(":443");
   });
 
+  test("accepts Markdown and plain text content types", () => {
+    expect(__testables.isReadableTextContentType("text/markdown; charset=utf-8")).toBe(true);
+    expect(__testables.isReadableTextContentType("text/x-markdown")).toBe(true);
+    expect(__testables.isReadableTextContentType("text/plain; charset=utf-8")).toBe(true);
+    expect(__testables.isReadableTextContentType("application/pdf")).toBe(false);
+    expect(__testables.extractTextTitle("# Firecrawl Setup\n\nInstructions", "https://example.com/SKILL.md")).toBe("Firecrawl Setup");
+  });
+
   test("user agent skip rules ignore low-value urls", () => {
     expect(__testables.shouldSkip("https://example.com/file.pdf")).toBe(true);
     expect(__testables.shouldSkip("https://example.com/docs")).toBe(false);

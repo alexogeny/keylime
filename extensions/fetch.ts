@@ -205,6 +205,23 @@ function extractTitle(html: string): string {
   return m[1].replace(/<[^>]+>/g, "").replace(/&[a-z]+;/gi, " ").trim().slice(0, 120);
 }
 
+function isReadableTextContentType(contentType: string): boolean {
+  const mediaType = contentType.split(";", 1)[0].trim().toLowerCase();
+  return mediaType === "text/plain"
+    || mediaType === "text/markdown"
+    || mediaType === "text/x-markdown";
+}
+
+function extractTextTitle(content: string, url: string): string {
+  const heading = content.match(/^\s*#\s+(.+)$/m)?.[1]?.trim();
+  if (heading) return heading.slice(0, 120);
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).pop() ?? "").slice(0, 120);
+  } catch {
+    return "";
+  }
+}
+
 function extractLinks(html: string, baseUrl: string): string[] {
   const links: string[] = [];
   const re = /href="(https?:\/\/[^\"]+)"/gi;
@@ -338,7 +355,7 @@ async function downloadPage(url: string, timeoutMs: number, policy: FetchPolicy,
 
   const headers: Record<string, string> = {
     "User-Agent": pickUserAgent(url),
-    "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
+    "Accept": "text/html,application/xhtml+xml,text/markdown,text/plain;q=0.9,*/*;q=0.1",
     "Accept-Language": "en-US,en;q=0.9",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
@@ -593,7 +610,8 @@ async function fetchPage(
     const contentType = (dl.headers?.get("content-type") ?? "").toLowerCase();
     const html = dl.body ?? "";
 
-    if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
+    const readableText = isReadableTextContentType(contentType);
+    if (!contentType.includes("text/html") && !readableText) {
       const outcome: FetchOutcome = "non_html_content";
       return {
         outcome,
@@ -611,6 +629,28 @@ async function fetchPage(
         contentType,
         contentLength: html.length,
         confidence: { score: 0, reasons: ["unsupported_content_type"] },
+      };
+    }
+
+    if (readableText) {
+      const content = html.slice(0, maxChars);
+      const title = extractTextTitle(content, dl.finalUrl);
+      const quality = scoreContentQuality(title, content, content);
+      return {
+        outcome: "ok",
+        classification: "ok_content",
+        title,
+        content,
+        links: [],
+        url: dl.finalUrl,
+        fetchedAt: new Date().toISOString(),
+        status: dl.status,
+        reasonCodes: [...dl.reasonCodes, "readable_text_content"],
+        timingsMs: { total: Date.now() - started, download: dl.timingsMs, extract: Date.now() - extractStarted },
+        redirectCount: dl.finalUrl === url ? 0 : 1,
+        contentType,
+        contentLength: html.length,
+        confidence: quality,
       };
     }
 
@@ -792,6 +832,8 @@ export const __testables = {
   decodeHtmlEntities,
   htmlToText,
   extractTitle,
+  isReadableTextContentType,
+  extractTextTitle,
   extractLinks,
   formatFetchText,
 };
