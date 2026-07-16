@@ -14,11 +14,13 @@
  * custom session entries to show a safety note in its confirmation dialogs.
  */
 
+import { complete } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { buildCheckpointPrompt, checkpointApprovalMode, checkpointGenerationMode, deterministicCheckpointMessage, formatCheckpointMessage, parseCheckpointMessage, parseEditedCheckpointMessage, type CheckpointMessage, type CheckpointMessageContext } from "./shared/checkpoint-message";
 import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, writePathsForToolResult } from "./shared/safety-policy";
 export { autoCheckpointMode, classifyToolMutation, classifyToolResultMutation, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
@@ -250,7 +252,9 @@ function stageCheckpointChanges(cwd: string, paths?: string[]): void {
 
   const pathspecs = checkpointPathspecs(paths);
   // Stage tracked modifications/deletions, excluding volatile local Pi state.
-  if (pathspecs.length > 1) execFileSync("git", ["add", "-u", ...pathspecs], { cwd });
+  // On an unborn repository, `git add -u -- .` fails when no tracked path exists.
+  const tracked = splitNulPaths(gitBuffer(cwd, ["ls-files", "-z", ...pathspecs]));
+  if (tracked.length > 0) execFileSync("git", ["add", "-u", ...pathspecs], { cwd });
 
   // Then stage only untracked files that Git itself says are non-ignored, again
   // excluding local Pi state. This avoids `git add -A` failing because ignored
@@ -298,6 +302,9 @@ interface Checkpoint {
   cwd: string;
   ts: string;
   hadChanges: boolean;
+  subject?: string;
+  body?: string;
+  messageSource?: CheckpointMessage["source"];
 }
 
 type CheckpointFailureReason = "not-git-repo" | "missing-identity" | "commit-failed" | "no-head";
@@ -394,7 +401,103 @@ async function configureGitIdentityWithUserGate(cwd: string, ctx: any, reason: s
   return true;
 }
 
-function makeCheckpointAttempt(cwd: string, paths?: string[]): CheckpointAttempt {
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part): part is { type: "text"; text: string } => Boolean(part && typeof part === "object" && (part as any).type === "text" && typeof (part as any).text === "string"))
+    .map(part => part.text)
+    .join("\n")
+    .trim();
+}
+
+function recentConversationContext(ctx: any): Pick<CheckpointMessageContext, "userRequest" | "assistantSummary"> {
+  const entries = ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.() ?? [];
+  let userRequest = "";
+  let assistantSummary = "";
+  for (let i = entries.length - 1; i >= 0 && (!userRequest || !assistantSummary); i--) {
+    const entry = entries[i];
+    if (entry?.type !== "message") continue;
+    const text = messageText(entry.message?.content);
+    if (!text) continue;
+    if (!assistantSummary && entry.message?.role === "assistant") assistantSummary = text;
+    if (!userRequest && entry.message?.role === "user") userRequest = text;
+  }
+  return { userRequest, assistantSummary };
+}
+
+function statusPath(line: string): string {
+  const raw = line.slice(3).trim();
+  const renamed = raw.includes(" -> ") ? raw.slice(raw.lastIndexOf(" -> ") + 4) : raw;
+  return renamed.replace(/^"|"$/g, "");
+}
+
+function checkpointMessageContext(cwd: string, paths: string[] | undefined, ctx: any): CheckpointMessageContext {
+  const pathspecs = checkpointPathspecs(paths);
+  let status = "";
+  let diffStat = "";
+  let diffExcerpt = "";
+  try { status = gitBuffer(cwd, ["status", "--porcelain=v1", "--untracked-files=all"]).toString("utf8").trimEnd(); } catch { /* deterministic fallback handles this */ }
+  const scoped = paths?.map(path => path.replace(/\\/g, "/"));
+  const changedPaths = status.split("\n").filter(Boolean).filter(line => {
+    if (!scoped?.length) return true;
+    if (line[0] !== " " && line[0] !== "?") return true; // already staged files will also be committed
+    const candidate = statusPath(line);
+    return scoped.some(path => candidate === path || candidate.startsWith(`${path}/`));
+  }).map(statusPath).filter(path => path && path !== ".pi" && !path.startsWith(".pi/"));
+  try { diffStat = git(cwd, ["diff", "HEAD", "--stat", "--", ...pathspecs]); } catch { /* unborn repositories still get path metadata */ }
+  if (checkpointGenerationMode() === "semantic") {
+    try { diffExcerpt = git(cwd, ["diff", "HEAD", "--unified=1", "--", ...pathspecs]).slice(0, 6000); } catch { /* optional semantic context */ }
+  }
+  return { ...recentConversationContext(ctx), changedPaths: [...new Set(changedPaths)], diffStat, diffExcerpt };
+}
+
+async function draftCheckpointMessage(cwd: string, paths: string[] | undefined, ctx: any): Promise<CheckpointMessage> {
+  const context = checkpointMessageContext(cwd, paths, ctx);
+  const fallback = deterministicCheckpointMessage(context);
+  if (checkpointGenerationMode() === "deterministic") return fallback;
+  const model = ctx.model;
+  if (!model) return fallback;
+  try {
+    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+    if (!auth?.ok) return fallback;
+    const response = await complete(model, {
+      messages: [{ role: "user", content: [{ type: "text", text: buildCheckpointPrompt(context) }], timestamp: Date.now() }],
+    }, {
+      apiKey: auth.apiKey,
+      headers: auth.headers,
+      env: auth.env,
+      maxTokens: 400,
+      temperature: 0.2,
+      signal: AbortSignal.timeout(15_000),
+    });
+    const text = response.content.filter((part): part is { type: "text"; text: string } => part.type === "text").map(part => part.text).join("\n");
+    return parseCheckpointMessage(text) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function reviewCheckpointMessage(message: CheckpointMessage, ctx: any, manual: boolean): Promise<CheckpointMessage | null> {
+  const approval = checkpointApprovalMode();
+  if (!ctx.hasUI || ctx.mode !== "tui" || approval === "never" || (approval === "manual" && !manual)) return message;
+  let draft = message;
+  for (;;) {
+    const choice = await ctx.ui.select(`Checkpoint commit draft\n\n${formatCheckpointMessage(draft)}`, ["Approve and commit", "Edit message", "Skip checkpoint"]);
+    if (choice === "Approve and commit") return draft;
+    if (choice === "Skip checkpoint" || !choice) return null;
+    const edited = await ctx.ui.editor("Edit checkpoint commit message (subject, blank line, body)", formatCheckpointMessage(draft));
+    if (edited === undefined) continue;
+    const parsed = parseEditedCheckpointMessage(edited);
+    if (!parsed) {
+      ctx.ui.notify("Checkpoint message needs a specific non-empty subject.", "warning");
+      continue;
+    }
+    draft = parsed;
+  }
+}
+
+function makeCheckpointAttempt(cwd: string, paths?: string[], message?: CheckpointMessage): CheckpointAttempt {
   if (!isGitRepo(cwd)) return { checkpoint: null, reason: "not-git-repo" };
 
   const branch = getCurrentBranch(cwd);
@@ -403,8 +506,8 @@ function makeCheckpointAttempt(cwd: string, paths?: string[]): CheckpointAttempt
   if (changed) {
     try {
       stageCheckpointChanges(cwd, paths);
-      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      execFileSync("git", ["commit", "-m", `pi: checkpoint ${ts}`, "--no-verify", "--quiet"], { cwd });
+      const commitMessage = message ?? deterministicCheckpointMessage({ changedPaths: paths ?? [], diffStat: "Repository checkpoint" });
+      execFileSync("git", ["commit", "-m", commitMessage.subject, "-m", commitMessage.body, "--no-verify", "--quiet"], { cwd });
     } catch (error) {
       return {
         checkpoint: null,
@@ -424,12 +527,15 @@ function makeCheckpointAttempt(cwd: string, paths?: string[]): CheckpointAttempt
       cwd,
       ts: new Date().toISOString(),
       hadChanges: changed,
+      subject: changed ? message?.subject : undefined,
+      body: changed ? message?.body : undefined,
+      messageSource: changed ? message?.source : undefined,
     },
   };
 }
 
-function makeCheckpoint(cwd: string): Checkpoint | null {
-  return makeCheckpointAttempt(cwd).checkpoint;
+export function makeCheckpointAttemptForTest(cwd: string, paths: string[] | undefined, message: CheckpointMessage): CheckpointAttempt {
+  return makeCheckpointAttempt(cwd, paths, message);
 }
 
 export function validateGitRemoteName(remote: string): string {
@@ -492,7 +598,7 @@ export default function (pi: ExtensionAPI) {
     latestCheckpoint = cp;
     pi.appendEntry("git-checkpoint", cp);
     const label = cp.hadChanges
-      ? `📍 ${cp.hash.slice(0, 7)} (committed ${cp.branch})`
+      ? `📍 ${cp.hash.slice(0, 7)} ${cp.subject ?? `(committed ${cp.branch})`}`
       : `📍 ${cp.hash.slice(0, 7)} (clean)`;
     ctx.ui.setStatus("checkpoint", label);
   }
@@ -520,12 +626,20 @@ export default function (pi: ExtensionAPI) {
 
     const scopedPaths = [...writePathsThisTurn];
     writePathsThisTurn.clear();
-    let attempt = makeCheckpointAttempt(cwd, scopedPaths.length ? scopedPaths : undefined);
+    const paths = scopedPaths.length ? scopedPaths : undefined;
+    const draft = await draftCheckpointMessage(cwd, paths, ctx);
+    const message = await reviewCheckpointMessage(draft, ctx, false);
+    if (!message) {
+      lastAutoCheckpointAt = now;
+      ctx.ui.notify("Auto-checkpoint skipped; working changes were left untouched.", "info");
+      return;
+    }
+    let attempt = makeCheckpointAttempt(cwd, paths, message);
     if (!attempt.checkpoint && attempt.reason === "missing-identity") {
       lastAutoCheckpointAt = now;
       const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your commit identity.");
       if (!configured) return;
-      attempt = makeCheckpointAttempt(cwd, scopedPaths.length ? scopedPaths : undefined);
+      attempt = makeCheckpointAttempt(cwd, paths, message);
     }
 
     const cp = attempt.checkpoint;
@@ -545,7 +659,7 @@ export default function (pi: ExtensionAPI) {
       latestCheckpoint = (cpEntries[cpEntries.length - 1] as any).data as Checkpoint;
       if (latestCheckpoint) {
         lastAutoCheckpointAt = Date.parse(latestCheckpoint.ts) || 0;
-        ctx.ui.setStatus("checkpoint", `📍 ${latestCheckpoint.hash.slice(0, 7)}`);
+        ctx.ui.setStatus("checkpoint", `📍 ${latestCheckpoint.hash.slice(0, 7)}${latestCheckpoint.subject ? ` ${latestCheckpoint.subject}` : ""}`);
       }
     }
   });
@@ -789,10 +903,20 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Not a git repository — nothing to checkpoint.", "error");
         return;
       }
-      let attempt = makeCheckpointAttempt(cwd);
+      let message: CheckpointMessage | undefined;
+      if (hasChanges(cwd)) {
+        const draft = await draftCheckpointMessage(cwd, undefined, ctx);
+        const reviewed = await reviewCheckpointMessage(draft, ctx, true);
+        if (!reviewed) {
+          ctx.ui.notify("Checkpoint skipped; working changes were left untouched.", "info");
+          return;
+        }
+        message = reviewed;
+      }
+      let attempt = makeCheckpointAttempt(cwd, undefined, message);
       if (!attempt.checkpoint && attempt.reason === "missing-identity") {
         const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Checkpoint could not create a commit because Git does not know your identity.");
-        if (configured) attempt = makeCheckpointAttempt(cwd);
+        if (configured) attempt = makeCheckpointAttempt(cwd, undefined, message);
       }
 
       const cp = attempt.checkpoint;
@@ -802,7 +926,7 @@ export default function (pi: ExtensionAPI) {
       }
       recordCheckpoint(cp, ctx);
       ctx.ui.notify(
-        `Checkpoint created: ${cp.hash.slice(0, 7)} on ${cp.branch}${cp.hadChanges ? " (changes committed)" : " (already clean)"}`,
+        `Checkpoint created: ${cp.hash.slice(0, 7)} on ${cp.branch}${cp.hadChanges ? ` — ${cp.subject ?? "changes committed"}` : " (already clean)"}`,
         "info"
       );
     },
@@ -820,10 +944,10 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const { hash, branch, cwd, ts } = latestCheckpoint;
+      const { hash, branch, cwd, ts, subject } = latestCheckpoint;
       const ok = await ctx.ui.confirm(
         "↩ Restore checkpoint?",
-        `Reset to ${hash.slice(0, 7)} on ${branch}\nCreated: ${ts}\n\nAll uncommitted changes since then will be lost.`
+        `Reset to ${hash.slice(0, 7)} on ${branch}${subject ? `\nCommit: ${subject}` : ""}\nCreated: ${ts}\n\nAll uncommitted changes since then will be lost.`
       );
       if (!ok) return;
 
@@ -852,7 +976,7 @@ export default function (pi: ExtensionAPI) {
       }
       const lines = entries.map((e: any, i: number) => {
         const cp = e.data as Checkpoint;
-        return `${i + 1}. ${cp.hash.slice(0, 7)} @ ${cp.branch} — ${cp.ts}`;
+        return `${i + 1}. ${cp.hash.slice(0, 7)} @ ${cp.branch} — ${cp.subject ?? cp.ts}`;
       });
       ctx.ui.notify(`Checkpoints this session:\n${lines.join("\n")}`, "info");
     },

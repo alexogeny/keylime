@@ -59,6 +59,8 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
       hasMemory ? "• recall_web_knowledge — check past research before searching" : null,
       hasSearch ? "• web_search — live search (Serper/Tavily/Bing)" : null,
       hasSearch ? "• save_search_knowledge — persist distilled insights after each search" : null,
+      hasTools(pi, "search_site_content") ? "• search_site_content / get_site_page — retrieve locally stored web content" : null,
+      hasTools(pi, "crawl_site") ? "• crawl_site / sync_site_crawl — ingest bounded sites through Firecrawl" : null,
       hasTools(pi, "research_topic") ? "• research_topic — orchestrated multi-step research" : null,
     ].filter(Boolean).join("\n");
 
@@ -70,8 +72,9 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
       `Standard research protocol:`,
       `1. Call recall_web_knowledge first — avoid duplicate searches`,
       `2. Call web_search for fresh/current information`,
-      `3. After reviewing results, call save_search_knowledge with summary, key_facts, tags, and categories`,
-      `4. Synthesise across sources before answering`,
+      `3. Use Firecrawl-backed fetch or crawl only when page/site content is needed; stored content can be recalled later`,
+      `4. After reviewing results, call save_search_knowledge with summary, key_facts, tags, and categories`,
+      `5. Synthesise across sources before answering`,
     ].join("\n");
 
     return { systemPrompt: event.systemPrompt + appendix };

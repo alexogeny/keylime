@@ -9,6 +9,7 @@ import policyTools from "../extensions/policy-tools";
 import testRunner from "../extensions/test-runner";
 import toolResultCompactor from "../extensions/tool-result-compactor";
 import controlPlaneApi from "../extensions/control-plane-api";
+import webContent from "../extensions/web-content";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 describe("extension registration smoke", () => {
@@ -25,6 +26,7 @@ describe("extension registration smoke", () => {
     dangerGuard(harness.pi);
     gitCheckpoint(harness.pi);
     controlPlaneApi(harness.pi);
+    webContent(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
       "list_files",
@@ -40,6 +42,11 @@ describe("extension registration smoke", () => {
       "read_agent_registers",
       "ctx_region_write",
       "compile_tool_grammar",
+      "crawl_site",
+      "sync_site_crawl",
+      "get_site_page",
+      "search_site_content",
+      "list_site_crawls",
     ]));
     expect(Object.keys(harness.commands)).toEqual(expect.arrayContaining([
       "agent-status",

@@ -121,6 +121,11 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "web_search", group: "research", domain: true, risk: "guarded" },
   { name: "save_search_knowledge", group: "research", domain: true, risk: "stateful" },
   { name: "research_topic", group: "research", domain: true, risk: "guarded" },
+  { name: "crawl_site", group: "research", domain: true, risk: "stateful" },
+  { name: "sync_site_crawl", group: "research", domain: true, risk: "stateful" },
+  { name: "get_site_page", group: "research", domain: true, risk: "stateful" },
+  { name: "search_site_content", group: "research", domain: true, risk: "stateful" },
+  { name: "list_site_crawls", group: "research", domain: true, risk: "stateful" },
 
   { name: "inspect_os_release", group: "linux", domain: true, risk: "safe" },
   { name: "apt_search", group: "linux", domain: true, risk: "safe" },

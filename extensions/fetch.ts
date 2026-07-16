@@ -10,6 +10,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { extractMainContent, summarizeText, type SummaryResult } from "./shared/content-distill";
+import { scrapeWithFirecrawl, type FirecrawlPage } from "./shared/firecrawl-client";
+import { saveWebPage } from "./shared/web-content-store";
 
 type FetchOutcome =
   | "ok"
@@ -801,6 +803,29 @@ async function fetchPage(
   };
 }
 
+function firecrawlPageToFetchResult(
+  page: FirecrawlPage,
+  requestedUrl: string,
+  reasonCodes: string[],
+  timingsMs: FetchResult["timingsMs"] = { total: 0, download: 0, extract: 0 },
+): FetchResult {
+  return {
+    outcome: "ok",
+    classification: "ok_content",
+    title: page.title,
+    content: page.markdown,
+    links: page.links,
+    url: page.url,
+    fetchedAt: new Date().toISOString(),
+    reasonCodes,
+    timingsMs,
+    redirectCount: page.url === requestedUrl ? 0 : 1,
+    contentType: "text/markdown",
+    contentLength: page.markdown.length,
+    confidence: scoreContentQuality(page.title, page.markdown, page.markdown),
+  };
+}
+
 function extractSearchResultUrls(text: string): string[] {
   const lineUrl = /^\s+(https?:\/\/\S+)/gm;
   const found: string[] = [];
@@ -842,9 +867,9 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "fetch_url",
     label: "Fetch URL",
-    description: "Fetch a web page and return cleaned text, title, and same-domain links.",
+    description: "Fetch a web page with direct or Firecrawl extraction, optionally persist it, and return cleaned content, title, and links.",
     promptSnippet: "Fetch/read a URL",
-    promptGuidelines: ["Use for docs, GitHub READMEs, pasted URLs, or source pages."],
+    promptGuidelines: ["Use for docs, GitHub READMEs, pasted URLs, or source pages; select Firecrawl for difficult pages and store content needed later."],
     parameters: Type.Object({
       url: Type.String({ description: "URL" }),
       maxChars: Type.Optional(Type.Number({ description: "Max chars for full extracted content" })),
@@ -858,9 +883,15 @@ export default function (pi: ExtensionAPI) {
         Type.Literal("alt_headers"),
         Type.Literal("browser"),
         Type.Literal("browser_first"),
-      ], { description: "Fallback policy" })),
+      ], { description: "Direct-fetch fallback policy" })),
+      provider: Type.Optional(Type.Union([
+        Type.Literal("auto"),
+        Type.Literal("direct"),
+        Type.Literal("firecrawl"),
+      ], { description: "Extraction provider. auto uses direct fetch and optional configured Firecrawl fallback." })),
+      store: Type.Optional(Type.Boolean({ description: "Persist the fetched page in the local web-content store" })),
     }),
-    async execute(_toolCallId, params, _signal, onUpdate) {
+    async execute(_toolCallId, params, signal, onUpdate) {
       onUpdate?.({ content: [{ type: "text", text: `Fetching ${params.url}...` }], details: {} });
 
       if (shouldSkip(params.url)) {
@@ -870,7 +901,27 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const result = await fetchPage(params.url, 9000, params.maxChars ?? 3000, (params.fallback as FetchPolicy | undefined) ?? "retry_only");
+      const provider = (params.provider as "auto" | "direct" | "firecrawl" | undefined) ?? "auto";
+      const requestedMaxChars = params.maxChars ?? 3000;
+      const acquisitionMaxChars = params.store ? Math.max(requestedMaxChars, 30000) : requestedMaxChars;
+      let firecrawlPage: FirecrawlPage | undefined;
+      let result: FetchResult;
+
+      if (provider === "firecrawl") {
+        firecrawlPage = await scrapeWithFirecrawl(params.url, signal);
+        result = firecrawlPageToFetchResult(firecrawlPage, params.url, ["firecrawl_scrape"]);
+      } else {
+        result = await fetchPage(params.url, 9000, acquisitionMaxChars, (params.fallback as FetchPolicy | undefined) ?? "retry_only");
+        if (result.outcome !== "ok" && provider === "auto" && process.env.KEYLIME_FIRECRAWL_MODE === "fallback") {
+          try {
+            firecrawlPage = await scrapeWithFirecrawl(params.url, signal);
+            result = firecrawlPageToFetchResult(firecrawlPage, params.url, [...result.reasonCodes, "firecrawl_fallback"], result.timingsMs);
+          } catch (error: any) {
+            result.reasonCodes.push("firecrawl_fallback_failed");
+            result.reason = `${result.reason ?? result.outcome}; Firecrawl: ${error?.message ?? "failed"}`;
+          }
+        }
+      }
 
       if (result.outcome !== "ok") {
         const msg = [
@@ -890,7 +941,18 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const formatted = formatFetchText(result, {
+      const storedPage = params.store ? await saveWebPage({
+        url: result.url,
+        title: result.title,
+        provider: firecrawlPage ? "firecrawl" : "direct",
+        content: firecrawlPage?.markdown ?? result.content,
+        links: result.links,
+        metadata: firecrawlPage?.metadata,
+      }) : undefined;
+      const displayResult = result.content.length > requestedMaxChars
+        ? { ...result, content: result.content.slice(0, requestedMaxChars) }
+        : result;
+      const formatted = formatFetchText(displayResult, {
         summarize: params.summarize as boolean | undefined,
         query: params.query as string | undefined,
         maxSummarySentences: params.maxSummarySentences as number | undefined,
@@ -898,8 +960,8 @@ export default function (pi: ExtensionAPI) {
       });
 
       return {
-        content: [{ type: "text", text: formatted.text }],
-        details: { ...result, summary: formatted.summary },
+        content: [{ type: "text", text: formatted.text + (storedPage ? `\n\nStored page ID: ${storedPage.id}` : "") }],
+        details: { ...result, summary: formatted.summary, storedPage },
       };
     },
   });
@@ -918,7 +980,18 @@ export default function (pi: ExtensionAPI) {
     if (urls.length === 0) return;
 
     ctx.ui.setStatus("fetch-ext", `🔗 Fetching ${urls.length} source${urls.length > 1 ? "s" : ""}…`);
-    const results = await Promise.allSettled(urls.map(url => fetchPage(url, 5000, 2200, "browser")));
+    const results = await Promise.allSettled(urls.map(async url => {
+      const direct = await fetchPage(url, 5000, 2200, "browser");
+      if (direct.outcome === "ok" || process.env.KEYLIME_FIRECRAWL_MODE !== "fallback") return direct;
+      try {
+        const page = await scrapeWithFirecrawl(url);
+        return firecrawlPageToFetchResult(page, url, [...direct.reasonCodes, "firecrawl_fallback"], direct.timingsMs);
+      } catch (error: any) {
+        direct.reasonCodes.push("firecrawl_fallback_failed");
+        direct.reason = `${direct.reason ?? direct.outcome}; Firecrawl: ${error?.message ?? "failed"}`;
+        return direct;
+      }
+    }));
     ctx.ui.setStatus("fetch-ext", "");
 
     const sections: string[] = [];
@@ -935,6 +1008,16 @@ export default function (pi: ExtensionAPI) {
         autoFetchedSources.push(v);
 
         if (v.outcome === "ok" && v.content.length > 150) {
+          if (process.env.KEYLIME_STORE_SEARCH_CONTENT !== "0") {
+            await saveWebPage({
+              url: v.url,
+              title: v.title,
+              provider: v.reasonCodes.includes("firecrawl_fallback") ? "firecrawl" : "direct",
+              content: v.content,
+              links: v.links,
+              searchId: (event as any).details?.searchId as string | undefined,
+            });
+          }
           const summary = summarizeText(v.content, { query, maxSentences: 4, maxChars: 1200 });
           v.summary = summary;
           sections.push(

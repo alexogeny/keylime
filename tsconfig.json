@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["extensions/**/*.ts"],
+  "include": ["extensions/**/*.ts", "types/**/*.d.ts"],
   "exclude": ["extensions/node_modules/**"]
 }

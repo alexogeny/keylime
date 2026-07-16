@@ -62,7 +62,7 @@ Examples:
 - `code-primitives.ts` — safe file inspection and mutation tools.
 - `repo-index/index.ts` — compact repo map and tiered `code_search`.
 - `danger-guard.ts` — runtime blocking/confirmation for risky tools and paths.
-- `git-checkpoint.ts` — rollback checkpoints, `/undo`, guided `/git-auth` with SSH config setup and HTTPS→SSH remote switching, explicitly gated Git commit identity setup, and confirmed non-interactive `/git-push` that uses native provider auth when available or switches HTTPS remotes to SSH.
+- `git-checkpoint.ts` — rollback checkpoints with semantic LLM-generated commit subjects/bodies, an approve/edit/skip TUI review, deterministic fallback, `/undo`, guided `/git-auth`, explicitly gated Git identity setup, and confirmed `/git-push`.
 - `git-tools.ts` — read-only git status, diff, history, and checkpoint inspection tools.
 - `linux-*.ts` — capability-gated Linux operations for discovery, packages, systemd, config files, hardware, logs, networking, filesystems, users, processes, health checks, and advanced diagnostics; mutations use approval and expiring plan tokens.
 - `test-runner.ts` — safe test/typecheck/lint runner.
@@ -70,7 +70,7 @@ Examples:
 - `tool-result-compactor.ts` — stores oversized tool results under `.pi/tool-results` and returns compact summaries/previews.
 - `policy-tools.ts`, `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts` — reusable BM25/TF-IDF/JMLM hybrid retrieval plus policy/codemod/check-recipe tools.
 - `user-memory/` — durable memory and entity recall.
-- `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts` — research and web knowledge workflow.
+- `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, and locally persisted web knowledge.
 - `project-planner.ts` — project plan, TDD state, decisions, and questions.
 - `shoe-database/` — running shoe catalog and query tools.
 
@@ -132,10 +132,19 @@ Inside Pi:
 Important environment flags:
 
 - `KEYLIME_AUTO_CHECKPOINT=off|major|any` — auto-checkpoint policy. Default: `major`.
+- `KEYLIME_CHECKPOINT_MESSAGES=semantic|metadata-only|deterministic` — semantic message generation policy. Default: `semantic`.
+- `KEYLIME_CHECKPOINT_APPROVAL=always|manual|never` — TUI review policy; approve, edit, or skip checkpoint drafts. Default: `always`.
 - `KEYLIME_ENABLE_RESEARCH=1` — allow research tools without provider-key auto-detection.
 - `KEYLIME_DISABLE_RESEARCH=1` — force-disable web research tools.
 - `KEYLIME_DISABLE_SHOES=1` — force-disable shoe tools.
 - `KEYLIME_AUTO_FETCH_SEARCH_RESULTS=1` — auto-fetch top web-search results.
+- `FIRECRAWL_API_KEY` — hosted Firecrawl credential; required for whole-site crawls (single-page scrape may use Firecrawl's keyless tier).
+- `FIRECRAWL_API_URL` — optional hosted or self-hosted API root. Default: `https://api.firecrawl.dev`.
+- `KEYLIME_FIRECRAWL_MODE=fallback` — allow `fetch_url` provider `auto` to use Firecrawl after direct extraction fails; otherwise Firecrawl must be selected explicitly.
+- `KEYLIME_FIRECRAWL_ALLOW_PRIVATE=1` — explicitly allow private-network targets for trusted self-hosted deployments. Default: blocked.
+- `KEYLIME_FIRECRAWL_ZERO_DATA_RETENTION=1` — request Firecrawl ZDR when it is enabled for your team; omitted by default because free teams may receive HTTP 403.
+- `KEYLIME_STORE_SEARCH_CONTENT=0` — opt out of storing successfully auto-fetched search sources. Storage defaults to `~/.pi/data/web-content`.
+- `KEYLIME_WEB_CONTENT_DATA_DIR` — override the local content-addressed page/crawl store.
 - `KEYLIME_ENABLE_TRAJECTORY=1` — enable trajectory evaluator/session entries.
 - `KEYLIME_ENABLE_ADAPTIVE_POLICY=1` — enable adaptive context policy hints.
 

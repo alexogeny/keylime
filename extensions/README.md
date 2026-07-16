@@ -15,9 +15,16 @@ Most domain tools are still registered by their own extensions, but the router k
 - `KEYLIME_DISABLE_RESEARCH=1` — force-disable research tools.
 - `KEYLIME_DISABLE_SHOES=1` — disable shoe tools even for shoe/running prompts.
 - `KEYLIME_AUTO_FETCH_SEARCH_RESULTS=1` — auto-fetch top web-search results.
+- `FIRECRAWL_API_KEY` / `FIRECRAWL_API_URL` — configure hosted or self-hosted Firecrawl scraping and crawling.
+- `KEYLIME_FIRECRAWL_MODE=fallback` — use Firecrawl when direct `fetch_url` extraction fails; explicit provider selection remains available without it.
+- `KEYLIME_FIRECRAWL_ZERO_DATA_RETENTION=1` — opt into ZDR only when enabled for the Firecrawl team; free teams may otherwise receive HTTP 403.
+- `KEYLIME_WEB_CONTENT_DATA_DIR` — override the content-addressed Markdown and crawl-manifest store (default `~/.pi/data/web-content`).
+- `KEYLIME_STORE_SEARCH_CONTENT=0` — disable persistence of auto-fetched search sources.
 - `KEYLIME_ENABLE_TRAJECTORY=1` — enable trajectory evaluator/session entries.
 - `KEYLIME_ENABLE_ADAPTIVE_POLICY=1` — enable adaptive context policy hints.
 - `KEYLIME_AUTO_CHECKPOINT=off|major|any` — control auto-checkpointing. Default: `major`.
+- `KEYLIME_CHECKPOINT_MESSAGES=semantic|metadata-only|deterministic` — use the active Pi model with bounded redacted context, omit diff excerpts, or stay fully local. Default: `semantic`.
+- `KEYLIME_CHECKPOINT_APPROVAL=always|manual|never` — review every draft in the Pi TUI, review manual `/checkpoint` drafts only, or commit without review. Default: `always`.
 - `KEYLIME_WEB_SEARCH_DATA_DIR=/path/to/data` — override persisted web-search knowledge location for tests or isolated runs.
 
 Defaults are conservative: research follows provider-key detection, auto-fetch is off, trajectory eval is off, and adaptive policy is off.
@@ -33,7 +40,7 @@ Defaults are conservative: research follows provider-key detection, auto-fetch i
 
 ## Safety behavior
 
-`git-checkpoint.ts` checkpoints at the end of an agent turn only for major mutations by default: broad replacements, mutating bash, legacy writes/edits, or small changes after a long interval. Set `KEYLIME_AUTO_CHECKPOINT=off` for manual-only checkpoints, or `any` to checkpoint after any mutating turn. It excludes `.pi` local state from staging. Manual `/checkpoint` is still available. `git-tools.ts` provides read-only `git_status`, `git_diff`, `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` so agents do not need raw git inspection commands.
+`git-checkpoint.ts` checkpoints at the end of an agent turn only for major mutations by default: broad replacements, mutating bash, legacy writes/edits, or small changes after a long interval. It asks Pi's active authenticated model for a semantic subject and body, validates the structured result, and falls back to a deterministic local message on timeout, malformed output, or missing model access. In TUI mode the default review dialog lets you approve, edit, or skip before anything is staged. Set `KEYLIME_AUTO_CHECKPOINT=off` for manual-only checkpoints, or `any` to checkpoint after any mutating turn. It excludes `.pi` local state from staging. Manual `/checkpoint` is still available. `git-tools.ts` provides read-only `git_status`, `git_diff`, `commit_history`, `see_file_commit_history`, and `inspect_at_checkpoint` so agents do not need raw git inspection commands.
 
 `danger-guard.ts` blocks built-in `read`/`write`/`edit` in coding mode and blocks mutation-looking shell commands such as redirects, `mkdir`, `touch`, `rm`, `cp`, `mv`, inline runtime writes, shell command strings, and raw git mutation commands. It also blocks native repo inspection through `bash` (`ls`, `find`, `grep`, `egrep`, `fgrep`, `rg`, `jq`, `cat`, `head`, `tail`, `wc`). Central mutation classification is primary; deterministic legacy checks remain as a backstop and log classifier misses to `.pi/safety-fallbacks.ndjson`. Use `list_files`, `inspect_text_matches`, `inspect_json`, `create_file`, `create_directory`, `apply_code_replacements`, checkpoint commands, and safe git inspection tools instead.
 

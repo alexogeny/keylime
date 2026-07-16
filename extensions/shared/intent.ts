@@ -192,7 +192,7 @@ export function isCapabilityActive(group: CapabilityGroup): boolean {
   return getCurrentRoute().capabilityGroups.includes(group);
 }
 
-export function routeSummary(route = currentRoute): string {
+export function routeSummary(route = getCurrentRoute()): string {
   const secondary = route.secondaryIntents.length ? ` + ${route.secondaryIntents.join(",")}` : "";
   const skills = route.suggestedSkills.length ? `; skills: ${route.suggestedSkills.join(", ")}` : "";
   return `intent: ${route.primaryIntent}${secondary}; capabilities: ${route.capabilityGroups.join(", ")}${skills}`;
