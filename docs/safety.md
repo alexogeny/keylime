@@ -69,7 +69,7 @@ Auto-checkpoint modes:
 
 Auto-checkpoints happen at `agent_end` based on successful tool results and mutation scores. Local `.pi` state is excluded from checkpoint staging.
 
-Checkpoint messages default to `KEYLIME_CHECKPOINT_MESSAGES=semantic`: the active Pi model receives bounded, redacted conversation/change context and returns a validated subject and body. Use `metadata-only` to omit diff excerpts or `deterministic` to disable the provider request. Model errors and timeouts always fall back to a local deterministic message.
+Checkpoint messages default to `KEYLIME_CHECKPOINT_MESSAGES=metadata-only`: the active Pi model receives bounded, redacted conversation and change metadata but no source patch. Use `semantic` to opt into a bounded redacted diff excerpt or `deterministic` to disable the provider request. Model output is redacted again before commit; errors and timeouts fall back locally.
 
 In Pi's TUI, `KEYLIME_CHECKPOINT_APPROVAL=always` is the default. Each automatic or manual draft can be approved, edited as a complete Git commit message, or skipped before staging. Set it to `manual` to review only `/checkpoint`, or `never` to commit drafts without review. Non-interactive modes cannot display a review and proceed with the generated or fallback message.
 

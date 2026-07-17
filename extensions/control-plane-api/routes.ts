@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
-import { isPathWithin } from "../shared/path-policy";
+import { isPathWithin, resolveSafeExistingPath } from "../shared/path-policy";
 import { ok, fail, parseJson } from "./envelope";
 import { CAPABILITIES, buildGraph, inferAgentState, normalizeMessages, normalizeModel, normalizeResearchDetail, normalizeResearchSummary, normalizeToolCall, splitMemory } from "./normalizers";
 import { DEFAULT_DATA_DIR, listWorkspaceFiles, readJson, readMemoryStore, readResearchEntry, readResearchIndex, readToolResult, readToolResultIndex, writeJson, writeMemoryStore } from "./stores";
@@ -71,8 +71,8 @@ export async function handleControlPlaneRequest(request: Request, state: Control
     if (screen && request.method === "GET") return ok(await screenBundle(state, screen[1]!, screen[2] ? decodeURIComponent(screen[2]) : undefined), CAPABILITIES);
 
     return fail("NOT_FOUND", "No control-plane route matched", 404);
-  } catch (error: any) {
-    return fail("INTERNAL_ERROR", error?.message ?? String(error), 500, error?.stack);
+  } catch (_error: any) {
+    return fail("INTERNAL_ERROR", "Control-plane request failed", 500);
   }
 }
 
@@ -170,8 +170,7 @@ async function workspaceBundle(state: ControlPlaneState) {
 }
 
 async function workspaceFileDetail(state: ControlPlaneState, id: string) {
-  const target = normalize(join(state.cwd, id));
-  if (!isPathWithin(state.cwd, target)) throw new Error("unsafe workspace file path");
+  const target = await resolveSafeExistingPath(state.cwd, id);
   const content = await readFile(target, "utf8").catch(() => "");
   const changes = await controlRead(state, "workspace-changes", [] as any[]);
   return { id, name: id.split("/").pop() ?? id, summary: content ? content.slice(0, 400) : undefined, content, diff: changes.filter((c: any) => c.file === id), added: 0, removed: 0, writtenBy: undefined, createdAt: undefined };

@@ -46,11 +46,14 @@ export async function firecrawlConfig(): Promise<FirecrawlConfig> {
 }
 
 export function isPrivateAddress(address: string): boolean {
-  if (address === "::1" || address === "0.0.0.0") return true;
-  if (address.startsWith("fc") || address.startsWith("fd") || address.startsWith("fe80:")) return true;
-  if (isIP(address) === 4) {
-    const [a, b] = address.split(".").map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  const normalized = address.toLowerCase().replace(/^\[|\]$/g, "");
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(normalized)?.[1];
+  if (mapped) return isPrivateAddress(mapped);
+  if (normalized === "::" || normalized === "::1" || normalized === "0.0.0.0") return true;
+  if (/^(?:fc|fd|fe[89ab]|ff)/.test(normalized)) return true;
+  if (isIP(normalized) === 4) {
+    const [a, b] = normalized.split(".").map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
   return false;
 }

@@ -9,8 +9,9 @@ import { Type } from "typebox";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { extractMainContent, summarizeText, type SummaryResult } from "./shared/content-distill";
-import { scrapeWithFirecrawl, type FirecrawlPage } from "./shared/firecrawl-client";
+import { isPrivateAddress, scrapeWithFirecrawl, type FirecrawlPage } from "./shared/firecrawl-client";
 import { saveWebPage } from "./shared/web-content-store";
 
 type FetchOutcome =
@@ -349,7 +350,44 @@ function classifyFromOutcome(outcome: FetchOutcome): FetchClassification {
   return "soft_error";
 }
 
-async function downloadPage(url: string, timeoutMs: number, policy: FetchPolicy, attempt: number): Promise<DownloadResult> {
+export async function assertSafeDirectTarget(value: string, lookup: (hostname: string, options: { all: true }) => Promise<Array<{ address: string; family: number }>> = dnsLookup as any): Promise<URL> {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Only HTTP(S) URLs are supported");
+  if (url.username || url.password) throw new Error("Credential-bearing URLs are not supported");
+  if (url.hostname === "localhost" || isPrivateAddress(url.hostname)) throw new Error("Direct fetch blocks private-network targets");
+  const addresses = await lookup(url.hostname, { all: true });
+  if (!addresses.length || addresses.some(entry => isPrivateAddress(entry.address))) throw new Error("Direct fetch blocks private-network targets");
+  return url;
+}
+
+export async function readResponseTextBounded(response: Response, maxBytes: number): Promise<string> {
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > maxBytes) throw new Error(`Response exceeds ${maxBytes} byte limit`);
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel();
+        throw new Error(`Response exceeds ${maxBytes} byte limit`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const output = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(output);
+}
+
+async function downloadPage(url: string, timeoutMs: number, policy: FetchPolicy, attempt: number, maxBytes = 5_000_000): Promise<DownloadResult> {
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -371,13 +409,19 @@ async function downloadPage(url: string, timeoutMs: number, policy: FetchPolicy,
   }
 
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers,
-    });
+    let currentUrl = (await assertSafeDirectTarget(url)).toString();
+    let res: Response | undefined;
+    for (let redirects = 0; redirects <= 5; redirects++) {
+      res = await fetch(currentUrl, { signal: controller.signal, redirect: "manual", headers });
+      if (res.status < 300 || res.status >= 400) break;
+      const location = res.headers.get("location");
+      if (!location) break;
+      currentUrl = (await assertSafeDirectTarget(new URL(location, currentUrl).toString())).toString();
+    }
+    if (!res) throw new Error("No fetch response");
+    if (res.status >= 300 && res.status < 400) throw new Error("Too many redirects");
 
-    const finalUrl = res.url || url;
+    const finalUrl = currentUrl;
     const status = res.status;
 
     if (!res.ok) {
@@ -392,7 +436,7 @@ async function downloadPage(url: string, timeoutMs: number, policy: FetchPolicy,
       };
     }
 
-    const body = await res.text();
+    const body = await readResponseTextBounded(res, maxBytes);
     return {
       ok: true,
       finalUrl,
@@ -579,7 +623,7 @@ async function fetchPage(
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const dl = await downloadPage(url, timeoutMs, policy, attempt);
+    const dl = await downloadPage(url, timeoutMs, policy, attempt, Math.min(10_000_000, Math.max(1_000_000, maxChars * 4)));
 
     if (!dl.ok) {
       const retryableStatus = dl.status && [408, 425, 429, 500, 502, 503, 504].includes(dl.status);
@@ -902,6 +946,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const provider = (params.provider as "auto" | "direct" | "firecrawl" | undefined) ?? "auto";
+      if (provider !== "firecrawl") await assertSafeDirectTarget(params.url);
       const requestedMaxChars = params.maxChars ?? 3000;
       const acquisitionMaxChars = params.store ? Math.max(requestedMaxChars, 30000) : requestedMaxChars;
       let firecrawlPage: FirecrawlPage | undefined;

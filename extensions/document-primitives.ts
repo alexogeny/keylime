@@ -10,7 +10,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { inflateRawSync } from "node:zlib";
 import { stringEnum } from "./shared/schema";
-import { repoRelativePath } from "./shared/path-policy";
+import { repoRelativePath, resolveSafeCreationPath, resolveSafeExistingPath } from "./shared/path-policy";
 import { isProbablyBinary, resolveSafePath } from "./shared/code-primitives";
 import { boundedNumber } from "./shared/format";
 import { truncateWithMetadata } from "./shared/output-preview";
@@ -23,7 +23,9 @@ const PDF_EMPTY_TEXT_MESSAGE = "PDF text extraction found no embedded text. This
 const execFileAsync = promisify(execFile);
 
 type DocFormat = "auto" | "pdf" | "docx" | "xlsx" | "csv" | "txt" | "md" | "html";
-type ZipEntry = { name: string; method: number; compressedSize: number; localHeaderOffset: number };
+type ZipEntry = { name: string; method: number; compressedSize: number; uncompressedSize: number; localHeaderOffset: number };
+const MAX_ARCHIVE_ENTRY_BYTES = 50_000_000;
+const MAX_PAGE_RANGE_SPAN = 10_000;
 
 function clamp(n: number | undefined, fallback: number, min: number, max: number): number {
   return boundedNumber(n, { fallback, min, max });
@@ -65,9 +67,16 @@ function parsePageSpec(spec: string | undefined, total: number): Set<number> | n
     if (!match) throw new Error(`Invalid page range: ${part}`);
     const start = Number(match[1]);
     const end = Number(match[2] ?? match[1]);
-    for (let page = start; page <= end; page += 1) if (page >= 1 && page <= total) pages.add(page);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start || end - start + 1 > MAX_PAGE_RANGE_SPAN) throw new Error(`Page range is too large: ${part}`);
+    const first = Math.max(1, start);
+    const last = Math.min(total, end);
+    for (let page = first; page <= last; page += 1) pages.add(page);
   }
   return pages;
+}
+
+export function parsePageSpecForTest(spec: string | undefined, total: number): Set<number> | null {
+  return parsePageSpec(spec, total);
 }
 
 function parseZip(buffer: Buffer): ZipEntry[] {
@@ -84,12 +93,14 @@ function parseZip(buffer: Buffer): ZipEntry[] {
     if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Invalid zip central directory");
     const method = buffer.readUInt16LE(offset + 10);
     const compressedSize = buffer.readUInt32LE(offset + 20);
+    const uncompressedSize = buffer.readUInt32LE(offset + 24);
+    if (uncompressedSize > MAX_ARCHIVE_ENTRY_BYTES || (compressedSize > 0 && uncompressedSize / compressedSize > 200)) throw new Error("Archive entry exceeds safety limits");
     const nameLen = buffer.readUInt16LE(offset + 28);
     const extraLen = buffer.readUInt16LE(offset + 30);
     const commentLen = buffer.readUInt16LE(offset + 32);
     const localHeaderOffset = buffer.readUInt32LE(offset + 42);
     const name = buffer.slice(offset + 46, offset + 46 + nameLen).toString("utf8");
-    entries.push({ name, method, compressedSize, localHeaderOffset });
+    entries.push({ name, method, compressedSize, uncompressedSize, localHeaderOffset });
     offset += 46 + nameLen + extraLen + commentLen;
   }
   return entries;
@@ -103,7 +114,7 @@ function readZipEntry(buffer: Buffer, entry: ZipEntry): Buffer {
   const start = offset + 30 + nameLen + extraLen;
   const compressed = buffer.slice(start, start + entry.compressedSize);
   if (entry.method === 0) return compressed;
-  if (entry.method === 8) return inflateRawSync(compressed);
+  if (entry.method === 8) return inflateRawSync(compressed, { maxOutputLength: MAX_ARCHIVE_ENTRY_BYTES });
   throw new Error(`Unsupported zip compression method ${entry.method} for ${entry.name}`);
 }
 
@@ -507,7 +518,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const path = params.allow_outside_cwd
         ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
-        : resolveSafePath(ctx.cwd, params.path);
+        : await resolveSafeExistingPath(ctx.cwd, params.path);
       const format = detectFormat(path, params.format);
       const maxChars = clamp(params.max_chars, 12_000, 500, MAX_EXTRACT_CHARS);
       const info = await stat(path);
@@ -527,7 +538,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use when asked to read/summarize a PDF, Word document, spreadsheet, or notes file.", "Do not invent details beyond extracted text."],
     parameters: Type.Object({ path: Type.String(), purpose: Type.Optional(stringEnum(["general", "study_notes", "research", "meeting_brief", "assignment"] as const)), pages: Type.Optional(Type.String()), max_extract_chars: Type.Optional(Type.Number()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const format = detectFormat(path, "auto");
       const extracted = await extractDocument(path, format, { pages: params.pages, maxChars: clamp(params.max_extract_chars, 18_000, 1000, MAX_EXTRACT_CHARS), cacheDir: join(ctx.cwd, ".pi", "cache", "pdf-ocr") });
       const lines = extracted.text.split(/\n+/).map(line => line.trim()).filter(line => line.length > 0);
@@ -547,7 +558,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use for Excel/CSV inspection before analysis.", "Keep max_rows bounded."],
     parameters: Type.Object({ path: Type.String(), sheets: Type.Optional(Type.Array(Type.String())), max_rows: Type.Optional(Type.Number()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const maxRows = clamp(params.max_rows, 25, 1, MAX_PREVIEW_ROWS);
       const buffer = await readFile(path);
       const format = detectFormat(path, "auto");
@@ -578,7 +589,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use instead of bash unzip/tar listing commands.", "Only lists archive entries; does not extract files."],
     parameters: Type.Object({ path: Type.String(), max_entries: Type.Optional(Type.Number()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const entries = inspectArchiveBuffer(await readFile(path), clamp(params.max_entries, 50, 1, 500));
       const lines = entries.map(entry => `${entry.name} (${entry.bytes} bytes${entry.method !== undefined ? `, method ${entry.method}` : ""})`);
       return { content: [{ type: "text", text: `Archive: ${repoRelativePath(ctx.cwd, path)}\nEntries: ${entries.length}\n${lines.join("\n")}` }], details: { path: repoRelativePath(ctx.cwd, path), entries } };
@@ -593,7 +604,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use instead of shell image metadata commands for PNG/JPEG/GIF dimensions."],
     parameters: Type.Object({ path: Type.String(), include_sha256: Type.Optional(Type.Boolean()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const buffer = await readFile(path);
       const meta: any = { path: repoRelativePath(ctx.cwd, path), bytes: buffer.byteLength, ...imageMetadata(buffer) };
       if (params.include_sha256) meta.sha256 = createHash("sha256").update(buffer).digest("hex");
@@ -609,7 +620,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use instead of ad-hoc pandas/python snippets for basic CSV profiling."],
     parameters: Type.Object({ path: Type.String(), max_rows: Type.Optional(Type.Number()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const analysis = await analyzeCsvFile(path, clamp(params.max_rows, MAX_PREVIEW_ROWS, 2, 10_000));
       const text = `CSV analysis: ${repoRelativePath(ctx.cwd, path)}\n${analysis.text}\n\nPreview:\n${rowsToMarkdown(analysis.preview)}`;
       return { content: [{ type: "text", text }], details: { path: repoRelativePath(ctx.cwd, path), rows: analysis.rows, columns: analysis.columns, streaming: true, retainedRows: analysis.preview.length } };
@@ -629,6 +640,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
       if (params.labels.length !== params.values.length) throw new Error("labels and values must have the same length");
       const path = resolveSafePath(ctx.cwd, params.path);
       if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
+      await resolveSafeCreationPath(ctx.cwd, params.path);
       const svg = chartSvg(params.title, params.chart_type ?? "bar", params.labels, params.values);
       await writeFile(path, svg, { encoding: "utf8", flag: "wx" });
       return { content: [{ type: "text", text: `Created chart ${repoRelativePath(ctx.cwd, path)} (${params.labels.length} points)` }], details: { path: repoRelativePath(ctx.cwd, path), chart_type: params.chart_type ?? "bar", points: params.labels.length } };
@@ -643,7 +655,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use for research/report workflows before formatting references."],
     parameters: Type.Object({ path: Type.String(), max_extract_chars: Type.Optional(Type.Number()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const extracted = await extractDocument(path, detectFormat(path, "auto"), { maxChars: clamp(params.max_extract_chars, 30_000, 1000, MAX_EXTRACT_CHARS) });
       const citations = extractCitationHints(extracted.text);
       return { content: [{ type: "text", text: citations.length ? citations.map((item, i) => `${i + 1}. ${item}`).join("\n") : "No citation hints detected." }], details: { path: repoRelativePath(ctx.cwd, path), citations } };
@@ -658,7 +670,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: ["Use instead of manual cut/sort/Excel parsing shell snippets."],
     parameters: Type.Object({ path: Type.String(), max_rows: Type.Optional(Type.Number()) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const format = detectFormat(path, "auto");
       const maxRows = clamp(params.max_rows, 50, 1, MAX_PREVIEW_ROWS);
       if (format === "csv") {
@@ -693,6 +705,7 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
         ? [`# ${params.title}`, params.subtitle ? `_${params.subtitle}_` : "", params.author ? `**${params.author}**` : "", ...params.sections.map((s: any) => `${"#".repeat(clamp(s.level, 2, 1, 4))} ${s.heading}\n\n${s.body}`), ...(params.references?.length ? [`## References\n\n${params.references.map((r: string, i: number) => `${i + 1}. ${r}`).join("\n")}`] : [])].filter(Boolean).join("\n\n")
         : reporterHtml(params.title, params.subtitle, params.author, params.sections, params.references ?? []);
       if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
+      await resolveSafeCreationPath(ctx.cwd, params.path);
       await writeFile(path, content, { encoding: "utf8", flag: "wx" });
       return { content: [{ type: "text", text: `Created reporter document ${rel} (${content.length} chars)` }], details: { path: rel, format } };
     },
@@ -708,12 +721,13 @@ export default function documentPrimitivesExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const classification = classifyToolMutation("convert_document", { path: params.output_path });
       if (!classification.allowed) throw new Error(`convert_document blocked by safety policy: ${classification.reasons.join(", ")}`);
-      const input = resolveSafePath(ctx.cwd, params.input_path);
+      const input = await resolveSafeExistingPath(ctx.cwd, params.input_path);
       const output = resolveSafePath(ctx.cwd, params.output_path);
       const extracted = await extractDocument(input, detectFormat(input, "auto"), { maxChars: MAX_EXTRACT_CHARS });
       const rel = repoRelativePath(ctx.cwd, output);
       const content = params.output_format === "html" ? reporterHtml(repoRelativePath(ctx.cwd, input), undefined, undefined, [{ heading: "Extracted Text", body: extracted.text, level: 2 }]) : extracted.text;
       if (params.create_dirs) await mkdir(dirname(output), { recursive: true });
+      await resolveSafeCreationPath(ctx.cwd, params.output_path);
       await writeFile(output, content, { encoding: "utf8", flag: "wx" });
       return { content: [{ type: "text", text: `Converted ${repoRelativePath(ctx.cwd, input)} -> ${rel}` }], details: { input_path: repoRelativePath(ctx.cwd, input), output_path: rel, output_format: params.output_format } };
     },

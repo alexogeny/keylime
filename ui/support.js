@@ -939,7 +939,7 @@
     }
     return cur;
   }
-  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.26.4/babel.min.js";
+  var BABEL_URL = "";
   var GLOBAL_POLL_INTERVAL_MS = 50;
   var GLOBAL_POLL_TIMEOUT_MS = 3e4;
   function createExternalModules(onResolved) {
@@ -949,18 +949,15 @@
     const polling = /* @__PURE__ */ new Set();
     function ensureBabel() {
       if (window.Babel) return Promise.resolve();
-      if (babelLoading) return babelLoading;
-      babelLoading = new Promise((res, rej) => {
-        const s = document.createElement("script");
-        s.src = BABEL_URL;
-        s.crossOrigin = "anonymous";
-        s.onload = () => res();
-        s.onerror = rej;
-        document.head.appendChild(s);
-      });
-      return babelLoading;
+      return Promise.reject(new Error("Remote JSX compilation is disabled; bundle UI modules locally"));
     }
     function load(kind, url) {
+      const resolved = new URL(url, location.href);
+      if (resolved.origin !== location.origin) {
+        console.error("[dc-runtime] blocked cross-origin x-import", url);
+        return;
+      }
+      url = resolved.href;
       if (cache.has(url)) return;
       cache.set(url, null);
       console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");

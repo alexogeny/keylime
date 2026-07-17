@@ -23,7 +23,7 @@ Most domain tools are still registered by their own extensions, but the router k
 - `KEYLIME_ENABLE_TRAJECTORY=1` — enable trajectory evaluator/session entries.
 - `KEYLIME_ENABLE_ADAPTIVE_POLICY=1` — enable adaptive context policy hints.
 - `KEYLIME_AUTO_CHECKPOINT=off|major|any` — control auto-checkpointing. Default: `major`.
-- `KEYLIME_CHECKPOINT_MESSAGES=semantic|metadata-only|deterministic` — use the active Pi model with bounded redacted context, omit diff excerpts, or stay fully local. Default: `semantic`.
+- `KEYLIME_CHECKPOINT_MESSAGES=semantic|metadata-only|deterministic` — use the active Pi model with a bounded redacted diff excerpt, omit diff excerpts, or stay fully local. Default: `metadata-only`.
 - `KEYLIME_CHECKPOINT_APPROVAL=always|manual|never` — review every draft in the Pi TUI, review manual `/checkpoint` drafts only, or commit without review. Default: `always`.
 - `KEYLIME_WEB_SEARCH_DATA_DIR=/path/to/data` — override persisted web-search knowledge location for tests or isolated runs.
 

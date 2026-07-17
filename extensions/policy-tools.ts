@@ -6,6 +6,7 @@ import { relative, resolve } from "node:path";
 import { planCodemod, retrievePolicyEvidence, suggestChecks } from "./shared/policy-actions";
 import { classifyToolMutation } from "./shared/safety-policy";
 import { TOOL_POLICIES, toolPolicyFor } from "./shared/tool-policy";
+import { resolveSafeExistingPath } from "./shared/path-policy";
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -21,6 +22,7 @@ function safeRelPath(cwd: string, inputPath: string): { abs: string; rel: string
 function setJsonPath(target: any, path: string, value: unknown): void {
   const parts = path.split(".").filter(Boolean);
   if (parts.length === 0) throw new Error("json_path must not be empty");
+  if (parts.some(part => part === "__proto__" || part === "prototype" || part === "constructor")) throw new Error("unsafe JSON path segment");
   let cur = target;
   for (const part of parts.slice(0, -1)) {
     if (cur[part] == null) cur[part] = {};
@@ -28,6 +30,10 @@ function setJsonPath(target: any, path: string, value: unknown): void {
     cur = cur[part];
   }
   cur[parts.at(-1)!] = value;
+}
+
+export function setJsonPathForTest(target: any, path: string, value: unknown): void {
+  setJsonPath(target, path, value);
 }
 
 function indentBody(body: string, spaces: number): string {
@@ -149,6 +155,7 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
       const classification = classifyToolMutation("apply_code_replacements", { dry_run: params.dry_run, edits: [{ path: params.path }] });
       if (!classification.allowed) throw new Error(`codemod_update_json blocked by safety policy: ${classification.reasons.join(", ")}`);
       const { abs, rel } = safeRelPath(ctx.cwd, params.path);
+      await resolveSafeExistingPath(ctx.cwd, params.path);
       const before = await readFile(abs, "utf8");
       const parsed = JSON.parse(before);
       setJsonPath(parsed, params.json_path, params.value);
@@ -174,6 +181,7 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
       const classification = classifyToolMutation("apply_code_replacements", { dry_run: params.dry_run, edits: [{ path: params.path }] });
       if (!classification.allowed) throw new Error(`codemod_add_import blocked by safety policy: ${classification.reasons.join(", ")}`);
       const { abs, rel } = safeRelPath(ctx.cwd, params.path);
+      await resolveSafeExistingPath(ctx.cwd, params.path);
       const before = await readFile(abs, "utf8");
       const importLine = `import { ${params.symbol} } from "${params.module}";`;
       const duplicatePattern = new RegExp(`import\\s+\\{[^}]*\\b${escapeRegExp(params.symbol)}\\b[^}]*\\}\\s+from\\s+["']${escapeRegExp(params.module)}["']`);
@@ -203,6 +211,7 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
       const classification = classifyToolMutation("apply_code_replacements", { dry_run: params.dry_run, edits: [{ path: params.path }] });
       if (!classification.allowed) throw new Error(`codemod_insert_test_case blocked by safety policy: ${classification.reasons.join(", ")}`);
       const { abs, rel } = safeRelPath(ctx.cwd, params.path);
+      await resolveSafeExistingPath(ctx.cwd, params.path);
       const before = await readFile(abs, "utf8");
       const testBlock = `  test("${params.test_name}", () => {\n${indentBody(params.body, 4)}\n  });\n`;
       let after: string;

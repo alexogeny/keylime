@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { readJsonFile, writeJsonFile } from "./shared/json-store";
 import { headTail } from "./shared/output-preview";
 import { existsSync } from "node:fs";
@@ -95,7 +95,9 @@ async function readManifest(cwd: string): Promise<ToolResultManifestEntry[]> {
 
 async function writeManifest(cwd: string, entries: ToolResultManifestEntry[]): Promise<void> {
   manifestCache.set(cwd, [...entries]);
-  await writeJsonFile(join(cwd, ".pi", "tool-results", "index.json"), entries);
+  const path = join(cwd, ".pi", "tool-results", "index.json");
+  await writeJsonFile(path, entries);
+  await chmod(path, 0o600);
 }
 
 export function resetToolResultManifestCacheForTest(): void {
@@ -151,13 +153,13 @@ async function storeResult(cwd: string, payload: Record<string, unknown>, summar
   const relDir = join(".pi", "tool-results", date);
   const absDir = join(cwd, relDir);
   if (!ensuredResultDirs.has(absDir)) {
-    await mkdir(absDir, { recursive: true });
+    await mkdir(absDir, { recursive: true, mode: 0o700 });
     ensuredResultDirs.add(absDir);
     resultDirectoryCreates++;
   }
   const relPath = join(relDir, `${id}.json`);
   const createdAt = new Date().toISOString();
-  await writeFile(join(cwd, relPath), JSON.stringify({ ...payload, id, createdAt }, null, 2), "utf8");
+  await writeFile(join(cwd, relPath), JSON.stringify({ ...payload, id, createdAt }, null, 2), { encoding: "utf8", mode: 0o600 });
   const manifest = await readManifest(cwd);
   manifest.unshift({ id, toolName: String(payload.toolName ?? "unknown"), createdAt, path: relPath, originalChars: Number(payload.originalChars ?? 0), summary });
   await writeManifest(cwd, manifest.slice(0, 500));

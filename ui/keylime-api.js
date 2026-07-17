@@ -1,4 +1,9 @@
 (() => {
+  const hashToken = new URLSearchParams(location.hash.replace(/^#/, "")).get("token");
+  if (hashToken) {
+    sessionStorage.setItem("keylime.token", hashToken);
+    history.replaceState(null, "", location.pathname + location.search);
+  }
   const jsonHeaders = { "content-type": "application/json" };
   const rel = (time) => {
     if (!time) return "";
@@ -13,7 +18,7 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   async function request(path, options = {}) {
     const headers = { ...(options.body instanceof FormData ? {} : jsonHeaders), ...(options.headers || {}) };
-    const token = localStorage.getItem("keylime.token") || "";
+    const token = sessionStorage.getItem("keylime.token") || "";
     if (token) headers.authorization = `Bearer ${token}`;
     const res = await fetch(path, { ...options, headers });
     const ct = res.headers.get("content-type") || "";

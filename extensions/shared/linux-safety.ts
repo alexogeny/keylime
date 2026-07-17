@@ -181,7 +181,7 @@ export async function commandAvailable(command: string): Promise<boolean> {
 }
 
 export async function requireApproved(ctx: any, title: string, message: string): Promise<void> {
-  if (!ctx?.ui?.confirm) return;
+  if (!ctx?.ui?.confirm) throw new Error("An interactive confirmation UI is required for this operation");
   const ok = await ctx.ui.confirm(title, message, { timeout: 30_000 });
   if (!ok) throw new Error("Operation cancelled by user");
 }

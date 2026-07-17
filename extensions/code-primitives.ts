@@ -4,7 +4,7 @@ import { stringEnum } from "./shared/schema";
 import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { repoRelativePath } from "./shared/path-policy";
+import { repoRelativePath, resolveSafeCreationPath, resolveSafeExistingPath } from "./shared/path-policy";
 import {
   formatPlanPreview,
   inspectCodeStructure,
@@ -95,7 +95,8 @@ async function pruneExpiredFileWriteSessions(now = Date.now(), cwd = process.cwd
   }));
 }
 
-async function readTextFileSafely(path: string): Promise<string> {
+async function readTextFileSafely(cwd: string, path: string, allowOutside = false): Promise<string> {
+  if (!allowOutside) await resolveSafeExistingPath(cwd, path);
   const info = await stat(path);
   if (!info.isFile()) throw new Error(`Not a file: ${path}`);
   const buffer = await readFile(path);
@@ -287,7 +288,7 @@ async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targe
       const relPath = relativePath(cwd, fsPath);
       try {
         const existing = plannedByPath.get(fsPath);
-        const before = existing?.plan.before ?? await readTextFileSafely(fsPath);
+        const before = existing?.plan.before ?? await readTextFileSafely(cwd, fsPath);
         const current = existing?.plan.after ?? before;
         const step = planReplacement(current, { ...rawEdit, path: relPath });
         plannedByPath.set(fsPath, {
@@ -374,7 +375,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const path = params.allow_outside_cwd
         ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
         : resolveSafePath(ctx.cwd, params.path);
-      const raw = await readTextFileSafely(path);
+      const raw = await readTextFileSafely(ctx.cwd, path, params.allow_outside_cwd ?? false);
       const parsed = JSON.parse(raw);
       const projected = inspectJsonValue(parsed, params.json_path);
       const omitted = omitJsonKeys(projected, new Set(params.omit_keys ?? ["embedding"]));
@@ -427,7 +428,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const details = [];
       for (const path of targets) {
         const rel = repoRelativePath(ctx.cwd, path);
-        const text = await readTextFileSafely(path);
+        const text = await readTextFileSafely(ctx.cwd, path, params.allow_outside_cwd ?? false);
         const matches = inspectTextMatches(text, {
           query: params.query,
           regex: params.regex,
@@ -472,7 +473,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const path = params.allow_outside_cwd
         ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
         : resolveSafePath(ctx.cwd, params.path);
-      const text = await readTextFileSafely(path);
+      const text = await readTextFileSafely(ctx.cwd, path, params.allow_outside_cwd ?? false);
       const structure = inspectCodeStructure(text, params.language as Language);
       const lines = [
         `Imports (${structure.imports.length}):`,
@@ -509,7 +510,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const path = params.allow_outside_cwd
         ? (isAbsolute(params.path) ? resolve(params.path) : resolve(ctx.cwd, params.path))
         : resolveSafePath(ctx.cwd, params.path);
-      const text = await readTextFileSafely(path);
+      const text = await readTextFileSafely(ctx.cwd, path, params.allow_outside_cwd ?? false);
       const lines = text.split("\n");
       const context = Math.max(0, params.context ?? 0);
       const maxLines = Math.max(1, Math.min(params.max_lines ?? 80, 200));
@@ -585,6 +586,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const path = resolveSafePath(ctx.cwd, params.path);
       const rel = relativePath(ctx.cwd, path);
       if (await fileExists(path)) {
+        await resolveSafeExistingPath(ctx.cwd, params.path);
         if (params.if_exists === "skip") {
           return { content: [{ type: "text", text: `Skipped existing file ${rel}` }], details: { path: rel, skipped: true } };
         }
@@ -593,6 +595,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       if (await directoryExists(path)) throw new Error(`Path exists and is a directory: ${rel}`);
       if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
       else if (!(await directoryExists(dirname(path)))) throw new Error(`Parent directory does not exist for ${rel}; set create_dirs=true to create it`);
+      await resolveSafeCreationPath(ctx.cwd, params.path);
 
       const handle = randomUUID();
       const tmpDir = fileWriteSessionDir(ctx.cwd);
@@ -657,7 +660,11 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       if (params.expected_chunks !== undefined && params.expected_chunks !== session.nextIndex) throw new Error(`Expected ${params.expected_chunks} chunks, received ${session.nextIndex}`);
       const classification = classifyToolMutation("create_file", { path: session.rel });
       if (!classification.allowed) throw new Error(`finish_file_write blocked by safety policy: ${classification.reasons.join(", ")}`);
-      if (await fileExists(session.path)) throw new Error(`File already exists: ${session.rel}`);
+      if (await fileExists(session.path)) {
+        await resolveSafeExistingPath(ctx.cwd, session.path);
+        throw new Error(`File already exists: ${session.rel}`);
+      }
+      await resolveSafeCreationPath(ctx.cwd, session.path);
 
       const staged = await readFile(session.tmpPath, "utf8");
       const content = normalizeCreatedContent(staged, session.newline);
@@ -722,6 +729,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const path = resolveSafePath(ctx.cwd, params.path);
       const rel = relativePath(ctx.cwd, path);
       if (await fileExists(path)) {
+        await resolveSafeExistingPath(ctx.cwd, params.path);
         if (params.if_exists === "skip") {
           return { content: [{ type: "text", text: `Skipped existing file ${rel}` }], details: { path: rel, skipped: true } };
         }
@@ -733,6 +741,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       if (buffer.byteLength > CREATE_FILE_MAX_BYTES) throw new Error(`Content too large for create_file (${buffer.byteLength} bytes > ${CREATE_FILE_MAX_BYTES}). Use begin_file_write, append_file_chunk, and finish_file_write for larger files.`);
       if (isProbablyBinary(buffer)) throw new Error(`Refusing to create probable binary file: ${rel}`);
       if (params.create_dirs) await mkdir(dirname(path), { recursive: true });
+      await resolveSafeCreationPath(ctx.cwd, params.path);
       await writeFile(path, content, { encoding: "utf8", flag: "wx" });
 
       const lineCount = content.length === 0 ? 0 : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
@@ -920,7 +929,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const classification = classifyToolMutation("replace_file", params);
       if (!classification.allowed) throw new Error(`replace_file blocked by safety policy: ${classification.reasons.join(", ")}`);
-      const path = resolveSafePath(ctx.cwd, params.path);
+      const path = await resolveSafeExistingPath(ctx.cwd, params.path);
       const rel = repoRelativePath(ctx.cwd, path);
       const current = await readFile(path);
       if (sha256(current) !== params.expected_sha256) throw new Error(`Checksum mismatch for ${rel}`);
@@ -1044,7 +1053,10 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
 
       if (!dryRun) {
         for (const { fsPath, plan } of planned) {
-          if (plan.before !== plan.after) await writeFile(fsPath, plan.after, "utf8");
+          if (plan.before !== plan.after) {
+            await resolveSafeExistingPath(ctx.cwd, fsPath);
+            await writeFile(fsPath, plan.after, "utf8");
+          }
         }
       }
 

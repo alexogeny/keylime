@@ -24,7 +24,7 @@ export function checkpointApprovalMode(value = process.env.KEYLIME_CHECKPOINT_AP
 }
 
 export function checkpointGenerationMode(value = process.env.KEYLIME_CHECKPOINT_MESSAGES): CheckpointGenerationMode {
-  return value === "metadata-only" || value === "deterministic" || value === "semantic" ? value : "semantic";
+  return value === "metadata-only" || value === "deterministic" || value === "semantic" ? value : "metadata-only";
 }
 
 export function redactCheckpointText(value: string): string {
@@ -44,7 +44,8 @@ function oneLine(value: string, max = 72): string {
 }
 
 function cleanBody(value: string | string[]): string {
-  const raw = Array.isArray(value) ? value.map((line) => `- ${oneLine(line, 120)}`).join("\n") : String(value ?? "").trim();
+  const rawValue = Array.isArray(value) ? value.map((line) => `- ${oneLine(line, 120)}`).join("\n") : String(value ?? "").trim();
+  const raw = redactCheckpointText(rawValue);
   const withoutTrailer = raw
     .split("\n")
     .filter((line) => !/^Keylime-Checkpoint\s*:/i.test(line.trim()))
@@ -63,7 +64,7 @@ export function parseCheckpointMessage(text: string): CheckpointMessage | null {
   try {
     const parsed = JSON.parse(unfenced) as { subject?: unknown; body?: unknown };
     if (typeof parsed.subject !== "string" || !(typeof parsed.body === "string" || Array.isArray(parsed.body))) return null;
-    const subject = oneLine(parsed.subject);
+    const subject = oneLine(redactCheckpointText(parsed.subject));
     if (!validSubject(subject)) return null;
     const bodyValue = Array.isArray(parsed.body) ? parsed.body.filter((item): item is string => typeof item === "string") : parsed.body;
     return { subject, body: cleanBody(bodyValue), source: "llm" };
@@ -76,7 +77,7 @@ export function parseEditedCheckpointMessage(text: string): CheckpointMessage | 
   const normalized = String(text ?? "").replace(/\r\n/g, "\n").trim();
   if (!normalized) return null;
   const [first, ...rest] = normalized.split("\n");
-  const subject = oneLine(first);
+  const subject = oneLine(redactCheckpointText(first));
   if (!validSubject(subject)) return null;
   return { subject, body: cleanBody(rest.join("\n").trim()), source: "edited" };
 }

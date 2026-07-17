@@ -162,31 +162,44 @@ function findTrimmedLinesMatch(text: string, oldText: string): { startLine: numb
 function replaceTrimmedLines(text: string, edit: ReplacementEdit): { after: string; count: number } {
   if (edit.oldText === undefined) throw new Error(`oldText is required for trimmed_lines replacement in ${edit.path}`);
   const lines = text.split("\n");
-  let count = 0;
-  let cursor = 0;
-  const output: string[] = [];
-  while (cursor < lines.length) {
-    const match = findTrimmedLinesMatch(lines.slice(cursor).join("\n"), edit.oldText);
-    if (!match) {
-      output.push(...lines.slice(cursor));
-      break;
-    }
-    const absoluteStart = cursor + match.startLine;
-    const absoluteEnd = cursor + match.endLine;
-    output.push(...lines.slice(cursor, absoluteStart), edit.newText);
-    count++;
-    cursor = absoluteEnd;
-    if (!edit.replaceAll) {
-      output.push(...lines.slice(cursor));
-      break;
-    }
+  const normalized = lines.map(line => line.trim());
+  const needle = edit.oldText.split("\n").map(line => line.trim());
+  const prefix = new Array<number>(needle.length).fill(0);
+  for (let i = 1, j = 0; i < needle.length;) {
+    if (needle[i] === needle[j]) prefix[i++] = ++j;
+    else if (j > 0) j = prefix[j - 1];
+    else i++;
   }
-  if (count === 0) throw new Error(`No match for oldText in ${edit.path}.${nearMatchHint(text, edit.oldText)}`);
+  const starts: number[] = [];
+  for (let i = 0, j = 0; i < normalized.length;) {
+    if (normalized[i] === needle[j]) { i++; j++; if (j === needle.length) { starts.push(i - j); j = edit.replaceAll ? prefix[j - 1] : 0; if (!edit.replaceAll) break; } }
+    else if (j > 0) j = prefix[j - 1];
+    else i++;
+  }
+  if (starts.length === 0) throw new Error(`No match for oldText in ${edit.path}.${nearMatchHint(text, edit.oldText)}`);
+  const output: string[] = [];
+  let cursor = 0;
+  let count = 0;
+  for (const start of starts) {
+    if (start < cursor) continue;
+    output.push(...lines.slice(cursor, start), edit.newText);
+    cursor = start + needle.length;
+    count++;
+  }
+  output.push(...lines.slice(cursor));
   return { after: output.join("\n"), count };
 }
 
 function replaceNormalizedWhitespace(_text: string, edit: ReplacementEdit): { after: string; count: number } {
   throw new Error(`normalized_whitespace replacement is disabled for ${edit.path}; use exact or trimmed_lines to preserve file formatting`);
+}
+
+export function isSafeRegexPattern(pattern: string): boolean {
+  if (!pattern || pattern.length > 500) return false;
+  if (/\\[1-9]/.test(pattern) || /\(\?<([=!])/.test(pattern)) return false;
+  if (/\([^)]*(?:\+|\*|\{\d*,?\d*\})[^)]*\)(?:\+|\*|\{)/.test(pattern)) return false;
+  if (/\.\*[^\n]*\.\*/.test(pattern)) return false;
+  return true;
 }
 
 function looksLikeRegexQuery(query: string): boolean {
@@ -203,6 +216,7 @@ export function inspectTextMatches(text: string, options: MatchOptions): TextMat
 
   const autoRegex = !options.regex && looksLikeRegexQuery(options.query);
   if (options.regex || autoRegex) {
+    if (!isSafeRegexPattern(options.query)) throw new Error("Unsafe or overly complex regex pattern");
     const flags = options.caseSensitive ? "g" : "gi";
     try {
       const re = new RegExp(options.query, flags);
@@ -264,6 +278,7 @@ function regexCanMatchEmpty(regex: string, flags: string): boolean {
 function regexReplacement(text: string, edit: ReplacementEdit): ReplacementPlan {
   if (!edit.regex) throw new Error(`regex is required for regex replacement in ${edit.path}`);
   if (edit.regex.length === 0) throw new Error(`regex must not be empty in ${edit.path}`);
+  if (!isSafeRegexPattern(edit.regex)) throw new Error(`Unsafe or overly complex regex in ${edit.path}`);
   const flags = edit.flags ?? "g";
   if (regexCanMatchEmpty(edit.regex, flags)) throw new Error(`regex must not match empty strings in ${edit.path}`);
   const re = new RegExp(edit.regex, flags.includes("g") ? flags : `${flags}g`);

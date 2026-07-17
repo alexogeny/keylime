@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 import { loadSearchEntry, loadSearchIndex } from "../shared/web-search-store";
 import { readJsonFile, writeJsonFile } from "../shared/json-store";
-import { isPathWithin } from "../shared/path-policy";
+import { isPathWithin, resolveSafeExistingPath } from "../shared/path-policy";
 import { MEMORY_FILE } from "../user-memory/store";
 
 export const DEFAULT_DATA_DIR = join(homedir(), ".pi", "data", "keylime-control-plane");
@@ -46,11 +46,11 @@ export async function findToolResultPath(cwd: string, id: string) {
   const base = join(cwd, ".pi", "tool-results");
   const direct = normalize(join(base, `${id}.json`));
   if (!isPathWithin(base, direct)) throw new Error("Unsafe tool result path");
-  if (existsSync(direct)) return direct;
+  if (existsSync(direct)) return resolveSafeExistingPath(cwd, direct);
   const manifest = await readToolResultIndex(cwd);
   const hit = manifest.find((e: any) => e.id === id || e.result_id === id);
   const stored = typeof hit?.stored_at === "string" ? normalize(join(cwd, hit.stored_at)) : "";
-  if (stored && isPathWithin(base, stored) && existsSync(stored)) return stored;
+  if (stored && isPathWithin(base, stored) && existsSync(stored)) return resolveSafeExistingPath(cwd, stored);
   throw new Error("Tool result not found");
 }
 
@@ -61,9 +61,10 @@ export async function readToolResult(cwd: string, id: string) {
 export async function listWorkspaceFiles(cwd: string, limit = 300) {
   const out: Array<{ path: string; kind: "file" | "directory" }> = [];
   const queue: Array<{ dir: string; rel: string }> = [{ dir: cwd, rel: "" }];
+  let queueHead = 0;
   const ignored = new Set([".git", "node_modules", ".pi"]);
-  while (queue.length > 0 && out.length < limit) {
-    const current = queue.shift()!;
+  while (queueHead < queue.length && out.length < limit) {
+    const current = queue[queueHead++];
     const entries = await readdir(current.dir, { withFileTypes: true }).catch(() => []);
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {

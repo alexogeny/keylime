@@ -132,7 +132,7 @@ Inside Pi:
 Important environment flags:
 
 - `KEYLIME_AUTO_CHECKPOINT=off|major|any` — auto-checkpoint policy. Default: `major`.
-- `KEYLIME_CHECKPOINT_MESSAGES=semantic|metadata-only|deterministic` — semantic message generation policy. Default: `semantic`.
+- `KEYLIME_CHECKPOINT_MESSAGES=semantic|metadata-only|deterministic` — semantic message generation policy. Default: `metadata-only`; `semantic` opts into sending a bounded redacted diff excerpt.
 - `KEYLIME_CHECKPOINT_APPROVAL=always|manual|never` — TUI review policy; approve, edit, or skip checkpoint drafts. Default: `always`.
 - `KEYLIME_ENABLE_RESEARCH=1` — allow research tools without provider-key auto-detection.
 - `KEYLIME_DISABLE_RESEARCH=1` — force-disable web research tools.
