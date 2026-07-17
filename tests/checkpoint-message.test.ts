@@ -26,10 +26,21 @@ describe("semantic checkpoint messages", () => {
       changedPaths: ["extensions/git-checkpoint.ts", "extensions/shared/checkpoint-message.ts", "tests/checkpoint-message.test.ts"],
       diffStat: "3 files changed, 120 insertions(+)",
     })).toEqual({
-      subject: "chore(checkpoint): improve checkpoint commit messages",
+      subject: "feat(checkpoint): implement semantic generation and approval ui",
       body: "- Update git-checkpoint and checkpoint-message\n- Add checkpoint-message coverage\n\nKeylime-Checkpoint: true",
       source: "deterministic",
     });
+  });
+
+  test("uses completed work rather than parroting a vague user request", () => {
+    const message = deterministicCheckpointMessage({
+      userRequest: "please implement these using tests to prove the thesis",
+      assistantSummary: "Implemented bounded top-K retrieval and batched PDF rendering.",
+      changedPaths: ["extensions/shared/retrieval/bm25.ts", "extensions/document-primitives.ts", "tests/performance-regressions.test.ts"],
+    });
+    expect(message.subject).toBe("perf: implement bounded top-k retrieval and batched pdf rendering");
+    expect(message.subject).not.toContain("please");
+    expect(message.subject).not.toContain("chore(checkpoint)");
   });
 
   test("parses and sanitizes fenced model JSON", () => {

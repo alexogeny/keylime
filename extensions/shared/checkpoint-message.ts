@@ -92,17 +92,48 @@ function humanList(values: string[]): string {
   return `${values.slice(0, 2).join(", ")}, and ${values.length - 2} more`;
 }
 
-function requestSubject(request: string | undefined, paths: string[]): string {
-  const clean = oneLine(redactCheckpointText(request ?? ""), 58).replace(/[.!?]+$/, "");
-  if (clean) return clean.charAt(0).toLowerCase() + clean.slice(1);
-  return `update ${humanList([...new Set(paths.map(stem))].slice(0, 3))}`;
+function semanticDescription(context: CheckpointMessageContext, production: string[]): string {
+  const source = context.assistantSummary?.trim() || context.userRequest?.trim() || "";
+  const firstMeaningfulLine = source.split(/\r?\n/).map(line => line.replace(/^\s*(?:[-*#]+|\d+[.)])\s*/, "").trim()).find(Boolean) ?? "";
+  let clean = oneLine(redactCheckpointText(firstMeaningfulLine), 68).replace(/[.!?]+$/, "").toLowerCase();
+  clean = clean
+    .replace(/^please\s+/, "")
+    .replace(/^(implemented|added|fixed|updated|optimized|refactored|created|removed|improved)\b/, verb => ({
+      implemented: "implement", added: "add", fixed: "fix", updated: "update", optimized: "optimize",
+      refactored: "refactor", created: "create", removed: "remove", improved: "improve",
+    }[verb] ?? verb));
+  if (!clean || /\b(?:this|these|those)\b/.test(clean)) return `update ${humanList(production.slice(0, 3))}`;
+  return clean;
+}
+
+function commitType(context: CheckpointMessageContext): string {
+  const signal = `${context.assistantSummary ?? ""} ${context.userRequest ?? ""} ${context.changedPaths.join(" ")}`.toLowerCase();
+  if (/\b(?:performance|optimi[sz](?:e|ed|ing|ation)?|bottleneck|quadratic|syscalls?|top-k|latency|throughput|batched?)\b/.test(signal)) return "perf";
+  if (/\b(?:fix|fixed|bug|error|failure|regression|broken)\b/.test(signal)) return "fix";
+  if (context.changedPaths.every(path => /(?:^|\/)docs?\//i.test(path) || /\.md$/i.test(path))) return "docs";
+  if (context.changedPaths.every(path => /(?:^|\/)tests?\//i.test(path) || /\.(?:test|spec)\./i.test(path))) return "test";
+  if (/\b(?:implement|implemented|add|added|create|created|introduce|introduced)\b/.test(signal)) return "feat";
+  return "chore";
+}
+
+function commitScope(paths: string[]): string | undefined {
+  const production = paths.filter(path => !/(?:^|\/)tests?\//i.test(path) && !/\.(?:test|spec)\./i.test(path));
+  if (!production.length) return undefined;
+  const domains: Array<[string, RegExp]> = [
+    ["checkpoint", /checkpoint/i], ["retrieval", /(?:^|\/)retrieval(?:\/|$)|bm25|tfidf|jmlm/i],
+    ["web-content", /web-content/i], ["documents", /document-primitives|ocr/i],
+    ["tool-results", /tool-result/i], ["memory", /user-memory|entity/i],
+  ];
+  return domains.find(([, pattern]) => production.every(path => pattern.test(path)))?.[0];
 }
 
 export function deterministicCheckpointMessage(context: CheckpointMessageContext): CheckpointMessage {
   const production = [...new Set(context.changedPaths.filter((path) => !/(?:^|\/)tests?\//i.test(path) && !/\.(?:test|spec)\./i.test(path)).map(stem))];
   const tests = [...new Set(context.changedPaths.filter((path) => /(?:^|\/)tests?\//i.test(path) || /\.(?:test|spec)\./i.test(path)).map(stem))];
-  const scope = context.changedPaths.some((path) => /checkpoint/i.test(path)) ? "checkpoint" : "worktree";
-  const subject = oneLine(`chore(${scope}): ${requestSubject(context.userRequest, context.changedPaths)}`);
+  const scope = commitScope(context.changedPaths);
+  const type = commitType(context);
+  const prefix = scope ? `${type}(${scope})` : type;
+  const subject = oneLine(`${prefix}: ${semanticDescription(context, production)}`);
   const bullets: string[] = [];
   if (production.length) bullets.push(`- Update ${humanList(production.slice(0, 3))}`);
   if (tests.length) bullets.push(`- Add ${humanList(tests.slice(0, 2))} coverage`);

@@ -13,6 +13,7 @@ export interface WebContentPage {
   links: string[];
   crawlIds: string[];
   searchIds: string[];
+  bodyTermFrequency?: Record<string, number>;
   metadata?: Record<string, unknown>;
 }
 

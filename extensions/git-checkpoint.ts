@@ -71,6 +71,26 @@ function gitBuffer(cwd: string, args: string[]): Buffer {
   return execFileSync("git", args, { cwd });
 }
 
+export interface CheckpointSnapshot {
+  branch: string;
+  changed: boolean;
+  paths: string[];
+  entries: Array<{ status: string; path: string }>;
+}
+
+export function collectCheckpointSnapshot(cwd: string, runGit: (cwd: string, args: string[]) => Buffer = gitBuffer): CheckpointSnapshot | null {
+  try {
+    const records = runGit(cwd, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]).toString("utf8").split("\0").filter(Boolean);
+    const header = records.shift() ?? "## HEAD";
+    const branchText = header.replace(/^##\s*/, "").replace(/^No commits yet on\s+/, "");
+    const branch = branchText.split("...")[0].trim() || "HEAD";
+    const entries = records.filter(record => record.length >= 3 && /^[ MADRCU?!]{2} /.test(record)).map(record => ({ status: record.slice(0, 2), path: statusPath(record) }));
+    return { branch, changed: entries.length > 0, paths: entries.map(entry => entry.path), entries };
+  } catch {
+    return null;
+  }
+}
+
 export type GitAuthProvider = "github" | "gitlab" | "bitbucket" | "custom";
 export type GitAuthMode = "ssh" | "https";
 
@@ -241,8 +261,8 @@ function splitNulPaths(buffer: Buffer): string[] {
   return buffer.toString("utf8").split("\0").filter(Boolean);
 }
 
-export function stageCheckpointChangesForTest(cwd: string): void {
-  stageCheckpointChanges(cwd);
+export function stageCheckpointChangesForTest(cwd: string, paths?: string[]): void {
+  stageCheckpointChanges(cwd, paths);
 }
 
 function stageCheckpointChanges(cwd: string, paths?: string[]): void {
@@ -254,7 +274,9 @@ function stageCheckpointChanges(cwd: string, paths?: string[]): void {
   // Stage tracked modifications/deletions, excluding volatile local Pi state.
   // On an unborn repository, `git add -u -- .` fails when no tracked path exists.
   const tracked = splitNulPaths(gitBuffer(cwd, ["ls-files", "-z", ...pathspecs]));
-  if (tracked.length > 0) execFileSync("git", ["add", "-u", ...pathspecs], { cwd });
+  // Use the resolved tracked files, not the original mixed pathspec list. Passing
+  // a new file to `git add -u` produces a fatal "pathspec did not match" error.
+  if (tracked.length > 0) execFileSync("git", ["add", "-u", "--", ...tracked], { cwd });
 
   // Then stage only untracked files that Git itself says are non-ignored, again
   // excluding local Pi state. This avoids `git add -A` failing because ignored
@@ -432,19 +454,16 @@ function statusPath(line: string): string {
   return renamed.replace(/^"|"$/g, "");
 }
 
-function checkpointMessageContext(cwd: string, paths: string[] | undefined, ctx: any): CheckpointMessageContext {
+function checkpointMessageContext(cwd: string, paths: string[] | undefined, ctx: any, snapshot: CheckpointSnapshot): CheckpointMessageContext {
   const pathspecs = checkpointPathspecs(paths);
-  let status = "";
   let diffStat = "";
   let diffExcerpt = "";
-  try { status = gitBuffer(cwd, ["status", "--porcelain=v1", "--untracked-files=all"]).toString("utf8").trimEnd(); } catch { /* deterministic fallback handles this */ }
   const scoped = paths?.map(path => path.replace(/\\/g, "/"));
-  const changedPaths = status.split("\n").filter(Boolean).filter(line => {
+  const changedPaths = snapshot.entries.filter(entry => {
     if (!scoped?.length) return true;
-    if (line[0] !== " " && line[0] !== "?") return true; // already staged files will also be committed
-    const candidate = statusPath(line);
-    return scoped.some(path => candidate === path || candidate.startsWith(`${path}/`));
-  }).map(statusPath).filter(path => path && path !== ".pi" && !path.startsWith(".pi/"));
+    if (entry.status[0] !== " " && entry.status[0] !== "?") return true; // already staged files will also be committed
+    return scoped.some(path => entry.path === path || entry.path.startsWith(`${path}/`));
+  }).map(entry => entry.path).filter(path => path && path !== ".pi" && !path.startsWith(".pi/"));
   try { diffStat = git(cwd, ["diff", "HEAD", "--stat", "--", ...pathspecs]); } catch { /* unborn repositories still get path metadata */ }
   if (checkpointGenerationMode() === "semantic") {
     try { diffExcerpt = git(cwd, ["diff", "HEAD", "--unified=1", "--", ...pathspecs]).slice(0, 6000); } catch { /* optional semantic context */ }
@@ -452,12 +471,12 @@ function checkpointMessageContext(cwd: string, paths: string[] | undefined, ctx:
   return { ...recentConversationContext(ctx), changedPaths: [...new Set(changedPaths)], diffStat, diffExcerpt };
 }
 
-async function draftCheckpointMessage(cwd: string, paths: string[] | undefined, ctx: any): Promise<CheckpointMessage> {
-  const context = checkpointMessageContext(cwd, paths, ctx);
+async function draftCheckpointMessage(cwd: string, paths: string[] | undefined, ctx: any, snapshot: CheckpointSnapshot): Promise<CheckpointMessage> {
+  const context = checkpointMessageContext(cwd, paths, ctx, snapshot);
   const fallback = deterministicCheckpointMessage(context);
   if (checkpointGenerationMode() === "deterministic") return fallback;
-  const model = ctx.model;
-  if (!model) return fallback;
+  const model = ctx.model ?? ctx.getModel?.();
+  if (!model || !ctx.modelRegistry?.getApiKeyAndHeaders) return fallback;
   try {
     const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
     if (!auth?.ok) return fallback;
@@ -468,8 +487,7 @@ async function draftCheckpointMessage(cwd: string, paths: string[] | undefined, 
       headers: auth.headers,
       env: auth.env,
       maxTokens: 400,
-      temperature: 0.2,
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(30_000),
     });
     const text = response.content.filter((part): part is { type: "text"; text: string } => part.type === "text").map(part => part.text).join("\n");
     return parseCheckpointMessage(text) ?? fallback;
@@ -483,7 +501,8 @@ export async function reviewCheckpointMessage(message: CheckpointMessage, ctx: a
   if (!ctx.hasUI || ctx.mode !== "tui" || approval === "never" || (approval === "manual" && !manual)) return message;
   let draft = message;
   for (;;) {
-    const choice = await ctx.ui.select(`Checkpoint commit draft\n\n${formatCheckpointMessage(draft)}`, ["Approve and commit", "Edit message", "Skip checkpoint"]);
+    const sourceLabel = draft.source === "llm" ? "AI-generated" : draft.source === "edited" ? "edited" : "deterministic fallback";
+    const choice = await ctx.ui.select(`Checkpoint commit draft · ${sourceLabel}\n\n${formatCheckpointMessage(draft)}`, ["Approve and commit", "Edit message", "Skip checkpoint"]);
     if (choice === "Approve and commit") return draft;
     if (choice === "Skip checkpoint" || !choice) return null;
     const edited = await ctx.ui.editor("Edit checkpoint commit message (subject, blank line, body)", formatCheckpointMessage(draft));
@@ -497,11 +516,12 @@ export async function reviewCheckpointMessage(message: CheckpointMessage, ctx: a
   }
 }
 
-function makeCheckpointAttempt(cwd: string, paths?: string[], message?: CheckpointMessage): CheckpointAttempt {
-  if (!isGitRepo(cwd)) return { checkpoint: null, reason: "not-git-repo" };
+function makeCheckpointAttempt(cwd: string, paths?: string[], message?: CheckpointMessage, knownSnapshot?: CheckpointSnapshot): CheckpointAttempt {
+  const snapshot = knownSnapshot ?? collectCheckpointSnapshot(cwd);
+  if (!snapshot) return { checkpoint: null, reason: "not-git-repo" };
 
-  const branch = getCurrentBranch(cwd);
-  const changed = hasChanges(cwd);
+  const branch = snapshot.branch;
+  const changed = snapshot.changed;
 
   if (changed) {
     try {
@@ -622,24 +642,25 @@ export default function (pi: ExtensionAPI) {
 
     const cwd = ctx.cwd;
     mutationScoreThisTurn = 0;
-    if (!isGitRepo(cwd) || !hasChanges(cwd)) return;
+    const snapshot = collectCheckpointSnapshot(cwd);
+    if (!snapshot?.changed) return;
 
     const scopedPaths = [...writePathsThisTurn];
     writePathsThisTurn.clear();
     const paths = scopedPaths.length ? scopedPaths : undefined;
-    const draft = await draftCheckpointMessage(cwd, paths, ctx);
+    const draft = await draftCheckpointMessage(cwd, paths, ctx, snapshot);
     const message = await reviewCheckpointMessage(draft, ctx, false);
     if (!message) {
       lastAutoCheckpointAt = now;
       ctx.ui.notify("Auto-checkpoint skipped; working changes were left untouched.", "info");
       return;
     }
-    let attempt = makeCheckpointAttempt(cwd, paths, message);
+    let attempt = makeCheckpointAttempt(cwd, paths, message, snapshot);
     if (!attempt.checkpoint && attempt.reason === "missing-identity") {
       lastAutoCheckpointAt = now;
       const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your commit identity.");
       if (!configured) return;
-      attempt = makeCheckpointAttempt(cwd, paths, message);
+      attempt = makeCheckpointAttempt(cwd, paths, message, snapshot);
     }
 
     const cp = attempt.checkpoint;
@@ -899,13 +920,14 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       await ctx.waitForIdle();
       const cwd = ctx.cwd;
-      if (!isGitRepo(cwd)) {
+      const snapshot = collectCheckpointSnapshot(cwd);
+      if (!snapshot) {
         ctx.ui.notify("Not a git repository — nothing to checkpoint.", "error");
         return;
       }
       let message: CheckpointMessage | undefined;
-      if (hasChanges(cwd)) {
-        const draft = await draftCheckpointMessage(cwd, undefined, ctx);
+      if (snapshot.changed) {
+        const draft = await draftCheckpointMessage(cwd, undefined, ctx, snapshot);
         const reviewed = await reviewCheckpointMessage(draft, ctx, true);
         if (!reviewed) {
           ctx.ui.notify("Checkpoint skipped; working changes were left untouched.", "info");
@@ -913,10 +935,10 @@ export default function (pi: ExtensionAPI) {
         }
         message = reviewed;
       }
-      let attempt = makeCheckpointAttempt(cwd, undefined, message);
+      let attempt = makeCheckpointAttempt(cwd, undefined, message, snapshot);
       if (!attempt.checkpoint && attempt.reason === "missing-identity") {
         const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Checkpoint could not create a commit because Git does not know your identity.");
-        if (configured) attempt = makeCheckpointAttempt(cwd, undefined, message);
+        if (configured) attempt = makeCheckpointAttempt(cwd, undefined, message, snapshot);
       }
 
       const cp = attempt.checkpoint;

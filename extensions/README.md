@@ -55,4 +55,4 @@ PDF OCR fallback in `document-primitives.ts` uses two external binaries when emb
 - `pdftoppm` from Poppler (`apt install poppler-utils`, `brew install poppler`)
 - `tesseract` (`apt install tesseract-ocr`, `brew install tesseract`)
 
-These are recorded in `package.json` under `keylime.systemDependencies.pdfOcr`. From this `extensions/` directory, use `bun run install:ocr-deps:apt` or `bun run install:ocr-deps:brew`, then validate the local environment with `bun run check:ocr-deps`.
+These are recorded in `package.json` under `keylime.systemDependencies.pdfOcr`. From this `extensions/` directory, use `bun run install:ocr-deps:apt` or `bun run install:ocr-deps:brew`, then validate the local environment with `bun run check:ocr-deps`. PDF page ranges are rendered in one `pdftoppm` process before per-page OCR, avoiding a renderer subprocess and directory scan for every page.

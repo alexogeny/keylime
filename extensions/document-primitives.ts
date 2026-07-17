@@ -220,6 +220,30 @@ function extractPdfRough(buffer: Buffer, pages?: string): { text: string; totalP
   return { text, totalPages };
 }
 
+export async function renderPdfPagesForOcr(
+  path: string,
+  tmp: string,
+  pageNumbers: number[],
+  deps: { exec: (command: string, args: string[]) => Promise<{ stdout?: string; stderr?: string }>; readdir: (path: string) => Promise<string[]> } = {
+    exec: async (command, args) => execFileAsync(command, args, { timeout: 120_000, maxBuffer: 1024 * 1024 }) as any,
+    readdir,
+  },
+): Promise<Map<number, string>> {
+  const images = new Map<number, string>();
+  if (pageNumbers.length === 0) return images;
+  const first = Math.min(...pageNumbers);
+  const last = Math.max(...pageNumbers);
+  const prefix = join(tmp, "render");
+  await deps.exec("pdftoppm", ["-r", "200", "-png", "-f", String(first), "-l", String(last), path, prefix]);
+  const selected = new Set(pageNumbers);
+  for (const name of await deps.readdir(tmp)) {
+    const match = /^render-(\d+)\.png$/.exec(name);
+    const page = match ? Number(match[1]) : 0;
+    if (selected.has(page)) images.set(page, join(tmp, name));
+  }
+  return images;
+}
+
 async function ocrPdfWithExternalTools(path: string, buffer: Buffer, pages: string | undefined, totalPages: number, cacheDir: string): Promise<{ text: string; warnings: string[] }> {
   const warnings: string[] = [];
   const selected = parsePageSpec(pages, totalPages);
@@ -234,24 +258,29 @@ async function ocrPdfWithExternalTools(path: string, buffer: Buffer, pages: stri
   const tmp = await mkdtemp(join(tmpdir(), "pi-pdf-ocr-"));
   try {
     const pageTexts: string[] = [];
+    let rendered: Map<number, string>;
+    try {
+      rendered = await renderPdfPagesForOcr(path, tmp, pageNumbers);
+    } catch (error: any) {
+      const code = error?.code ? ` (${error.code})` : "";
+      warnings.push(`PDF rendering failed${code}. Ensure pdftoppm/poppler is installed.`);
+      return { text: "", warnings };
+    }
     for (const page of pageNumbers) {
-      const prefix = join(tmp, `page-${page}`);
+      const image = rendered.get(page);
+      if (!image) {
+        warnings.push(`Page ${page}: pdftoppm produced no image.`);
+        continue;
+      }
       try {
-        await execFileAsync("pdftoppm", ["-r", "200", "-png", "-f", String(page), "-l", String(page), path, prefix], { timeout: 120_000, maxBuffer: 1024 * 1024 });
-        const images = (await readdir(tmp)).filter(name => name.startsWith(`page-${page}`) && name.endsWith(".png")).sort();
-        if (images.length === 0) {
-          warnings.push(`Page ${page}: pdftoppm produced no image.`);
-          continue;
-        }
-        const { stdout, stderr } = await execFileAsync("tesseract", [join(tmp, images[0]), "stdout", "--psm", "6"], { timeout: 120_000, maxBuffer: 5 * 1024 * 1024 });
+        const { stdout, stderr } = await execFileAsync("tesseract", [image, "stdout", "--psm", "6"], { timeout: 120_000, maxBuffer: 5 * 1024 * 1024 });
         if (stderr?.trim()) warnings.push(`Page ${page}: ${stderr.trim().split(/\r?\n/)[0]}`);
         const pageText = stdout.trim();
         if (pageText) pageTexts.push(`Page ${page}\n${pageText}`);
         else warnings.push(`Page ${page}: OCR returned no text.`);
       } catch (error: any) {
         const code = error?.code ? ` (${error.code})` : "";
-        warnings.push(`Page ${page}: OCR failed${code}. Ensure pdftoppm/poppler and tesseract are installed.`);
-        break;
+        warnings.push(`Page ${page}: OCR failed${code}. Ensure tesseract is installed.`);
       }
     }
     const text = pageTexts.join("\n\n");

@@ -1,5 +1,6 @@
 import type { TokenizeOptions } from "./types";
 import { tokenize } from "./tokenize";
+import { BoundedTopK } from "./bounded-top-k";
 
 interface BM25Doc {
   id: string;
@@ -17,6 +18,7 @@ export class BM25Index {
   private postings = new Map<string, Set<string>>();
   private idf: Map<string, number> = new Map();
   lastSearchStats = { documentsVisited: 0, documentsScored: 0 };
+  lastSearchResultsRetained = 0;
   private avgLen = 0;
   private dirty = false;
   private k1: number;
@@ -83,6 +85,7 @@ export class BM25Index {
   search(query: string, topK = 10, candidateIds?: ReadonlySet<string>): Array<{ id: string; score: number }> {
     this.recompute();
     this.lastSearchStats = { documentsVisited: 0, documentsScored: 0 };
+    this.lastSearchResultsRetained = 0;
     if (this.docs.size === 0 || topK <= 0 || candidateIds?.size === 0) return [];
     const queryTokens = tokenize(query, this.tokenOptions);
     if (queryTokens.length === 0) return [];
@@ -99,7 +102,7 @@ export class BM25Index {
       for (const id of candidateIds ?? this.docs.keys()) matchingIds.add(id);
     }
     this.lastSearchStats.documentsVisited = matchingIds.size;
-    const scores = new Map<string, number>();
+    const top = new BoundedTopK<{ id: string; score: number }>(topK, (a, b) => b.score - a.score || a.id.localeCompare(b.id));
     for (const id of matchingIds) {
       const doc = this.docs.get(id)!;
       if (doc.len === 0) continue;
@@ -111,12 +114,10 @@ export class BM25Index {
         score += idf * (tf * (this.k1 + 1)) /
           (tf + this.k1 * (1 - this.b + this.b * doc.len / (this.avgLen || 1)));
       }
-      if (score > 0) scores.set(doc.id, score);
+      if (score > 0) top.add({ id: doc.id, score });
     }
-    return Array.from(scores.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, topK)
-      .map(([id, score]) => ({ id, score }));
+    this.lastSearchResultsRetained = top.size;
+    return top.values();
   }
 
   get size(): number { return this.docs.size; }

@@ -365,19 +365,33 @@ export function unlinkMemory(store: EntityStore, memoryId: string): void {
  * Find all entities mentioned in a query string (by name or alias).
  * Used at recall time to augment retrieval with entity-linked memories.
  */
-export function queryEntities(store: EntityStore, queryText: string): Entity[] {
-  const words = queryText.toLowerCase().split(/\s+/);
-  const found: Entity[] = [];
-  const seen  = new Set<string>();
+function normalizeEntityToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function queryEntitiesWithStats(store: EntityStore, queryText: string): { entities: Entity[]; stats: { normalizations: number } } {
+  let normalizations = 0;
+  const words = new Set(queryText.split(/\s+/).map(word => {
+    normalizations++;
+    return normalizeEntityToken(word);
+  }).filter(Boolean));
+  const entities: Entity[] = [];
 
   for (const entity of store.entities) {
-    if (seen.has(entity.id)) continue;
-    const names = [entity.name.toLowerCase(), ...entity.aliases.map(a => a.toLowerCase())];
-    if (names.some(n => words.some(w => w.replace(/[^a-z]/g,"") === n.replace(/[^a-z]/g,"")))) {
-      found.push(entity);
-      seen.add(entity.id);
+    let matched = false;
+    for (const name of [entity.name, ...entity.aliases]) {
+      normalizations++;
+      if (words.has(normalizeEntityToken(name))) {
+        matched = true;
+        break;
+      }
     }
+    if (matched) entities.push(entity);
   }
 
-  return found;
+  return { entities, stats: { normalizations } };
+}
+
+export function queryEntities(store: EntityStore, queryText: string): Entity[] {
+  return queryEntitiesWithStats(store, queryText).entities;
 }

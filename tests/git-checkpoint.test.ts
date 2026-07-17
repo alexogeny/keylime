@@ -84,6 +84,30 @@ describe("git checkpoint tool gating", () => {
     expect(await readFile(join(cwd, ".git", "info", "exclude"), "utf8")).toContain(".pi/");
   });
 
+  test("scoped staging handles tracked and new files without pathspec errors", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "keylime-checkpoint-scoped-"));
+    execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd });
+    await writeFile(join(cwd, "tracked.ts"), "one\n");
+    execFileSync("git", ["add", "tracked.ts"], { cwd });
+    execFileSync("git", ["commit", "-m", "init"], { cwd, stdio: "ignore" });
+    await writeFile(join(cwd, "tracked.ts"), "two\n");
+    await mkdir(join(cwd, "tests"), { recursive: true });
+    await mkdir(join(cwd, "extensions", "shared"), { recursive: true });
+    await writeFile(join(cwd, "tests", "performance-regressions.test.ts"), "test\n");
+    await writeFile(join(cwd, "extensions", "shared", "bounded-top-k.ts"), "export {};\n");
+    await writeFile(join(cwd, "unrelated.txt"), "leave unstaged\n");
+
+    expect(() => stageCheckpointChangesForTest(cwd, [
+      "tracked.ts",
+      "tests/performance-regressions.test.ts",
+      "extensions/shared/bounded-top-k.ts",
+    ])).not.toThrow();
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd }).toString().trim().split("\n").sort();
+    expect(staged).toEqual(["extensions/shared/bounded-top-k.ts", "tests/performance-regressions.test.ts", "tracked.ts"]);
+  });
+
   test("scores mutations for low-noise auto-checkpointing", () => {
     expect(mutationScoreForTool("create_directory", { path: "x" })).toBe(1);
     expect(mutationScoreForTool("create_file", { path: "x" })).toBe(2);

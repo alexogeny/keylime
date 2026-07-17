@@ -79,12 +79,34 @@ type ToolResultManifestEntry = {
   summary: string[];
 };
 
+const manifestCache = new Map<string, ToolResultManifestEntry[]>();
+const ensuredResultDirs = new Set<string>();
+let manifestDiskReads = 0;
+let resultDirectoryCreates = 0;
+
 async function readManifest(cwd: string): Promise<ToolResultManifestEntry[]> {
-  return readJsonFile(join(cwd, ".pi", "tool-results", "index.json"), []);
+  const cached = manifestCache.get(cwd);
+  if (cached) return [...cached];
+  manifestDiskReads++;
+  const entries = await readJsonFile<ToolResultManifestEntry[]>(join(cwd, ".pi", "tool-results", "index.json"), []);
+  manifestCache.set(cwd, entries);
+  return [...entries];
 }
 
 async function writeManifest(cwd: string, entries: ToolResultManifestEntry[]): Promise<void> {
+  manifestCache.set(cwd, [...entries]);
   await writeJsonFile(join(cwd, ".pi", "tool-results", "index.json"), entries);
+}
+
+export function resetToolResultManifestCacheForTest(): void {
+  manifestCache.clear();
+  ensuredResultDirs.clear();
+  manifestDiskReads = 0;
+  resultDirectoryCreates = 0;
+}
+
+export function toolResultManifestStatsForTest(): { diskReads: number; directoryCreates: number } {
+  return { diskReads: manifestDiskReads, directoryCreates: resultDirectoryCreates };
 }
 
 async function pruneMissingManifestEntries(cwd: string, entries: ToolResultManifestEntry[]): Promise<{ entries: ToolResultManifestEntry[]; pruned: number }> {
@@ -128,7 +150,11 @@ async function storeResult(cwd: string, payload: Record<string, unknown>, summar
   const id = randomUUID();
   const relDir = join(".pi", "tool-results", date);
   const absDir = join(cwd, relDir);
-  await mkdir(absDir, { recursive: true });
+  if (!ensuredResultDirs.has(absDir)) {
+    await mkdir(absDir, { recursive: true });
+    ensuredResultDirs.add(absDir);
+    resultDirectoryCreates++;
+  }
   const relPath = join(relDir, `${id}.json`);
   const createdAt = new Date().toISOString();
   await writeFile(join(cwd, relPath), JSON.stringify({ ...payload, id, createdAt }, null, 2), "utf8");
@@ -136,6 +162,10 @@ async function storeResult(cwd: string, payload: Record<string, unknown>, summar
   manifest.unshift({ id, toolName: String(payload.toolName ?? "unknown"), createdAt, path: relPath, originalChars: Number(payload.originalChars ?? 0), summary });
   await writeManifest(cwd, manifest.slice(0, 500));
   return { id, path: relPath };
+}
+
+export async function storeResultForTest(cwd: string, text: string): Promise<{ id: string; path: string }> {
+  return storeResult(cwd, { toolName: "test", content: [{ type: "text", text }], originalChars: text.length }, []);
 }
 
 function compactedContentText(toolName: string, stored: { id: string; path: string }, compacted: CompactToolResult): string {

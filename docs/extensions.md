@@ -44,11 +44,11 @@ Collect registered context providers into one bounded `<system-reminder>` per tu
 
 ### `tool-result-compactor.ts`
 
-Compacts oversized successful tool outputs before they enter the conversation history. Full payloads are stored under `.pi/tool-results/YYYY-MM-DD/`, while the model receives a short summary, preview, `result_id`, and the `inspect_tool_result` retrieval tool for explicit follow-up.
+Compacts oversized successful tool outputs before they enter the conversation history. Full payloads are stored under `.pi/tool-results/YYYY-MM-DD/`, while the model receives a short summary, preview, `result_id`, and the `inspect_tool_result` retrieval tool for explicit follow-up. The bounded manifest and daily result directory are cached per process to avoid repeated index reads and directory-creation syscalls.
 
 ### `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts`, and `policy-tools.ts`
 
-Reusable local retrieval core for BM25, TF-IDF cosine, JMLM query likelihood, hybrid ranking, and metadata-aware policy documents. Current consumers include web-knowledge recall, user-memory lexical retrieval, intent-router policy evidence, low-confidence routing assistance, and the `retrieve_policy`, `suggest_checks`, and `codemod_plan` tools.
+Reusable local retrieval core for BM25, TF-IDF cosine, JMLM query likelihood, hybrid ranking, and metadata-aware policy documents. Candidate ranking retains only a bounded top-K heap instead of sorting every positive result. Current consumers include web-knowledge recall, user-memory lexical retrieval, intent-router policy evidence, low-confidence routing assistance, and the `retrieve_policy`, `suggest_checks`, and `codemod_plan` tools.
 
 ### `operational-modes.ts`
 
@@ -222,11 +222,15 @@ Higher-level `research_topic` workflow combining search, recall, and synthesis.
 
 Provides `fetch_url` for reading web pages, with HTML cleanup and optional browser fallback.
 
+### `web-content.ts`
+
+Stores content-addressed Markdown with capped body-term frequencies in page metadata. Stored-site search ranks indexed metadata first, reads bodies only for the requested top-K excerpts, limits legacy/body-read concurrency, and lazily remains compatible with pages created before the index field existed.
+
 ## Memory and project state
 
 ### `user-memory/index.ts`
 
-Durable user memory system with entity extraction, recall, update, forget, backup, and restore functionality. Lexical candidate retrieval and TF-IDF deduplication use the shared retrieval core.
+Durable user memory system with entity extraction, recall, update, forget, backup, and restore functionality. Lexical candidate retrieval and TF-IDF deduplication use the shared retrieval core. Entity recall normalizes prompt words once and performs additive alias lookups rather than nested alias-by-word comparisons.
 
 Tools include:
 

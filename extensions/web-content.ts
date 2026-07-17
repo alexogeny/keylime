@@ -13,6 +13,7 @@ import {
   webContentDataDir,
 } from "./shared/web-content-store";
 import type { WebContentPage, WebCrawlManifest } from "./shared/web-content-types";
+import { boundedTopK } from "./shared/retrieval/bounded-top-k";
 
 function terms(value: string): string[] {
   return [...new Set(value.toLowerCase().match(/[a-z0-9][a-z0-9_-]{1,}/g) ?? [])];
@@ -38,11 +39,65 @@ function scorePage(page: WebContentPage, content: string, queryTerms: string[]):
     + Math.min(occurrenceCount(body, term), 12), 0);
 }
 
+function scoreIndexedPage(page: WebContentPage, queryTerms: string[]): number {
+  const title = page.title.toLowerCase();
+  const url = page.canonicalUrl.toLowerCase();
+  return queryTerms.reduce((score, term) => {
+    const bodyCount = page.bodyTermFrequency && Object.prototype.hasOwnProperty.call(page.bodyTermFrequency, term)
+      ? Number(page.bodyTermFrequency[term]) || 0
+      : 0;
+    return score + occurrenceCount(title, term) * 8 + occurrenceCount(url, term) * 4 + Math.min(bodyCount, 12);
+  }, 0);
+}
+
+async function mapConcurrent<T, R>(values: T[], concurrency: number, fn: (value: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= values.length) return;
+      results[index] = await fn(values[index]);
+    }
+  }));
+  return results;
+}
+
 function excerpt(content: string, queryTerms: string[], maxChars = 500): string {
   const lower = content.toLowerCase();
   const positions = queryTerms.map(term => lower.indexOf(term)).filter(position => position >= 0);
   const start = Math.max(0, (positions.length ? Math.min(...positions) : 0) - 120);
   return content.slice(start, start + maxChars).replace(/\s+/g, " ").trim();
+}
+
+export interface StoredWebContentMatch { page: WebContentPage; content: string; score: number }
+
+export async function searchStoredWebContent(
+  params: { query: string; topK?: number; domain?: string; crawlId?: string },
+  deps: { loadPages: () => Promise<WebContentPage[]>; loadContent: (page: WebContentPage) => Promise<string> } = { loadPages: loadAllWebPages, loadContent: loadWebPageContent },
+): Promise<StoredWebContentMatch[]> {
+  const queryTerms = terms(params.query);
+  if (!queryTerms.length) throw new Error("Search query has no usable terms");
+  const domain = params.domain?.toLowerCase();
+  const candidates = (await deps.loadPages()).filter(page => {
+    if (params.crawlId && !page.crawlIds.includes(params.crawlId)) return false;
+    if (domain) {
+      try { if (new URL(page.canonicalUrl).hostname !== domain) return false; }
+      catch { return false; }
+    }
+    return true;
+  });
+  const scored = await mapConcurrent(candidates, 8, async page => {
+    if (page.bodyTermFrequency) return { page, content: "", score: scoreIndexedPage(page, queryTerms) };
+    const content = await deps.loadContent(page); // Backward compatibility for pre-index metadata.
+    return { page, content, score: scorePage(page, content, queryTerms) };
+  });
+  const winners = boundedTopK(
+    scored.filter(match => match.score > 0),
+    params.topK ?? 5,
+    (a, b) => b.score - a.score || b.page.fetchedAt - a.page.fetchedAt,
+  );
+  return mapConcurrent(winners, 4, async match => match.content ? match : { ...match, content: await deps.loadContent(match.page) });
 }
 
 async function persistCrawlPage(crawlId: string, page: { url: string; title: string; markdown: string; links: string[]; metadata: Record<string, unknown> }) {
@@ -192,21 +247,7 @@ export default function webContentExtension(pi: ExtensionAPI) {
     }),
     async execute(_id, params) {
       const queryTerms = terms(params.query);
-      if (!queryTerms.length) throw new Error("Search query has no usable terms");
-      const pages = await loadAllWebPages();
-      const candidates = pages.filter(page => {
-        if (params.crawl_id && !page.crawlIds.includes(params.crawl_id)) return false;
-        if (params.domain) {
-          try { if (new URL(page.canonicalUrl).hostname !== params.domain.toLowerCase()) return false; }
-          catch { return false; }
-        }
-        return true;
-      });
-      const scored = await Promise.all(candidates.map(async page => {
-        const content = await loadWebPageContent(page);
-        return { page, content, score: scorePage(page, content, queryTerms) };
-      }));
-      const matches = scored.filter(match => match.score > 0).sort((a, b) => b.score - a.score || b.page.fetchedAt - a.page.fetchedAt).slice(0, params.top_k ?? 5);
+      const matches = await searchStoredWebContent({ query: params.query, topK: params.top_k, domain: params.domain, crawlId: params.crawl_id });
       const text = matches.length ? matches.map((match, index) => [
         `${index + 1}) ${match.page.title}`,
         `   ${match.page.url}`,

@@ -1,5 +1,6 @@
 import type { TokenizeOptions } from "./types";
 import { tokenize } from "./tokenize";
+import { boundedTopK } from "./bounded-top-k";
 
 export class JMLMIndex {
   private docTf: Map<string, Map<string, number>> = new Map();
@@ -72,11 +73,11 @@ export class JMLMIndex {
     const ids = candidateIds ? [...candidateIds] : [...this.docTf.keys()];
     const queryTokens = tokenize(query, this.tokenOptions);
     if (queryTokens.length === 0) return [];
-    return ids
-      .map(id => ({ id, score: this.scoreTokens(queryTokens, id) }))
-      .filter(r => r.score > 0)
-      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-      .slice(0, topK);
+    return boundedTopK(
+      ids.map(id => ({ id, score: this.scoreTokens(queryTokens, id) })).filter(result => result.score > 0),
+      topK,
+      (a, b) => b.score - a.score || a.id.localeCompare(b.id),
+    );
   }
 
   get size(): number { return this.docTf.size; }

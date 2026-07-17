@@ -1,5 +1,6 @@
 import type { TokenizeOptions } from "./types";
 import { tokenize } from "./tokenize";
+import { boundedTopK } from "./bounded-top-k";
 
 export class TFIDFStore {
   private vectors = new Map<string, Record<string, number>>();
@@ -99,11 +100,11 @@ export class TFIDFStore {
     const ids = candidateIds ?? [...this.vectors.keys()];
     const idf = this.idf();
     const queryNorm = Math.sqrt(Object.values(qVec).reduce((sum, weight) => sum + weight * weight, 0));
-    return ids
-      .map(id => ({ id, score: this.cosine(qVec, id, queryNorm, idf) }))
-      .filter(r => r.score > 0)
-      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
-      .slice(0, topK);
+    return boundedTopK(
+      ids.map(id => ({ id, score: this.cosine(qVec, id, queryNorm, idf) })).filter(result => result.score > 0),
+      topK,
+      (a, b) => b.score - a.score || a.id.localeCompare(b.id),
+    );
   }
 
   get size(): number { return this.vectors.size; }
