@@ -12,6 +12,7 @@ import { formatAgentStatusLines, formatIntentStatusLines, formatToolPolicyLines 
 import { CODING_CONTRACT } from "./shared/coding-contract";
 import { bestIntentCorpusMatch, FOLLOWUP_STICKINESS_THRESHOLD, SWITCH_THRESHOLD, type IntentCorpusMatch } from "./shared/intent-corpus";
 import { agentOsContinuityToolNames, agentOsRoutingPromptSuffix } from "./agent-os";
+import { clearDiscoveredToolsForTurn, discoveredToolsForTurn } from "./shared/tool-catalog";
 
 const STATUS_KEY = "intent";
 
@@ -75,6 +76,7 @@ export function getActiveToolSetDiagnostics(): ActiveToolSetDiagnostics {
 
 export function resetIntentRoutingForTests(): void {
   intentOverride = null;
+  clearDiscoveredToolsForTurn();
   lastPolicyEvidence = [];
   lastFingerprint = "";
   lastToolSetDiagnostics = {
@@ -123,7 +125,7 @@ function resolveToolsForRoute(pi: ExtensionAPI, groups: CapabilityGroup[]) {
     availableToolNames: pi.getAllTools().map(toolName).filter(Boolean) as string[],
     currentActiveToolNames: pi.getActiveTools().map(toolName).filter(Boolean) as string[],
     groups: enabledGroups(modeAdjustedGroups(groups)),
-    continuityToolNames: agentOsContinuityToolNames(),
+    continuityToolNames: [...agentOsContinuityToolNames(), ...discoveredToolsForTurn()],
   });
 }
 
@@ -282,10 +284,12 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     lastInjectedReminder = "";
+    clearDiscoveredToolsForTurn();
     ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "intent:—"));
   });
 
   pi.on("input", async (event, ctx) => {
+    clearDiscoveredToolsForTurn();
     const route = routeForPrompt(pi, event.text ?? "");
 
     ctx.ui.setStatus(

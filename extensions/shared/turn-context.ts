@@ -21,6 +21,7 @@ export type ContextProvider = {
   maxChars: number;
   stability?: ContextProviderStability;
   applies?: (args: ContextProviderArgs) => boolean | Promise<boolean>;
+  dependencyFingerprint?: (args: ContextProviderArgs) => string | Promise<string>;
   build: (args: ContextProviderArgs) => string | null | undefined | Promise<string | null | undefined>;
 };
 
@@ -44,13 +45,16 @@ export type TurnContextDiagnostics = {
 };
 
 const providers = new Map<string, ContextProvider>();
+const stableProviderCache = new Map<string, { dependency: string; value: string | null | undefined }>();
 
 export function registerContextProvider(provider: ContextProvider): void {
   providers.set(provider.id, provider);
+  stableProviderCache.delete(provider.id);
 }
 
 export function clearContextProviders(): void {
   providers.clear();
+  stableProviderCache.clear();
 }
 
 function stabilityRank(stability: ContextProviderStability | undefined): number {
@@ -138,7 +142,18 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
       continue;
     }
 
-    const raw = await provider.build(args);
+    let raw: string | null | undefined;
+    if (stability !== "turn" && provider.dependencyFingerprint) {
+      const dependency = await provider.dependencyFingerprint(args);
+      const cached = stableProviderCache.get(provider.id);
+      if (cached?.dependency === dependency) raw = cached.value;
+      else {
+        raw = await provider.build(args);
+        stableProviderCache.set(provider.id, { dependency, value: raw });
+      }
+    } else {
+      raw = await provider.build(args);
+    }
     if (!raw?.trim()) {
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: raw?.length ?? 0, finalChars: 0, trimmed: false, included: false, skippedReason: "empty" });
       continue;

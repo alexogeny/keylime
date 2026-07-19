@@ -8,6 +8,8 @@ import { classifyToolMutation } from "./shared/safety-policy";
 import { LOCKED_BUILTIN_TOOLS, TOOL_POLICIES, toolPolicyFor } from "./shared/tool-policy";
 import { resolveSafeExistingPath } from "./shared/path-policy";
 import { researchEnabled } from "./shared/research-config";
+import { recordDiscoveredToolsForTurn, searchToolCatalog, toolPolicyLoadAllowed } from "./shared/tool-catalog";
+import { getCurrentOperationalMode } from "./operational-modes";
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -63,32 +65,31 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
       limit: Type.Optional(Type.Number({ description: "Maximum matches" })),
     }),
     async execute(_id, params) {
-      const terms = params.query.toLowerCase().split(/\s+/).filter(Boolean);
-      const available = typeof (pi as any).getAllTools === "function"
-        ? new Set((pi as any).getAllTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean))
+      const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
+      const available = allTools.length > 0
+        ? new Set(allTools.map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean))
         : undefined;
       const locked = new Set(LOCKED_BUILTIN_TOOLS);
-      const scored = TOOL_POLICIES
-        .filter(policy => policy.group !== "research" || researchEnabled())
+      const limit = Math.min(Math.max(1, params.limit ?? 5), 5);
+      const candidates = TOOL_POLICIES
+        .filter(policy => toolPolicyLoadAllowed(policy, {
+          mode: getCurrentOperationalMode(),
+          researchEnabled: researchEnabled(),
+        }))
         .filter(policy => !locked.has(policy.name))
         .filter(policy => !available || available.has(policy.name))
         .filter(policy => !params.group || policy.group === params.group)
-        .filter(policy => !params.risk || policy.risk === params.risk)
-        .map(policy => {
-          const haystack = [policy.name, policy.name.replace(/_/g, " "), policy.group ?? "", policy.risk, policy.alwaysOn ? "always-on" : "", policy.domain ? "domain" : ""].join(" ").toLowerCase();
-          const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0) + (policy.name.toLowerCase().includes(params.query.toLowerCase()) ? 2 : 0);
-          return { policy, score };
-        })
-        .filter(item => item.score > 0 || terms.length === 0)
-        .sort((a, b) => b.score - a.score || a.policy.name.localeCompare(b.policy.name))
-        .slice(0, Math.min(Math.max(1, params.limit ?? 5), 5));
-      const results = scored.map(({ policy }) => policy);
+        .filter(policy => !params.risk || policy.risk === params.risk);
+      const results = params.query.trim()
+        ? searchToolCatalog(allTools, candidates, params.query, limit).map(match => match.policy)
+        : candidates.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit);
       const current = typeof (pi as any).getActiveTools === "function"
         ? (pi as any).getActiveTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean)
         : [];
       const currentSet = new Set<string>(current);
       const loaded = results.map(policy => policy.name).filter(name => !currentSet.has(name));
       if (loaded.length > 0 && typeof (pi as any).setActiveTools === "function") {
+        recordDiscoveredToolsForTurn(loaded);
         (pi as any).setActiveTools([...new Set([...current, ...loaded])].sort());
       }
       const text = results.length

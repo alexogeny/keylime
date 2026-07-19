@@ -33,39 +33,39 @@ export interface ActiveToolResolution {
 export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "code_search", alwaysOn: true, domain: true, risk: "safe" },
   { name: "list_files", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_json", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "inspect_json", domain: true, risk: "safe" },
   { name: "inspect_text_matches", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_code_structure", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "inspect_code_structure", domain: true, risk: "safe" },
   { name: "inspect_lines", alwaysOn: true, domain: true, risk: "safe" },
   { name: "tool_search", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "tool_help", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_file_metadata", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "compare_files", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_runtime_environment", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_document", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "summarize_document", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_spreadsheet", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "extract_document_tables", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_archive", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "inspect_image_metadata", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "analyze_csv", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "extract_citations", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "tool_help", domain: true, risk: "safe" },
+  { name: "inspect_file_metadata", domain: true, risk: "safe" },
+  { name: "compare_files", domain: true, risk: "safe" },
+  { name: "inspect_runtime_environment", domain: true, risk: "safe" },
+  { name: "inspect_document", domain: true, risk: "safe" },
+  { name: "summarize_document", domain: true, risk: "safe" },
+  { name: "inspect_spreadsheet", domain: true, risk: "safe" },
+  { name: "extract_document_tables", domain: true, risk: "safe" },
+  { name: "inspect_archive", domain: true, risk: "safe" },
+  { name: "inspect_image_metadata", domain: true, risk: "safe" },
+  { name: "analyze_csv", domain: true, risk: "safe" },
+  { name: "extract_citations", domain: true, risk: "safe" },
 
-  { name: "plan_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "apply_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "create_file", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "begin_file_write", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "append_file_chunk", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "finish_file_write", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "abort_file_write", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "create_directory", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "delete_file", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "move_file", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "copy_file", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "replace_file", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "create_reporter_document", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "convert_document", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "create_chart", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "plan_code_replacements", group: "coding", domain: true, risk: "safe" },
+  { name: "apply_code_replacements", group: "coding", domain: true, risk: "safe" },
+  { name: "create_file", group: "coding", domain: true, risk: "safe" },
+  { name: "begin_file_write", group: "coding", domain: true, risk: "safe" },
+  { name: "append_file_chunk", group: "coding", domain: true, risk: "safe" },
+  { name: "finish_file_write", group: "coding", domain: true, risk: "safe" },
+  { name: "abort_file_write", group: "coding", domain: true, risk: "safe" },
+  { name: "create_directory", group: "coding", domain: true, risk: "safe" },
+  { name: "delete_file", group: "coding", domain: true, risk: "safe" },
+  { name: "move_file", group: "coding", domain: true, risk: "safe" },
+  { name: "copy_file", group: "coding", domain: true, risk: "safe" },
+  { name: "replace_file", group: "coding", domain: true, risk: "safe" },
+  { name: "create_reporter_document", group: "coding", domain: true, risk: "safe" },
+  { name: "convert_document", group: "coding", domain: true, risk: "safe" },
+  { name: "create_chart", group: "coding", domain: true, risk: "safe" },
   { name: "run_checks", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "codemod_update_json", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
   { name: "codemod_add_import", group: "coding", alwaysOn: false, domain: true, risk: "safe" },
@@ -228,7 +228,15 @@ export const TOOL_POLICIES: ToolPolicy[] = [
 
 const TOOL_POLICY_BY_NAME = new Map(TOOL_POLICIES.map(policy => [policy.name, policy]));
 const KNOWN_TOOL_NAMES = new Set(TOOL_POLICY_BY_NAME.keys());
-const ALWAYS_ON_TOOL_NAMES = TOOL_POLICIES.filter(policy => policy.alwaysOn).map(policy => policy.name).sort();
+const BOOTSTRAP_TOOL_NAMES = [
+  "code_search",
+  "inspect_lines",
+  "inspect_text_matches",
+  "list_files",
+  "run_checks",
+  "tool_search",
+].sort();
+const ALWAYS_ON_TOOL_NAMES = BOOTSTRAP_TOOL_NAMES;
 const DOMAIN_TOOL_NAMES = TOOL_POLICIES.filter(policy => policy.domain).map(policy => policy.name).sort();
 const DOMAIN_TOOL_NAME_SET = new Set(DOMAIN_TOOL_NAMES);
 
@@ -242,6 +250,10 @@ export function knownToolNames(): Set<string> {
 
 export function alwaysOnToolNames(): string[] {
   return [...ALWAYS_ON_TOOL_NAMES];
+}
+
+export function bootstrapToolNames(): string[] {
+  return [...BOOTSTRAP_TOOL_NAMES];
 }
 
 export function domainToolNames(): string[] {
@@ -278,7 +290,10 @@ export function resolveActiveToolSet(input: ActiveToolResolutionInput): ActiveTo
   const desired = new Set<string>();
   const alwaysOn = ALWAYS_ON_TOOL_NAMES;
   const capabilityTools = CAPABILITY_TOOL_MAP;
-  const routed = [...new Set(input.groups.flatMap(group => capabilityTools[group] ?? []))].sort();
+  const deferredGroups = new Set<CapabilityGroup>(["coding", "repo"]);
+  const routed = [...new Set(input.groups
+    .filter(group => !deferredGroups.has(group))
+    .flatMap(group => capabilityTools[group] ?? []))].sort();
   const continuity = [...new Set(input.continuityToolNames ?? [])].sort();
   const domainTools = DOMAIN_TOOL_NAME_SET;
   const preserved: string[] = [];

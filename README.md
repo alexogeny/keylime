@@ -30,9 +30,9 @@ Keylime is designed around current context-engineering and harness-engineering p
 
 More concretely:
 
-- Safe code/git primitives are always available.
+- A six-tool safe bootstrap is always available; other tools are discovered on demand.
 - Dangerous built-ins are locked or guarded.
-- Domain tools are routed by intent to reduce prompt pollution.
+- Intent routing and additive tool search reduce prompt-schema pollution.
 - Safety is enforced in code, not just requested in prompts.
 - Checkpoints are low-noise and rollback-oriented.
 - Search knowledge, memory, repo maps, and project state live outside the live prompt until needed.

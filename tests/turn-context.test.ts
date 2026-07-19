@@ -138,3 +138,26 @@ test("reports stable provider fingerprints and contribution sizes", async () => 
   expect(firstDiagnostic.fingerprint).toMatch(/^[a-f0-9]{64}$/);
   expect(secondDiagnostic.fingerprint).toBe(firstDiagnostic.fingerprint);
 });
+
+test("memoizes declared-stable providers until their dependency fingerprint changes", async () => {
+  let dependency = "v1";
+  let builds = 0;
+  registerContextProvider({
+    id: "memoized-session",
+    priority: 10,
+    maxChars: 100,
+    stability: "session",
+    dependencyFingerprint: () => dependency,
+    build: () => { builds++; return `session ${dependency}`; },
+  });
+
+  const first = await composeTurnContext(ctx(), messages("hello"));
+  const second = await composeTurnContext(ctx(), messages("hello again"));
+  dependency = "v2";
+  const third = await composeTurnContext(ctx(), messages("hello third"));
+
+  expect(builds).toBe(2);
+  expect(first.messages[0].content).toContain("session v1");
+  expect(second.messages[0].content).toContain("session v1");
+  expect(third.messages[0].content).toContain("session v2");
+});

@@ -10,26 +10,18 @@ These are the ingredients in the pie: TypeScript modules loaded by Pi that provi
 
 Classifies each turn and controls active tool exposure with `pi.setActiveTools()`. It also records retrieval-backed policy evidence from `shared/policy-corpus.ts` for observability without letting retrieval override deterministic safety rules.
 
-Always-on safe repository tools:
+The always-on bootstrap is deliberately small:
 
 - `list_files`
 - `code_search`
 - `inspect_text_matches`
-- `inspect_code_structure`
 - `inspect_lines`
-- `inspect_json`
-- `plan_code_replacements`
-- `apply_code_replacements`
-- `create_file`
-- `create_directory`
 - `run_checks`
-- `git_status`
-- `git_diff`
-- `commit_history`
-- `see_file_commit_history`
-- `inspect_at_checkpoint`
+- `tool_search`
 
-Routed or guarded tools include raw `bash`, built-in `read`, research tools, memory mutation tools, project planning tools, and domain-specific shoe tools. Safe policy/codemod/check helpers (`retrieve_policy`, `suggest_checks`, `codemod_plan`) and `inspect_tool_result` stay available with the core coding primitives.
+`tool_search` ranks registered names, descriptions, guidance, and schemas with the shared retrieval core, then loads at most five matching tools additively for the current turn. Discoveries survive tool-result context passes and reset on the next user input. Operational mode, research availability, locked built-ins, and execution-time guards remain authoritative.
+
+Other safe inspection, mutation, git, document, policy, memory, project, and domain tools are routed or discovered on demand. Raw `bash` and built-in `read`/`write`/`edit` remain guarded or locked.
 
 Commands:
 

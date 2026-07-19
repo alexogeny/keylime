@@ -22,25 +22,25 @@ describe("activeToolNames", () => {
     expect(tools).not.toContain("write");
     expect(tools).toContain("code_search");
     expect(tools).toContain("list_files");
-    expect(tools).toContain("inspect_json");
+    expect(tools).not.toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
-    expect(tools).toContain("create_file");
-    expect(tools).toContain("begin_file_write");
-    expect(tools).toContain("append_file_chunk");
-    expect(tools).toContain("finish_file_write");
-    expect(tools).toContain("abort_file_write");
-    expect(tools).toContain("create_directory");
+    expect(tools).not.toContain("create_file");
+    expect(tools).not.toContain("begin_file_write");
+    expect(tools).not.toContain("append_file_chunk");
+    expect(tools).not.toContain("finish_file_write");
+    expect(tools).not.toContain("abort_file_write");
+    expect(tools).not.toContain("create_directory");
     expect(tools).toContain("tool_search");
-    expect(tools).toContain("tool_help");
-    expect(tools).toContain("read_agent_registers");
-    expect(tools).toContain("ctx_region_write");
-    expect(tools).toContain("compile_tool_grammar");
-    expect(tools).toContain("current_agent_budget");
-    expect(tools).toContain("commit_history");
-    expect(tools).toContain("see_file_commit_history");
-    expect(tools).toContain("git_status");
-    expect(tools).toContain("git_diff");
-    expect(tools).toContain("inspect_at_checkpoint");
+    expect(tools).not.toContain("tool_help");
+    expect(tools).not.toContain("read_agent_registers");
+    expect(tools).not.toContain("ctx_region_write");
+    expect(tools).not.toContain("compile_tool_grammar");
+    expect(tools).not.toContain("current_agent_budget");
+    expect(tools).not.toContain("commit_history");
+    expect(tools).not.toContain("see_file_commit_history");
+    expect(tools).not.toContain("git_status");
+    expect(tools).not.toContain("git_diff");
+    expect(tools).not.toContain("inspect_at_checkpoint");
     expect(tools).toContain("remember");
     expect(tools).toContain("custom_safe_tool");
     expect(tools).not.toContain("web_search");
@@ -54,10 +54,10 @@ describe("activeToolNames", () => {
     expect(tools).toContain("query_shoes");
     expect(tools).toContain("recall_memories");
     expect(tools).toContain("list_files");
-    expect(tools).toContain("inspect_json");
+    expect(tools).not.toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
-    expect(tools).toContain("apply_code_replacements");
-    expect(tools).toContain("create_file");
+    expect(tools).not.toContain("apply_code_replacements");
+    expect(tools).not.toContain("create_file");
     expect(tools).toContain("run_checks");
     expect(tools).not.toContain("read");
     expect(tools).not.toContain("bash");
@@ -69,8 +69,8 @@ describe("activeToolNames", () => {
 
     expect(tools).toContain("code_search");
     expect(tools).toContain("inspect_lines");
-    expect(tools).toContain("apply_code_replacements");
-    expect(tools).toContain("create_file");
+    expect(tools).not.toContain("apply_code_replacements");
+    expect(tools).not.toContain("create_file");
     expect(tools).toContain("fetch_url");
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("read");
@@ -84,8 +84,8 @@ describe("research gating", () => {
     expect(tools).toContain("web_search");
     expect(tools).toContain("fetch_url");
     expect(tools).toContain("inspect_lines");
-    expect(tools).toContain("apply_code_replacements");
-    expect(tools).toContain("create_file");
+    expect(tools).not.toContain("apply_code_replacements");
+    expect(tools).not.toContain("create_file");
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("read");
     expect(tools).not.toContain("write");
@@ -328,7 +328,7 @@ test("switch-intent programming forces coding tools until cleared", async () => 
   const forcedRoute = routeForPrompt(mockPi, "tell me about the latest brooks ghost");
 
   expect(forcedRoute.primaryIntent).toBe("coding");
-  expect(calls.at(-1)).toContain("apply_code_replacements");
+  expect(calls.at(-1)).not.toContain("apply_code_replacements");
   expect(calls.at(-1)).toContain("run_checks");
   expect(calls.at(-1)).not.toContain("web_search");
 
@@ -389,15 +389,15 @@ test("policy evidence ranks corpus docs for prompts without changing determinist
   expect(evidence.some(item => item.id === "checks.retrieval")).toBe(true);
 });
 
-test("coding route exposes codemod primitives", () => {
+test("coding route starts with bootstrap tools and defers codemods", () => {
   const tools = activeToolNames(pi(["custom_safe_tool"]), ["coding", "repo"]);
 
   expect(tools).toContain("inspect_text_matches");
   expect(tools).toContain("inspect_lines");
-  expect(tools).toContain("plan_code_replacements");
-  expect(tools).toContain("apply_code_replacements");
-  expect(tools).toContain("create_file");
-  expect(tools).toContain("create_directory");
+  expect(tools).not.toContain("plan_code_replacements");
+  expect(tools).not.toContain("apply_code_replacements");
+  expect(tools).not.toContain("create_file");
+  expect(tools).not.toContain("create_directory");
   expect(tools).toContain("run_checks");
   expect(tools).not.toContain("retrieve_policy");
   expect(tools).not.toContain("suggest_checks");
@@ -426,9 +426,9 @@ test("review mode keeps safe file primitives but removes unrelated domain tools"
 
   expect(tools).not.toContain("read");
   expect(tools).toContain("code_search");
-  expect(tools).toContain("inspect_code_structure");
-  expect(tools).toContain("apply_code_replacements");
-  expect(tools).toContain("create_file");
+  expect(tools).not.toContain("inspect_code_structure");
+  expect(tools).not.toContain("apply_code_replacements");
+  expect(tools).not.toContain("create_file");
   expect(tools).toContain("custom_safe_tool");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("web_search");
@@ -476,7 +476,7 @@ test("tool-policy command reports always-on and locked tools", async () => {
   });
 
   expect(notification).toContain("always-on code tools");
-  expect(notification).toContain("create_directory");
+  expect(notification).not.toContain("create_directory");
   expect(notification).not.toContain("retrieve_policy");
   expect(notification).not.toContain("codemod_plan");
   expect(notification).not.toContain("inspect_tool_result");

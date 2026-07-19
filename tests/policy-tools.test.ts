@@ -1,7 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import policyToolsExtension from "../extensions/policy-tools";
+import { clearDiscoveredToolsForTurn } from "../extensions/shared/tool-catalog";
 
 describe("policy tools extension", () => {
+  afterEach(() => clearDiscoveredToolsForTurn());
+
   function register() {
     const tools: Record<string, any> = {};
     policyToolsExtension({ registerTool: (tool: any) => { tools[tool.name] = tool; } } as any);
@@ -62,6 +65,24 @@ describe("policy tools extension", () => {
       if (previousDisable === undefined) delete process.env.KEYLIME_DISABLE_RESEARCH;
       else process.env.KEYLIME_DISABLE_RESEARCH = previousDisable;
     }
+  });
+
+  test("tool_search uses registered tool descriptions for capability queries", async () => {
+    const tools: Record<string, any> = {};
+    let active = ["tool_search"];
+    policyToolsExtension({
+      registerTool: (tool: any) => { tools[tool.name] = tool; },
+      getActiveTools: () => active.map(name => ({ name })),
+      getAllTools: () => [
+        { name: "tool_search", description: "search tools" },
+        { name: "compare_files", description: "Diff two repository files and summarize changes" },
+      ],
+      setActiveTools: (names: string[]) => { active = names; },
+    } as any);
+
+    const result = await tools.tool_search.execute("id", { query: "diff repository", limit: 3 });
+    expect(result.details.loaded).toEqual(["compare_files"]);
+    expect(active).toContain("compare_files");
   });
 
   test("retrieve_policy returns kind-filtered corpus evidence", async () => {

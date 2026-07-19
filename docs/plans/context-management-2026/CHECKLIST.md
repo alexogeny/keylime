@@ -20,19 +20,19 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 
 ## Slice 2 — deferred tools and stable context
 
-- [~] Write red tests for bootstrap tools, additive discovery, policy gates, and schema budgets.
-- [ ] Implement shared tool catalog using existing retrieval primitives.
+- [x] Write red tests for bootstrap tools, additive discovery, policy gates, and schema budgets.
+- [x] Implement shared tool catalog using existing retrieval primitives.
 - [x] Implement Pi-native `tool_search` loader.
-- [ ] Split mandatory/bootstrap/searchable tool policy.
-- [ ] Preserve additive tools during a turn and reset at the next user boundary.
-- [ ] Memoize declared-stable context providers by dependency fingerprint.
-- [ ] Add schema/guideline character regression budgets.
-- [ ] Verify intent, safety, and context tests.
+- [x] Split mandatory/bootstrap/searchable tool policy.
+- [x] Preserve additive tools during a turn and reset at the next user boundary.
+- [x] Memoize declared-stable context providers by dependency fingerprint.
+- [x] Add schema/guideline character regression budgets.
+- [x] Verify intent, safety, and context tests.
 
 ## Slice 3 — typed context-object lifecycle
 
-- [ ] Write red tests for storage, selectors, tamper detection, reducers, and lifecycle operations.
-- [ ] Add shared context-object contracts.
+- [~] Write red tests for storage, selectors, tamper detection, reducers, and lifecycle operations.
+- [x] Add shared context-object contracts.
 - [ ] Implement atomic context-object store and bounded recovery tool.
 - [ ] Add typed reducers for tests, searches, reads, mutations, research, and fallback output.
 - [ ] Exempt failures, safety denials, and mutation evidence from generic reduction.
@@ -83,3 +83,6 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - 2026-07-19: Slice 1 complete: project/agent state quarantine and explicit adoption, v2 cache/context usage records, 30 targeted tests, typecheck, and full 445-test suite pass.
 - 2026-07-19: Began slice 2 red-test reconnaissance for deferred tools and schema budgets.
 - 2026-07-19: Extended existing `policy-tools.ts` tool search to add up to five available matches additively, exclude locked built-ins, and honor disabled research; policy tests and typecheck pass.
+- 2026-07-19: Slice 2 complete: six-tool bootstrap, shared retrieval-backed catalog, mode/research gates, per-turn discovery continuity/reset, stable-provider memoization contract, schema budget, docs, and full 454-test suite pass.
+- 2026-07-19: Began slice 3 red-test planning for typed context objects and exact recovery selectors.
+- 2026-07-19: Added typed context-object contracts with SHA-256 verification, named/line selectors, original line numbers, and selector validation; 3 focused tests and typecheck pass.

@@ -1,12 +1,33 @@
 import { describe, expect, test } from "bun:test";
 import { ALWAYS_ON_CODE_TOOLS, CAPABILITY_TOOLS, DOMAIN_TOOLS } from "../extensions/intent-router";
-import { alwaysOnToolNames, capabilityToolMap, domainToolNames, knownToolNames, resolveActiveToolSet, toolPolicyFor } from "../extensions/shared/tool-policy";
+import { alwaysOnToolNames, bootstrapToolNames, capabilityToolMap, domainToolNames, knownToolNames, resolveActiveToolSet, toolPolicyFor } from "../extensions/shared/tool-policy";
 
 describe("shared tool policy", () => {
   test("router derives always-on, capability, and domain tools from shared policy", () => {
     expect(ALWAYS_ON_CODE_TOOLS).toEqual(alwaysOnToolNames());
     expect(CAPABILITY_TOOLS).toEqual(capabilityToolMap());
     expect(DOMAIN_TOOLS).toEqual(new Set(domainToolNames()));
+  });
+
+  test("uses a small deterministic bootstrap and defers other safe tools", () => {
+    expect(bootstrapToolNames()).toEqual([
+      "code_search",
+      "inspect_lines",
+      "inspect_text_matches",
+      "list_files",
+      "run_checks",
+      "tool_search",
+    ]);
+
+    const resolution = resolveActiveToolSet({
+      availableToolNames: knownToolNames(),
+      currentActiveToolNames: [],
+      groups: ["coding", "repo"],
+    });
+    expect(resolution.active).toContain("tool_search");
+    expect(resolution.active).toContain("run_checks");
+    expect(resolution.active).not.toContain("compare_files");
+    expect(resolution.active).not.toContain("create_reporter_document");
   });
 
   test("policy/codemod/check helpers are known but routed instead of always-on", () => {
@@ -29,10 +50,10 @@ describe("shared tool policy", () => {
     expect(capabilityToolMap().coding).not.toContain("bash");
   });
 
-  test("safe file mutation tools are always-on while repo and maintenance tools stay routed", () => {
-    expect(alwaysOnToolNames()).toContain("apply_code_replacements");
-    expect(alwaysOnToolNames()).toContain("create_file");
-    expect(alwaysOnToolNames()).toContain("begin_file_write");
+  test("safe file mutation tools are searchable while only the small bootstrap is always on", () => {
+    expect(alwaysOnToolNames()).not.toContain("apply_code_replacements");
+    expect(alwaysOnToolNames()).not.toContain("create_file");
+    expect(alwaysOnToolNames()).not.toContain("begin_file_write");
     expect(alwaysOnToolNames()).toContain("run_checks");
     expect(alwaysOnToolNames()).not.toContain("commit_history");
     expect(alwaysOnToolNames()).not.toContain("git_status");
