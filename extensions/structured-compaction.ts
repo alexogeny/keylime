@@ -5,6 +5,7 @@ import {
   renderCompactionCheckpoint,
   validateCompactionCheckpoint,
   type CompactionCheckpoint,
+  type CompactionSourceEntry,
 } from "./shared/compaction-schema";
 import { pinContextObjects, readStoredContextObject } from "./context-object-store";
 import { readContextRuntimeTelemetry } from "./shared/context-runtime-bus";
@@ -66,6 +67,29 @@ export function createCompactionAttemptSignal(sourceSignal: AbortSignal, timeout
 
 function sanitizeValidationError(value: string): string {
   return value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 512);
+}
+
+const RECOVERED_GOAL_MAX_CHARS = 500;
+
+function boundedRecoveredGoal(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, RECOVERED_GOAL_MAX_CHARS);
+}
+
+export function recoverEmptyCompactionGoal(
+  value: unknown,
+  previous: CompactionCheckpoint | undefined,
+  sourceEntries: CompactionSourceEntry[],
+): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.goal === "string" && candidate.goal.trim()) return value;
+
+  const previousGoal = previous ? boundedRecoveredGoal(previous.goal) : "";
+  const latestTrustedUserGoal = [...sourceEntries]
+    .reverse()
+    .find(entry => entry.trusted && entry.role === "user" && entry.text.trim());
+  const recoveredGoal = previousGoal || (latestTrustedUserGoal ? boundedRecoveredGoal(latestTrustedUserGoal.text) : "");
+  return recoveredGoal ? { ...candidate, goal: recoveredGoal } : value;
 }
 
 export function prepareCompactionInitialInput(input: CompactionGenerationInput, contextPercent: number): CompactionGenerationInput {
@@ -287,8 +311,9 @@ export function createStructuredCompactionHandler(options: StructuredCompactionO
         reason: event.reason,
         willRetry: Boolean(event.willRetry),
       }, contextPercent);
-      const finalize = async (value: unknown): Promise<CompactionCheckpoint> => {
-        const structural = validateCompactionCheckpoint(value);
+      const finalize = async (value: unknown, recoverEmptyGoal = false): Promise<CompactionCheckpoint> => {
+        const candidate = recoverEmptyGoal ? recoverEmptyCompactionGoal(value, previous, sourceEntries) : value;
+        const structural = validateCompactionCheckpoint(candidate);
         if (!options.liveSemanticValidation) return stabilizeCompactionControlPlane(structural, previous);
         const result = await finalizeLiveCompaction({ cwd: ctx.cwd, generated: structural, previous, sourceEntries });
         activeControlsBefore = result.audit.activeControlsBefore;
@@ -326,14 +351,14 @@ export function createStructuredCompactionHandler(options: StructuredCompactionO
       if (sourceSignal.aborted) return;
       let checkpoint: CompactionCheckpoint;
       try {
-        checkpoint = await finalize(generated);
+        checkpoint = await finalize(generated, retryUsed);
       } catch (error) {
         if (sourceSignal.aborted) return;
         if (retryUsed) throw error;
         retryUsed = true;
         generated = await invokeGeneration(retryInput(error), 1);
         if (sourceSignal.aborted) return;
-        checkpoint = await finalize(generated);
+        checkpoint = await finalize(generated, true);
       }
       schemaValid = true;
       const objectIds = checkpointObjectIds(checkpoint);
@@ -431,7 +456,7 @@ version, goal, constraints, acceptanceCriteria, decisions, activeFiles, changes,
 
 Each claim is {"text": string, "sourceEntryIds": string[], "objectIds"?: string[], "status"?: "active"|"resolved"|"superseded", "controlId"?: string, "contentHash"?: string}. Every factual claim must cite at least one exact source entry id shown in the conversation labels or an existing object id. Preserve controlId and contentHash exactly for active constraints, acceptance criteria, pending actions, and safety state.
 Each activeFiles item is {"path": string, "relevance": string, "contentHash"?: string, "locators"?: [{"path"?: string, "lines"?: {"start": number, "end": number}, "section"?: string, "resultId"?: string}]}. Never use a bare path string in activeFiles. Never invent contentHash; omit it unless an exact hash already appears in the source context because Keylime verifies file bytes.
-Preserve exact user constraints, paths, line ranges, hashes, errors, blockers, pending work, safety state, and existing object ids. Be concise: merge duplicates, prefer active over resolved history, use at most ${limits.claims} claims per section, ${limits.files} active files, and ${limits.textChars} characters per text field. Keep the entire JSON under ${limits.jsonChars} characters. Use empty arrays rather than omitting keys. Return one JSON object only.
+Preserve exact user constraints, paths, line ranges, hashes, errors, blockers, pending work, safety state, and existing object ids. The goal must be a non-empty concise statement of the latest user task; never return an empty or whitespace-only goal. Be concise: merge duplicates, prefer active over resolved history, use at most ${limits.claims} claims per section, ${limits.files} active files, and ${limits.textChars} characters per text field. Keep the entire JSON under ${limits.jsonChars} characters. Use empty arrays rather than omitting keys. Return one JSON object only.
 ${input.previousSummary ? `\nPrevious checkpoint:\n${boundCompactionText(input.previousSummary, COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS)}\n` : ""}${input.validationError ? `\nCorrection required: the previous JSON was rejected because ${input.validationError}. Regenerate the entire checkpoint with the exact schema.\n` : ""}
 <conversation>
 ${input.conversation}

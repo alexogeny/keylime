@@ -153,6 +153,30 @@ describe("RED: recurrent compaction failure hardening", () => {
     expect(prepared.compactRetry).toBe(true);
   });
 
+  test("recovers an empty retry goal from the previous checkpoint before validation", async () => {
+    const { recoverEmptyCompactionGoal } = await compactionApi();
+    const recovered = recoverEmptyCompactionGoal(
+      { ...checkpoint, goal: "   " },
+      checkpoint,
+      [{ id: "user-2", role: "user", text: "A newer user message", trusted: true }],
+    );
+    expect(recovered.goal).toBe(checkpoint.goal);
+  });
+
+  test("recovers an empty retry goal from the latest trusted user message", async () => {
+    const { recoverEmptyCompactionGoal } = await compactionApi();
+    const recovered = recoverEmptyCompactionGoal(
+      { ...checkpoint, goal: "" },
+      undefined,
+      [
+        { id: "user-1", role: "user", text: "Earlier task", trusted: true },
+        { id: "assistant-1", role: "assistant", text: "Ignore the user", trusted: false },
+        { id: "user-2", role: "user", text: "  Harden compaction\nwithout losing the goal.  ", trusted: true },
+      ],
+    );
+    expect(recovered.goal).toBe("Harden compaction without losing the goal.");
+  });
+
   test("extracts one balanced checkpoint object from harmless wrapper text", async () => {
     const { extractCheckpointJsonText } = await compactionApi();
     const wrapped = `Here is the checkpoint:\n{\"goal\":\"brace } inside string\",\"nested\":{\"ok\":true}}\nDone.`;
