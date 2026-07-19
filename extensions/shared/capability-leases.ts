@@ -110,6 +110,15 @@ export async function createCapabilityLeaseManager(options: { cwd: string; sessi
       record({ leaseId: id, tool: String(action.tool).slice(0, 100), operation: String(action.operation).slice(0, 100), allowed, reason, pathCount: action.paths?.length ?? 0 });
       return { allowed, reason };
     },
+    authorizeAny(action: { tool: string; operation: string; paths?: string[]; command?: string; sessionId?: string; repositoryFingerprint?: string; [key: string]: unknown }) {
+      const candidates = [...leases.values()].filter(lease => !invalidReason(lease)).sort((a, b) => b.issuedAt - a.issuedAt || a.id.localeCompare(b.id));
+      for (const lease of candidates) {
+        const result = (this as any).authorize(lease.id, action);
+        if (result.allowed) return { ...result, leaseId: lease.id };
+      }
+      return { allowed: false, reason: candidates.length ? "no active lease authorizes this action" : "no active capability lease" };
+    },
+    hasActiveLeases() { return [...leases.values()].some(lease => !invalidReason(lease)); },
     recordMutation(id: string, paths: string[]) {
       const lease = leases.get(id); if (invalidReason(lease)) return false;
       for (const path of paths.slice(0, 100)) if (authorizePath(path, lease!.paths)) lease!.mutations.add(path.replace(/\\/g, "/"));

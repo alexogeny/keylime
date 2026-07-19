@@ -4,6 +4,8 @@ import { renderExtensionAuditReport } from "./shared/extension-auditor";
 import { classifyToolMutation } from "./shared/safety-policy";
 import { compactionMetricsChannel } from "./shared/compaction-metrics-channel";
 import { clearHarnessGovernanceRuntime, publishHarnessGovernanceRuntime } from "./shared/harness-governance-bus";
+import { capabilityLeaseEnforcementMode, capabilityLeaseRequirement } from "./shared/capability-enforcement";
+import { classifyEcosystemTool } from "./shared/ecosystem-adapters";
 
 export default function harnessGovernanceExtension(pi: ExtensionAPI) {
   let runtime: any;
@@ -11,6 +13,7 @@ export default function harnessGovernanceExtension(pi: ExtensionAPI) {
   let sessionId = "session";
   let detachCompactionMetrics: (() => void) | undefined;
   const pendingLeaseCalls = new Map<string, { leaseId: string; operation: string; paths: string[]; command?: string }>();
+  const leaseEnforcementMode = capabilityLeaseEnforcementMode();
 
   const getRuntime = async (ctx: any) => {
     if (runtime && runtime.kernel) return runtime;
@@ -46,14 +49,19 @@ export default function harnessGovernanceExtension(pi: ExtensionAPI) {
   pi.on("tool_call", async (event: any, ctx: any) => {
     const active = await getRuntime(ctx);
     active.ingestEvent("tool_call", { toolName: event.toolName, toolCallId: event.toolCallId, inputChars: JSON.stringify(event.input ?? {}).length });
-    const leaseId = event.input?.capabilityLeaseId ?? event.input?.leaseId;
-    if (!leaseId) return;
+    let leaseId = event.input?.capabilityLeaseId ?? event.input?.leaseId;
     const classification = classifyToolMutation(event.toolName, event.input);
     const operation = String(event.input?.capabilityOperation ?? (classification.mutates ? "modify" : event.toolName === "run_checks" ? "verify" : "execute"));
-    const authorization = active.authorizeLease(String(leaseId), {
-      tool: event.toolName, operation, paths: classification.writePaths,
-      command: typeof event.input?.command === "string" ? event.input.command : undefined,
-    });
+    const action = { tool: event.toolName, operation, paths: classification.writePaths, command: typeof event.input?.command === "string" ? event.input.command : undefined };
+    if (!leaseId) {
+      const implicit = active.authorizeAnyLease(action);
+      if (implicit.allowed) leaseId = implicit.leaseId;
+      else if (classification.mutates && active.hasActiveLeases()) return { block: true, reason: `active capability leases deny mutation: ${implicit.reason}` };
+    }
+    const requirement = capabilityLeaseRequirement(leaseEnforcementMode, { mutates: classification.mutates, leaseId });
+    if (requirement.blockReason) return { block: true, reason: requirement.blockReason };
+    if (!leaseId) return;
+    const authorization = active.authorizeLease(String(leaseId), action);
     if (!authorization.allowed) return { block: true, reason: `capability lease denied: ${authorization.reason}` };
     pendingLeaseCalls.set(String(event.toolCallId ?? `call-${pendingLeaseCalls.size + 1}`), { leaseId: String(leaseId), operation, paths: classification.writePaths, command: typeof event.input?.command === "string" ? event.input.command : undefined });
     if (pendingLeaseCalls.size > 1_000) pendingLeaseCalls.delete(pendingLeaseCalls.keys().next().value!);
@@ -64,6 +72,13 @@ export default function harnessGovernanceExtension(pi: ExtensionAPI) {
     const changedPaths = Array.isArray(event.details?.changedPaths) ? event.details.changedPaths.map(String) : event.input?.path ? [String(event.input.path)] : [];
     const objectId = event.details?.contextObjectId ?? event.details?.resultId;
     await active.recordToolOutcome({ toolName: event.toolName, toolCallId: event.toolCallId, isError: Boolean(event.isError), objectId, changedPaths, verificationPassed: event.toolName === "run_checks" && !event.isError && event.details?.ok !== false });
+    const ecosystem = classifyEcosystemTool(String(event.toolName));
+    if (ecosystem === "lsp" && (event.details?.locations || event.details?.location)) {
+      try { active.ingestEvent("lsp_signal", active.adapters.ingestLspResult(event.details)); } catch { active.ingestEvent("lsp_signal", { isError: true }); }
+    } else if (ecosystem === "subagent") {
+      const delegated = active.adapters.ingestSubagentResult({ provider: event.details?.provider ?? event.toolName, contractId: event.details?.contractId, summary: event.details?.summary, evidenceObjectIds: event.details?.evidenceObjectIds, verification: event.details?.verification, transcript: event.details?.transcript });
+      active.ingestEvent("delegation_candidate", { provider: delegated.provider, contractId: delegated.contractId, evidenceCount: delegated.evidenceObjectIds.length, requiresContractValidation: true, isError: Boolean(event.isError) });
+    } else if (ecosystem !== "native") active.ingestEvent("ecosystem_tool_result", { ecosystem, toolName: event.toolName, isError: Boolean(event.isError) });
     const pending = pendingLeaseCalls.get(String(event.toolCallId));
     if (pending) {
       if (!event.isError && pending.paths.length) active.recordLeaseMutation(pending.leaseId, pending.paths);

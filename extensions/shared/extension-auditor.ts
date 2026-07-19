@@ -27,7 +27,7 @@ export type ExtensionAudit = {
   collisions: { tools: Array<{ name: string; packages: string[] }>; commands: Array<{ name: string; packages: string[] }>; hooks: Array<{ event: string; packages: string[] }> };
   hookTopology: Array<{ event: string; packages: string[]; resources: string[] }>;
   stats: { filesRead: number; filesVisited: number; retainedSourceChars: 0; truncatedFiles: number };
-  runtimeSurface?: { fingerprint: string; tools: Array<{ name: string; originScope: string; originHash: string }>; activeTools: string[]; commands: Array<{ name: string; source: string; scope: string; originScope: string; originHash: string }>; collisions: { tools: string[]; commands: string[] } };
+  runtimeSurface?: { fingerprint: string; tools: Array<{ name: string; ecosystem: string; originScope: string; originHash: string }>; activeTools: string[]; commands: Array<{ name: string; source: string; scope: string; originScope: string; originHash: string }>; collisions: { tools: string[]; commands: string[] } };
 };
 
 const sha = (value: string | Buffer): string => createHash("sha256").update(value).digest("hex");
@@ -242,6 +242,7 @@ export function renderExtensionAuditReport(audit: ExtensionAudit): string {
     `Packages: ${audit.packages.length}; resources: ${audit.resources.length}; findings: ${audit.findings.length}`,
     ...audit.packages.slice(0, 200).map(item => `- ${item.name}@${item.version} [${item.scope}] risk=${item.risk.level} capabilities=${item.capabilities.join(",") || "none"}`),
     ...audit.findings.slice(0, 200).map(item => `! ${item.code}: ${item.package}${item.detail ? ` (${item.detail})` : ""}`),
+    ...(audit.runtimeSurface ? [`Runtime surface: ${audit.runtimeSurface.tools.length} tools (${audit.runtimeSurface.activeTools.length} active), ${audit.runtimeSurface.commands.length} commands, fingerprint ${audit.runtimeSurface.fingerprint}`, `Runtime collisions: tools=${audit.runtimeSurface.collisions.tools.join(",") || "none"}; commands=${audit.runtimeSurface.collisions.commands.join(",") || "none"}`] : []),
     ...audit.hookTopology.slice(0, 100).map(item => `hook ${item.event}: ${item.packages.join(", ")}`),
   ];
   return lines.join("\n").slice(0, 19_999);

@@ -15,7 +15,7 @@ The runtime shares:
 - canonical context-object references for verification and external context;
 - bounded lifecycle events suitable for deterministic replay.
 
-The extension handles `session_start`, `resources_discover`, `tool_call`, `tool_result`, `context`, `session_before_compact`, `session_compact`, and `session_shutdown`.
+The extension handles `session_start`, `resources_discover`, `tool_call`, `tool_result`, `context`, `session_before_compact`, `session_compact`, and `session_shutdown`. Package-agnostic live bridges classify MCP, LSP, subagent/workflow, external-context, and router tools. LSP locations and transcript-free subagent result metadata are normalized into structural governance events without taking over those packages' process lifecycle.
 
 ## Commands
 
@@ -66,6 +66,16 @@ At startup, Keylime hashes extension source plus the live Pi tool/command surfac
 - free of source, prompts, tool payloads, and absolute paths.
 
 Trust is never inferred from model output. Only `/extension-trust` creates a new baseline.
+
+## Lease enforcement modes
+
+`KEYLIME_CAPABILITY_LEASE_MODE` controls live enforcement:
+
+- unset or `opt-in`: calls carrying a lease are enforced; legacy calls remain compatible;
+- `required-mutations`: every mutating tool call requires a valid lease;
+- `required-all`: every tool call requires a valid lease.
+
+Mandatory modes fail closed before tool execution. `/capability-lease` is an explicit user command and is the trusted authority source; model output alone cannot issue a lease.
 
 ## Privacy and bounds
 

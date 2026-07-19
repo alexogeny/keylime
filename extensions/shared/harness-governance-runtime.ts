@@ -9,7 +9,7 @@ import { explainContextSelection, counterfactualContext, renderContextDebugSumma
 import { createReplayBundle, replayHarnessTrace, compareReplayResults, branchReplay } from "./harness-replay";
 import { createDelegationContract, deriveDelegationContract, validateDelegationResult, normalizeDelegationResult } from "./delegation-contracts";
 import { createCanaryRegistry, evaluateRuntimeCanary, createCanaryFixture } from "./runtime-canaries";
-import { createEcosystemAdapters } from "./ecosystem-adapters";
+import { classifyEcosystemTool, createEcosystemAdapters } from "./ecosystem-adapters";
 import { readContextRuntimeTelemetry } from "./context-runtime-bus";
 
 export const HARNESS_GOVERNANCE_COMMANDS = [
@@ -84,12 +84,13 @@ export async function createHarnessGovernanceRuntime(options: RuntimeOptions) {
         const originScope = /^[a-zA-Z0-9_-]{1,80}$/.test(rawScope) ? rawScope : "external";
         return { originScope, originHash: await originHashPromise };
       };
-      const tools = await mapBounded((input.tools ?? []).slice(0, 5_000), async (tool: any) => ({ name: String(tool.name ?? "").slice(0, 200), ...await origin(tool) }));
+      const tools = await mapBounded((input.tools ?? []).slice(0, 5_000), async (tool: any) => { const name = String(tool.name ?? "").slice(0, 200); return { name, ecosystem: classifyEcosystemTool(name), ...await origin(tool) }; });
       tools.sort((a: any, b: any) => a.name.localeCompare(b.name) || a.originHash.localeCompare(b.originHash));
       const commands = await mapBounded((input.commands ?? []).slice(0, 5_000), async (command: any) => ({ name: String(command.name ?? "").slice(0, 200), source: /^[a-zA-Z0-9_-]{1,80}$/.test(String(command.source ?? "")) ? String(command.source) : "unknown", scope: /^[a-zA-Z0-9_-]{1,80}$/.test(String(command.sourceInfo?.scope ?? "")) ? String(command.sourceInfo.scope) : "unknown", ...await origin(command) }));
       commands.sort((a: any, b: any) => a.name.localeCompare(b.name) || a.originHash.localeCompare(b.originHash));
       const duplicateNames = (values: Array<{ name: string }>) => [...new Set(values.map(value => value.name).filter((name, index, all) => name && all.indexOf(name) !== index))].sort();
-      const body = { tools, activeTools: [...new Set((input.activeTools ?? []).map(String))].sort().slice(0, 5_000), commands, collisions: { tools: duplicateNames(tools), commands: duplicateNames(commands) }, stats: { originHashComputations } };
+      const ecosystemCounts = Object.fromEntries([...new Set(tools.map((tool: any) => tool.ecosystem))].sort().map(kind => [kind, tools.filter((tool: any) => tool.ecosystem === kind).length]));
+      const body = { tools, activeTools: [...new Set((input.activeTools ?? []).map(String))].sort().slice(0, 5_000), commands, collisions: { tools: duplicateNames(tools), commands: duplicateNames(commands) }, ecosystemCounts, stats: { originHashComputations } };
       runtimeSurface = { ...body, fingerprint: createHash("sha256").update(JSON.stringify(body)).digest("hex") };
       return runtimeSurface;
     },
@@ -104,6 +105,8 @@ export async function createHarnessGovernanceRuntime(options: RuntimeOptions) {
     renderContextDebugSummary,
     issueLease(request: CapabilityLeaseRequest) { return leases.issue(request); },
     authorizeLease(id: string, action: any) { return leases.authorize(id, action); },
+    authorizeAnyLease(action: any) { return leases.authorizeAny(action); },
+    hasActiveLeases() { return leases.hasActiveLeases(); },
     recordLeaseMutation(id: string, paths: string[]) { return leases.recordMutation(id, paths); },
     recordLeaseVerification(id: string, result: any) { return leases.recordVerification(id, result); },
     completeLease(id: string) { return leases.complete(id); },

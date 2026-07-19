@@ -9,6 +9,8 @@ import { selectEvidencePacketsWithStats } from "../extensions/shared/evidence-pa
 import { createContextRuntimeCoordinator } from "../extensions/context-runtime";
 import { createHarnessGovernanceRuntime, HARNESS_GOVERNANCE_COMMANDS, HARNESS_GOVERNANCE_HOOKS } from "../extensions/shared/harness-governance-runtime";
 import { createExtensionTrustStore } from "../extensions/shared/extension-trust-store";
+import { capabilityLeaseEnforcementMode, capabilityLeaseRequirement } from "../extensions/shared/capability-enforcement";
+import { classifyEcosystemTool } from "../extensions/shared/ecosystem-adapters";
 
 async function fixture(prefix = "governance") {
   const cwd = await mkdtemp(join(tmpdir(), `keylime-${prefix}-`));
@@ -70,12 +72,14 @@ describe("holistic harness governance integration", () => {
     try {
       const runtime = await createHarnessGovernanceRuntime({ cwd, sessionId: "session-1" });
       const surface = await runtime.captureRuntimeSurface({
-        tools: [{ name: "code_search", description: "PRIVATE DESCRIPTION", parameters: { secret: "PRIVATE SCHEMA" }, sourceInfo: { path: `${cwd}/extensions/sample.ts` } }, { name: "code_search", sourceInfo: { path: `${cwd}/extensions/sample.ts` } }],
+        tools: [{ name: "code_search", description: "PRIVATE DESCRIPTION", parameters: { secret: "PRIVATE SCHEMA" }, sourceInfo: { path: `${cwd}/extensions/sample.ts` } }, { name: "code_search", sourceInfo: { path: `${cwd}/extensions/sample.ts` } }, { name: "mcp__search", sourceInfo: { path: `${cwd}/extensions/sample.ts` } }, { name: "pi_lsp_references", sourceInfo: { path: `${cwd}/extensions/sample.ts` } }, { name: "run_subagent", sourceInfo: { path: `${cwd}/extensions/sample.ts` } }],
         activeTools: ["code_search"], commands: [{ name: "extension-audit", source: "extension", sourceInfo: { scope: "project", path: `${cwd}/extensions/sample.ts` } }],
       });
       expect(surface.collisions.tools).toEqual(["code_search"]);
       expect(surface.fingerprint).toMatch(/^[a-f0-9]{64}$/);
       expect(surface.stats.originHashComputations).toBe(1);
+      expect(surface.ecosystemCounts).toEqual(expect.objectContaining({ mcp: 1, lsp: 1, subagent: 1 }));
+      expect(classifyEcosystemTool("context-mode-import")).toBe("external_context");
       expect(JSON.stringify(surface)).not.toContain("PRIVATE");
       expect(JSON.stringify(surface)).not.toContain(cwd);
       await runtime.trustCurrentAudit("surface reviewed");
@@ -137,7 +141,9 @@ describe("holistic harness governance integration", () => {
       const runtime = await createHarnessGovernanceRuntime({ cwd, sessionId: "session-1" });
       const lease = runtime.issueLease({ intentId: "intent-1", trustedSourceEntryId: "user-1", tools: ["apply_code_replacements"], paths: ["src/**"], operations: ["modify"], expiresAfterTurns: 2, expiresAfterMs: 60_000 });
       expect(runtime.authorizeLease(lease.id, { tool: "apply_code_replacements", operation: "modify", paths: ["src/a.ts"] }).allowed).toBe(true);
+      expect(runtime.authorizeAnyLease({ tool: "apply_code_replacements", operation: "modify", paths: ["src/a.ts"] })).toEqual(expect.objectContaining({ allowed: true, leaseId: lease.id }));
       expect(runtime.authorizeLease(lease.id, { tool: "apply_code_replacements", operation: "modify", paths: ["tests/b.test.ts"] }).allowed).toBe(false);
+      expect(runtime.authorizeAnyLease({ tool: "apply_code_replacements", operation: "modify", paths: ["tests/b.test.ts"] }).allowed).toBe(false);
       const contract = await runtime.createDelegationContract({ checkpoint: checkpoint(), goal: "Update src/a.ts", tools: ["apply_code_replacements"], paths: ["src/**"], requiredVerification: [] });
       expect(contract.repositoryFingerprint).toBe(runtime.repositoryFingerprint);
       expect(contract.controls.length).toBeGreaterThan(0);
@@ -196,6 +202,14 @@ describe("holistic harness governance integration", () => {
       await writeFile(store.path, JSON.stringify({ ...state, checksum: "corrupt" }), "utf8");
       await expect(store.state()).rejects.toThrow(/checksum|identity/i);
     } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
+  test("supports explicit compatibility and mandatory lease enforcement modes", () => {
+    expect(capabilityLeaseEnforcementMode(undefined)).toBe("opt-in");
+    expect(capabilityLeaseRequirement("opt-in", { mutates: true }).blockReason).toBeUndefined();
+    expect(capabilityLeaseRequirement("required-mutations", { mutates: true }).blockReason).toMatch(/required/i);
+    expect(capabilityLeaseRequirement("required-mutations", { mutates: false }).blockReason).toBeUndefined();
+    expect(capabilityLeaseRequirement("required-all", { mutates: false, leaseId: "lease" }).blockReason).toBeUndefined();
   });
 
   test("declares the full command and lifecycle integration surface", () => {

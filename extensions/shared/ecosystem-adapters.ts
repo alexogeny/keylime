@@ -3,6 +3,17 @@ import { storeContextObject } from "../context-object-store";
 
 const sha = (value: string): string => createHash("sha256").update(value).digest("hex");
 
+export type EcosystemToolKind = "mcp" | "lsp" | "subagent" | "external_context" | "router" | "native";
+export function classifyEcosystemTool(toolName: string): EcosystemToolKind {
+  const name = toolName.toLowerCase();
+  if (/(?:^|[_-])mcp(?:[_-]|$)|^mcp__/.test(name)) return "mcp";
+  if (/(?:^|[_-])lsp(?:[_-]|$)|language.?server/.test(name)) return "lsp";
+  if (/subagent|sub_agent|workflow|delegate/.test(name)) return "subagent";
+  if (/context.?mode|\bvcc\b|external.?context/.test(name)) return "external_context";
+  if (/router|route_model|model_route/.test(name)) return "router";
+  return "native";
+}
+
 export function createEcosystemAdapters(options: { cwd?: string; lspOwnership?: "external" | "keylime" } = {}) {
   const externalObjects = new Map<string, string>();
   let processesSpawned = 0;
