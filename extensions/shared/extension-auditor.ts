@@ -41,7 +41,7 @@ async function packageManifests(root: string, maxFiles: number): Promise<string[
   const queue = [start];
   while (queue.length && found.length < maxFiles) {
     const directory = queue.shift()!;
-    let entries: Awaited<ReturnType<typeof readdir>>;
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
     try { entries = await readdir(directory, { withFileTypes: true }); } catch { continue; }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
@@ -171,7 +171,11 @@ export async function auditPiExtensionLandscape(options: ExtensionAuditOptions):
   const hookTopology = [...events.entries()].map(([event, value]) => ({ event, packages: [...value.packages].sort(), resources: [...value.resources].sort() })).sort((a, b) => a.event.localeCompare(b.event));
   const auditBase = {
     packages, resources: selectedResources, findings: findings.sort((a, b) => `${a.code}:${a.package}`.localeCompare(`${b.code}:${b.package}`)),
-    collisions: { tools: collision(packages, "tools", "name"), commands: collision(packages, "commands", "name"), hooks: collision(packages, "hooks", "event") },
+    collisions: {
+      tools: collision(packages, "tools", "name") as Array<{ name: string; packages: string[] }>,
+      commands: collision(packages, "commands", "name") as Array<{ name: string; packages: string[] }>,
+      hooks: collision(packages, "hooks", "event") as Array<{ event: string; packages: string[] }>,
+    },
     hookTopology,
     stats: { filesRead, filesVisited, retainedSourceChars: 0 as const, truncatedFiles },
   };
@@ -200,7 +204,7 @@ export async function auditCurrentHarness(cwd: string, options: { maxFiles?: num
   let filesRead = 0, truncatedFiles = 0;
   while (queue.length && filesRead < maxFiles) {
     const directory = queue.shift()!;
-    let entries: Awaited<ReturnType<typeof readdir>>;
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
     try { entries = await readdir(directory, { withFileTypes: true }); } catch { continue; }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {

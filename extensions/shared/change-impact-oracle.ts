@@ -19,7 +19,7 @@ async function sourceFiles(cwd: string, maxFiles: number): Promise<string[]> {
   const ignored = new Set([".git", ".pi", "node_modules", "dist", "build", "coverage"]);
   while (queue.length && result.length < maxFiles) {
     const directory = queue.shift()!;
-    let entries: Awaited<ReturnType<typeof readdir>>;
+    let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
     try { entries = await readdir(directory, { withFileTypes: true }); } catch { continue; }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {

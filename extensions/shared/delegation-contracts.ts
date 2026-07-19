@@ -66,16 +66,16 @@ export function validateDelegationResult(contract: any, result: any, cwd: string
   if (result.version !== 1) throw new Error("Delegation result schema version is invalid");
   if (result.contractId !== contract.id) throw new Error("Delegation result contract mismatch");
   if (result.repositoryFingerprint !== contract.repositoryFingerprint || repoFingerprint(cwd) !== contract.repositoryFingerprint) throw new Error("Delegation result repository mismatch");
-  const changedPaths = Array.isArray(result.changedPaths) ? result.changedPaths.map(String) : [];
-  if (changedPaths.some(path => !safePath(path) || !contract.paths.some((pattern: string) => pathMatches(pattern, path.replace(/\\/g, "/"))))) throw new Error("Delegation changed path is outside scope");
-  const usage = result.usage ?? {};
-  if (Number(usage.inputTokens ?? 0) > contract.budgets.maxInputTokens || Number(usage.outputTokens ?? 0) > contract.budgets.maxOutputTokens || Number(usage.durationMs ?? 0) > contract.budgets.timeoutMs) throw new Error("Delegation budget exceeded");
-  for (const required of contract.requiredVerification ?? []) {
-    if (!(result.verification ?? []).some((item: any) => item.command === required && item.passed === true)) throw new Error(`Required delegation verification failed: ${required}`);
-  }
   return (async () => {
+    const changedPaths: string[] = Array.isArray(result.changedPaths) ? result.changedPaths.map(String) : [];
+    if (changedPaths.some(path => !safePath(path) || !contract.paths.some((pattern: string) => pathMatches(pattern, path.replace(/\\/g, "/"))))) throw new Error("Delegation changed path is outside scope");
+    const usage = result.usage ?? {};
+    if (Number(usage.inputTokens ?? 0) > contract.budgets.maxInputTokens || Number(usage.outputTokens ?? 0) > contract.budgets.maxOutputTokens || Number(usage.durationMs ?? 0) > contract.budgets.timeoutMs) throw new Error("Delegation budget exceeded");
     let evidenceVerified = 0;
     for (const objectId of strings(result.evidenceObjectIds ?? [], 1_000)) { await readStoredContextObject(cwd, objectId); evidenceVerified++; }
+    for (const required of contract.requiredVerification ?? []) {
+      if (!(result.verification ?? []).some((item: any) => item.command === required && item.passed === true)) throw new Error(`Required delegation verification failed: ${required}`);
+    }
     return { accepted: true, evidenceVerified, changedPaths, verification: result.verification ?? [] };
   })();
 }

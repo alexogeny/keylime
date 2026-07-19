@@ -15,11 +15,13 @@ The suite contains **no mocks, stubs, monkeypatches, fake stores, patched global
 
 Missing production modules are loaded dynamically so every intended behavior remains independently discoverable as RED rather than causing TypeScript compilation to stop at the first missing import.
 
-## Baseline
+## Status
+
+The contract began at **87 RED / 0 GREEN**. It is now fully implemented:
 
 ```text
-87 fail
-0 pass
+87 pass
+0 fail
 bun run typecheck:tests: pass
 ```
 
@@ -68,7 +70,7 @@ Implementation must not become nine isolated feature stacks. The RED contract re
 - TUI reports are width/row bounded.
 - Thousand-file fixture checks use generous wall-clock ceilings to catch algorithmic regressions rather than machine variance.
 
-## Suggested GREEN order after compaction
+## Implemented GREEN order
 
 1. Shared extension kernel: repository snapshot, hash cache, event stream and metrics.
 2. Extension auditor and hook topology.

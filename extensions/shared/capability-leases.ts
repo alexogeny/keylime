@@ -130,8 +130,9 @@ export async function createCapabilityLeaseManager(options: { cwd: string; sessi
       const child = normalizeRequest(request);
       if (!subset(child.tools, parent!.tools) || !subset(child.operations, parent!.operations)) throw new Error("Cannot broaden delegated authority");
       if (!child.paths.every(path => parent!.paths.some(pattern => path === pattern || (pattern.endsWith("/**") && path.startsWith(pattern.slice(0, -3)))))) throw new Error("Cannot broaden path authority");
-      if ((child.expiresAfterTurns ?? 1) > (parent!.expiresAfterTurns ?? 1) || (child.expiresAfterMs ?? 1) > Math.max(1, parent!.expiresAt - Date.now())) throw new Error("Cannot broaden lease budget");
-      return publicLease(issueLease(child, parentId));
+      if ((child.expiresAfterTurns ?? 1) > (parent!.expiresAfterTurns ?? 1) || (child.expiresAfterMs ?? 1) > (parent!.expiresAfterMs ?? 1)) throw new Error("Cannot broaden lease budget");
+      const remainingMs = Math.max(1, parent!.expiresAt - Date.now());
+      return publicLease(issueLease({ ...child, expiresAfterMs: Math.min(child.expiresAfterMs ?? remainingMs, remainingMs) }, parentId));
     },
     handleBoundary(boundary: string) {
       if (boundary === "turn_end") { turn++; return; }
