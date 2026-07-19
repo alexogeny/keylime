@@ -43,21 +43,21 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 
 ## Slice 4 — structured compaction and unified working memory
 
-- [~] Write red tests for checkpoint schema, evidence validation, fallback, retention, and memory deltas.
-- [ ] Add TypeBox compaction checkpoint schema.
-- [ ] Implement `session_before_compact` extension with deterministic fallback.
-- [ ] Pin context objects referenced by checkpoints.
-- [ ] Add repository-bound unified working-set retrieval adapters.
-- [ ] Add incremental add/supersede/resolve/expire memory deltas.
-- [ ] Add pressure readiness snapshot without proactive repeated model calls.
-- [ ] Verify compaction, agent-OS, project, and memory tests.
+- [x] Write red tests for checkpoint schema, evidence validation, fallback, retention, and memory deltas.
+- [x] Add TypeBox compaction checkpoint schema.
+- [x] Implement `session_before_compact` extension with deterministic fallback.
+- [x] Pin context objects referenced by checkpoints.
+- [x] Add repository-bound unified working-set retrieval adapters.
+- [x] Add incremental add/supersede/resolve/expire memory deltas.
+- [x] Add pressure readiness snapshot without proactive repeated model calls.
+- [x] Verify compaction, agent-OS, project, and memory tests.
 
 ## Slice 5 — precision-first retrieval and bounded pipelines
 
-- [ ] Write gold-region retrieval budget and utilization tests.
-- [ ] Add ranked code-region contracts and overlap-aware budgets.
-- [ ] Add structural evidence to existing hybrid ranking.
-- [ ] Track explored-versus-utilized identifiers without source bodies.
+- [x] Write gold-region retrieval budget and utilization tests.
+- [x] Add ranked code-region contracts and overlap-aware budgets.
+- [~] Add structural evidence to existing hybrid ranking.
+- [~] Track explored-versus-utilized identifiers without source bodies.
 - [ ] Write red tests for allowlists, budgets, cancellation, redaction, and partial failure.
 - [ ] Implement bounded read-only aggregation pipeline without arbitrary execution.
 - [ ] Integrate compact source/object references into research workflows.
@@ -88,4 +88,7 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - 2026-07-19: Added typed context-object contracts with SHA-256 verification, named/line selectors, original line numbers, and selector validation; 3 focused tests and typecheck pass.
 - 2026-07-19: Slice 3 complete: atomic verified store, exact bounded recovery, typed test/search reducers, protected errors/mutations, duplicate folding, transitive pinned cleanup, legacy result compatibility, cache-guard separation, docs, and full 468-test suite pass.
 - 2026-07-19: Began slice 4 red-test planning for validated structured compaction checkpoints.
-- 2026-07-19: Added the first structured-checkpoint RED tests; they currently fail because `shared/compaction-schema.ts` does not yet exist.
+- 2026-07-19: Added the first structured-checkpoint RED tests; they initially failed because `shared/compaction-schema.ts` did not exist.
+- 2026-07-19: Slice 4 complete: TypeBox checkpoint schema plus deterministic validation/rendering, Pi hook with active-model JSON generation and default fallback, evidence verification/pinning, 65% readiness snapshots, repository-filtered working-set retrieval, incremental deltas, checkpoint adapters, docs, and full 477-test suite pass.
+- 2026-07-19: Began slice 5 red-test planning for overlap-aware fixed-budget code-region ranking.
+- 2026-07-19: Added overlap-aware ranked regions, ripgrep match/context parsing, optional `code_search` line/character/file budgets with metrics, and repository/task-scoped utilization contracts that retain identifiers and counts but no source text; focused tests and typecheck pass.

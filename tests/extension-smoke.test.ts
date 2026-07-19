@@ -10,6 +10,7 @@ import testRunner from "../extensions/test-runner";
 import toolResultCompactor from "../extensions/tool-result-compactor";
 import controlPlaneApi from "../extensions/control-plane-api";
 import contextObjectStore from "../extensions/context-object-store";
+import structuredCompaction from "../extensions/structured-compaction";
 import webContent from "../extensions/web-content";
 import { mockPiFixture } from "./helpers/mock-pi";
 
@@ -28,6 +29,7 @@ describe("extension registration smoke", () => {
     gitCheckpoint(harness.pi);
     controlPlaneApi(harness.pi);
     contextObjectStore(harness.pi);
+    structuredCompaction(harness.pi);
     webContent(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
@@ -67,6 +69,7 @@ describe("extension registration smoke", () => {
       "context",
       "agent_end",
       "model_select",
+      "session_before_compact",
     ]));
   });
 });

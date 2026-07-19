@@ -40,6 +40,10 @@ Oversized successful outputs are classified and reduced with tool-specific reduc
 
 `cache-guard.ts` now reports prompt-cache efficiency only; it no longer rewrites trajectory history or applies a second generic truncation layer.
 
+### `structured-compaction.ts` and `shared/compaction-schema.ts`
+
+Intercepts Pi's `session_before_compact` hook and asks the active authenticated model for a strict JSON checkpoint. The checkpoint preserves goal, constraints, acceptance criteria, decisions, active files and locators, changes, verification, failures, blockers, pending actions, safety state, and context-object evidence. Keylime validates and renders the checkpoint, verifies and pins every referenced context object, and passes Pi's `firstKeptEntryId` and `tokensBefore` through unchanged. Invalid output, missing evidence, cancellation, authentication failure, or model failure returns `undefined` so Pi's default compaction remains authoritative.
+
 ### `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts`, and `policy-tools.ts`
 
 Reusable local retrieval core for BM25, TF-IDF cosine, JMLM query likelihood, hybrid ranking, and metadata-aware policy documents. Candidate ranking retains only a bounded top-K heap instead of sorting every positive result. Current consumers include web-knowledge recall, user-memory lexical retrieval, intent-router policy evidence, low-confidence routing assistance, and the `retrieve_policy`, `suggest_checks`, and `codemod_plan` tools.

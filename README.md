@@ -68,6 +68,7 @@ Examples:
 - `test-runner.ts` — safe test/typecheck/lint runner.
 - `turn-context-composer.ts` — one bounded reminder per turn.
 - `tool-result-compactor.ts`, `context-object-store.ts` — typed reduction, verified sidecars, exact partial recovery, duplicate folding, and legacy `.pi/tool-results` compatibility.
+- `structured-compaction.ts` — validated evidence-linked checkpoints with automatic fallback to Pi's default compaction.
 - `policy-tools.ts`, `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts` — reusable BM25/TF-IDF/JMLM hybrid retrieval plus policy/codemod/check-recipe tools.
 - `user-memory/` — durable memory and entity recall.
 - `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, and locally persisted web knowledge.

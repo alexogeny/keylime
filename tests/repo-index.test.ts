@@ -61,6 +61,24 @@ describe("code_search file_glob handling", () => {
     expect(result.content[0].text).toContain("resolveRgPath");
   });
 
+  test("fixed budgets return overlap-merged ranked regions and metrics", async () => {
+    const tools = await registeredRepoIndexTools();
+    const result = await tools.code_search.execute("id", {
+      query: "resolveRgPath",
+      mode: "lexical",
+      file_glob: "extensions/repo-index/index.ts",
+      max_results: 10,
+      max_lines: 8,
+      max_chars: 1000,
+      max_files: 1,
+    }, undefined, undefined, { cwd: process.cwd() });
+
+    expect(result.details.metrics.returnedLines).toBeLessThanOrEqual(8);
+    expect(result.details.metrics.returnedChars).toBeLessThanOrEqual(1000);
+    expect(result.details.metrics.returnedFiles).toBeLessThanOrEqual(1);
+    expect(result.details.regions[0]).toMatchObject({ path: "extensions/repo-index/index.ts" });
+  });
+
   test("hidden file_glob auto-enables hidden search", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "repo-index-"));
     await mkdir(join(cwd, ".hidden"));

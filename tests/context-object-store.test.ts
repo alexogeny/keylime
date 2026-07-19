@@ -9,6 +9,7 @@ import {
 } from "../extensions/shared/context-objects";
 import contextObjectStoreExtension, {
   cleanupContextObjects,
+  pinContextObjects,
   readStoredContextObject,
   storeContextObject,
 } from "../extensions/context-object-store";
@@ -168,6 +169,28 @@ describe("context object contracts", () => {
       await expect(readStoredContextObject(cwd, "pinned-1")).resolves.toBeDefined();
       await expect(readStoredContextObject(cwd, "evidence-1")).resolves.toBeDefined();
       await expect(readStoredContextObject(cwd, "stale-1")).rejects.toThrow();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("pins checkpoint evidence before cleanup", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "context-object-pin-"));
+    try {
+      await storeContextObject(cwd, {
+        id: "evidence-pin",
+        kind: "test_run",
+        sourceTool: "run_checks",
+        content: "failing evidence",
+        summary: "failure",
+        retention: "foldable",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      await pinContextObjects(cwd, ["evidence-pin"]);
+      const cleanup = await cleanupContextObjects(cwd, { maxAgeDays: 1, now: "2026-07-19T00:00:00.000Z" });
+      expect(cleanup.kept).toContain("evidence-pin");
+      expect((await readStoredContextObject(cwd, "evidence-pin")).object.retention).toBe("pinned");
+      await expect(pinContextObjects(cwd, ["missing-evidence"])).rejects.toThrow("Unknown context object");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

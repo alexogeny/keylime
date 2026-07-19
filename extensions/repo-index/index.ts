@@ -34,6 +34,7 @@ import { join, relative, dirname, extname, delimiter } from "node:path";
 import { repoRelativePath } from "../shared/path-policy";
 import { writePathsForToolResult } from "../shared/safety-policy";
 import { matchesGlob } from "../shared/code-primitives";
+import { parseRipgrepCodeRegions, rankCodeRegions } from "../shared/repo-regions";
 
 const execFileAsync = promisify(execFile);
 
@@ -476,6 +477,9 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
         minimum: 1,
         maximum: 100,
       })),
+      max_lines: Type.Optional(Type.Number({ minimum: 1, maximum: 500, description: "Optional fixed code-line budget after overlap merging" })),
+      max_chars: Type.Optional(Type.Number({ minimum: 100, maximum: 50_000, description: "Optional fixed source-character budget" })),
+      max_files: Type.Optional(Type.Number({ minimum: 1, maximum: 100, description: "Optional fixed file budget" })),
       include_hidden: Type.Optional(Type.Boolean({
         description: "Include hidden files/directories (e.g. .pi/**). Default false; auto-enabled for hidden file_glob paths.",
       })),
@@ -606,6 +610,23 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
               `Tip: try mode='lexical' for text-only matches, add include_hidden=true for dot-directories, or check the repo map for nearby symbols.`,
           }],
           details: { query: params.query, mode: usedMode, engine, matches: 0 },
+        };
+      }
+
+      if (params.max_lines !== undefined || params.max_chars !== undefined || params.max_files !== undefined) {
+        const candidates = parseRipgrepCodeRegions(output);
+        const ranked = rankCodeRegions(candidates, {
+          maxLines: params.max_lines ?? maxResults * 4,
+          maxChars: params.max_chars ?? SEARCH_MAX_CHARS,
+          maxFiles: params.max_files ?? maxResults,
+        });
+        const rendered = ranked.regions.map(region => [
+          `${region.path}:${region.startLine}-${region.endLine} score=${region.score.toFixed(3)} reasons=${region.reasons.join(",") || "none"}`,
+          ...region.lines.map((line, index) => `${region.startLine + index} | ${line}`),
+        ].join("\n")).join("\n\n");
+        return {
+          content: [{ type: "text", text: `code_search "${params.query}" (${usedMode}) — ${ranked.metrics.returnedRegions} regions\n\n${rendered}` }],
+          details: { query: params.query, mode: usedMode, engine, regions: ranked.regions, metrics: ranked.metrics },
         };
       }
 

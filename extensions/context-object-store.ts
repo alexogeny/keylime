@@ -90,6 +90,24 @@ export async function storeContextObject(cwd: string, input: CreateContextObject
   });
 }
 
+export async function pinContextObjects(cwd: string, ids: string[]): Promise<void> {
+  for (const id of ids) validateId(id);
+  await queued(async () => {
+    const manifest = await readJsonFile<ContextObjectManifestEntry[]>(manifestPath(cwd), []);
+    const byId = new Map(manifest.map(entry => [entry.id, entry]));
+    for (const id of ids) if (!byId.has(id)) throw new Error(`Unknown context object: ${id}`);
+    for (const id of ids) {
+      const payload = await readStoredContextObject(cwd, id);
+      if (payload.object.retention === "pinned") continue;
+      const object: ContextObject = { ...payload.object, retention: "pinned" };
+      await writeJsonFile(payloadPath(cwd, id), { object, content: payload.content } satisfies StoredContextObjectPayload, { finalNewline: true });
+      byId.set(id, { ...byId.get(id)!, retention: "pinned" });
+    }
+    const next = manifest.map(entry => byId.get(entry.id)!).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    await writeJsonFile(manifestPath(cwd), next, { finalNewline: true });
+  });
+}
+
 export async function cleanupContextObjects(
   cwd: string,
   options: { maxAgeDays?: number; maxEntries?: number; now?: string } = {},
