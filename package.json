@@ -11,7 +11,10 @@
     "bench:retrieval": "bun tests/benchmarks/retrieval.bench.ts",
     "bench:core": "bun tests/benchmarks/keylime-core.bench.ts",
     "check": "bun run typecheck && bun test tests",
-    "bench:systems": "bun tests/benchmarks/keylime-systems.bench.ts"
+    "bench:systems": "bun tests/benchmarks/keylime-systems.bench.ts",
+    "test:context": "bun test tests/context-evals tests/context-ledger.test.ts tests/policy-tools.test.ts tests/context-object-store.test.ts tests/structured-compaction.test.ts tests/repo-retrieval-budget.test.ts tests/retrieval-utilization.test.ts tests/bounded-tool-pipeline.test.ts tests/bounded-tool-pipeline-extension.test.ts",
+    "test:context:red": "bun test tests/context-theses",
+    "bench:context": "bun tests/context-evals/report.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.6",
