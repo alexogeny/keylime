@@ -15,7 +15,9 @@ const COMPACTION_EXECUTION_PROFILE = selectAgentExecutionProfile({
   taskKind: "structured_extraction", ambiguity: 0, risk: "medium", contextPressure: .8, requiresCreativity: false,
 });
 export const COMPACTION_MAX_CONVERSATION_CHARS = 120_000;
+export const COMPACTION_MAX_INCREMENTAL_CONVERSATION_CHARS = 80_000;
 export const COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS = 30_000;
+export const COMPACTION_MAX_CONTROL_CHARS = 40_000;
 export const COMPACTION_MAX_OUTPUT_TOKENS = COMPACTION_EXECUTION_PROFILE.maxOutputTokens;
 const COMPACTION_MAX_MESSAGE_CHARS = 24_000;
 export const COMPACTION_REQUEST_TIMEOUT_MS = COMPACTION_EXECUTION_PROFILE.timeoutMs;
@@ -44,19 +46,125 @@ type StructuredCompactionOptions = {
   setPreviousCheckpoint?: (checkpoint: CompactionCheckpoint) => void;
 };
 
-function serializeCompactionMessages(messages: any[]): string {
-  let rendered = "";
-  for (const [index, message] of messages.entries()) {
+export type CompactionSerializationStats = {
+  visitedNodes: number;
+  copiedSourceChars: number;
+  peakBufferedChars: number;
+  truncatedValues: number;
+};
+
+class BoundedHeadTailBuffer {
+  private readonly headLimit: number;
+  private readonly tailLimit: number;
+  private head = "";
+  private tail: string[] = [];
+  private tailChars = 0;
+  private totalChars = 0;
+  private truncated = false;
+  peakBufferedChars = 0;
+
+  constructor(private readonly maxChars: number) {
+    const markerChars = 58;
+    this.headLimit = Math.min(24_000, Math.floor((maxChars - markerChars) * .2));
+    this.tailLimit = maxChars - markerChars - this.headLimit;
+  }
+
+  append(value: string): void {
+    this.totalChars += value.length;
+    let remaining = value;
+    if (this.head.length < this.headLimit) {
+      const copied = remaining.slice(0, this.headLimit - this.head.length);
+      this.head += copied;
+      remaining = remaining.slice(copied.length);
+    }
+    if (remaining) { this.tail.push(remaining); this.tailChars += remaining.length; }
+    this.peakBufferedChars = Math.max(this.peakBufferedChars, this.head.length + this.tailChars);
+    while (this.tailChars > this.tailLimit && this.tail.length) {
+      const excess = this.tailChars - this.tailLimit;
+      if (this.tail[0].length <= excess) this.tailChars -= this.tail.shift()!.length;
+      else { this.tail[0] = this.tail[0].slice(excess); this.tailChars -= excess; }
+      this.truncated = true;
+    }
+  }
+
+  text(): string {
+    const tail = this.tail.join("");
+    if (!this.truncated && this.totalChars <= this.maxChars) return this.head + tail;
+    return `${this.head}\n\n[older middle context omitted for compaction latency]\n\n${tail}`.slice(0, this.maxChars);
+  }
+}
+
+type SerializationState = CompactionSerializationStats & { remainingNodes: number; seen: WeakSet<object> };
+
+function boundedJsonValue(value: unknown, state: SerializationState, depth = 0): unknown {
+  if (state.remainingNodes-- <= 0) { state.truncatedValues++; return "[node budget exhausted]"; }
+  state.visitedNodes++;
+  if (typeof value === "string") {
+    const bounded = boundCompactionText(value, 20_000);
+    state.copiedSourceChars += bounded.length;
+    if (bounded.length < value.length) state.truncatedValues++;
+    return bounded;
+  }
+  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "bigint") return String(value);
+  if (typeof value !== "object") return String(value);
+  if (state.seen.has(value)) { state.truncatedValues++; return "[circular]"; }
+  if (depth >= 8) { state.truncatedValues++; return "[depth limit]"; }
+  state.seen.add(value);
+  if (Array.isArray(value)) {
+    const output: unknown[] = [];
+    for (const item of value) {
+      if (state.remainingNodes <= 0 || output.length >= 2_048) { output.push("[array truncated]"); state.truncatedValues++; break; }
+      output.push(boundedJsonValue(item, state, depth + 1));
+    }
+    return output;
+  }
+  const output: Record<string, unknown> = {};
+  const object = value as Record<string, unknown>;
+  let properties = 0;
+  for (const key in object) {
+    if (!Object.prototype.hasOwnProperty.call(object, key)) continue;
+    if (properties++ >= 64 || state.remainingNodes <= 0) { output.__truncated__ = true; state.truncatedValues++; break; }
+    output[key] = boundedJsonValue(object[key], state, depth + 1);
+  }
+  return output;
+}
+
+export function serializeCompactionMessagesWithStats(messages: unknown[]): { text: string; stats: CompactionSerializationStats } {
+  const state: SerializationState = { visitedNodes: 0, copiedSourceChars: 0, peakBufferedChars: 0, truncatedValues: 0, remainingNodes: 4_096, seen: new WeakSet() };
+  const buffer = new BoundedHeadTailBuffer(COMPACTION_MAX_CONVERSATION_CHARS);
+  for (const [index, raw] of messages.entries()) {
+    const remainingMessages = messages.length - index;
+    state.remainingNodes = Math.max(1, Math.floor((4_096 - state.visitedNodes) / Math.max(1, remainingMessages)));
+    state.seen = new WeakSet();
+    const message = raw as any;
     let chunk: string;
     try {
-      chunk = `[${index + 1}:${message?.role ?? "entry"}] ${JSON.stringify(message?.content ?? message)}`;
+      const content = boundedJsonValue(message?.content ?? message, state);
+      chunk = `[${index + 1}:${message?.id ?? message?.role ?? "entry"}] ${JSON.stringify(content)}`;
     } catch {
-      chunk = `[${index + 1}:${message?.role ?? "entry"}] [unserializable entry]`;
+      state.truncatedValues++;
+      chunk = `[${index + 1}:${message?.id ?? message?.role ?? "entry"}] [unserializable entry]`;
     }
     chunk = boundCompactionText(chunk, COMPACTION_MAX_MESSAGE_CHARS);
-    rendered = boundCompactionText(rendered ? `${rendered}\n\n${chunk}` : chunk, COMPACTION_MAX_CONVERSATION_CHARS);
+    buffer.append(index ? `\n\n${chunk}` : chunk);
   }
-  return rendered;
+  state.peakBufferedChars = buffer.peakBufferedChars;
+  const { remainingNodes: _remainingNodes, seen: _seen, ...stats } = state;
+  return { text: buffer.text(), stats };
+}
+
+export function prepareCompactionConversation(messages: unknown[], previousSummary?: string, runtimeFold = ""): {
+  conversation: string; previousSummary?: string; stats: CompactionSerializationStats;
+} {
+  const serialized = serializeCompactionMessagesWithStats(messages);
+  const maxChars = previousSummary ? COMPACTION_MAX_INCREMENTAL_CONVERSATION_CHARS : COMPACTION_MAX_CONVERSATION_CHARS;
+  const conversation = boundCompactionText(runtimeFold ? `${serialized.text}\n\n${runtimeFold}` : serialized.text, maxChars);
+  return {
+    conversation,
+    previousSummary: previousSummary ? boundCompactionText(previousSummary, COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS) : undefined,
+    stats: serialized.stats,
+  };
 }
 
 const CONTROL_SECTIONS = ["constraints", "acceptanceCriteria", "pendingActions", "safetyState"] as const;
@@ -69,18 +177,21 @@ export function stabilizeCompactionControlPlane(checkpoint: CompactionCheckpoint
       const contentHash = claimHash(claim.text);
       return { ...claim, controlId: claim.controlId ?? `${section}:${contentHash.slice(0, 16)}`, contentHash };
     });
-    const byId = new Map(normalized.map(claim => [claim.controlId!, claim]));
+    const byHash = new Map<string, EvidenceClaim>();
+    for (const claim of normalized) if (!byHash.has(claim.contentHash!)) byHash.set(claim.contentHash!, claim);
     for (const prior of previous?.[section] ?? []) {
       if (prior.status !== "active") continue;
       const contentHash = prior.contentHash ?? claimHash(prior.text);
       const controlId = prior.controlId ?? `${section}:${contentHash.slice(0, 16)}`;
-      const current = byId.get(controlId);
-      if (!current || current.text !== prior.text || current.contentHash !== contentHash || current.status !== "active") {
-        byId.set(controlId, { ...prior, controlId, contentHash, status: "active" });
+      const current = byHash.get(contentHash);
+      if (!current || current.text !== prior.text || current.status !== "active") {
+        byHash.set(contentHash, { ...prior, controlId, contentHash, status: "active" });
       }
     }
-    next[section] = [...byId.values()];
+    next[section] = [...byHash.values()];
   }
+  const controlChars = CONTROL_SECTIONS.reduce((sum, section) => sum + next[section].reduce((sectionSum, claim) => sectionSum + claim.text.length + (claim.controlId?.length ?? 0) + 80, 0), 0);
+  if (controlChars > COMPACTION_MAX_CONTROL_CHARS) throw new Error(`Compaction control plane exceeds control character budget (${controlChars}/${COMPACTION_MAX_CONTROL_CHARS})`);
   return next;
 }
 
@@ -127,12 +238,10 @@ export function createStructuredCompactionHandler(options: StructuredCompactionO
       const sourceSignal: AbortSignal = event.signal ?? new AbortController().signal;
       const signal = AbortSignal.any([sourceSignal, AbortSignal.timeout(COMPACTION_REQUEST_TIMEOUT_MS)]);
       const allMessages = [...(preparation.messagesToSummarize ?? []), ...(preparation.turnPrefixMessages ?? [])];
-      const serialized = serializeCompactionMessages(allMessages);
-      const runtimeFold = renderRuntimeFoldContext();
-      const conversation = boundCompactionText(runtimeFold ? `${serialized}\n\n${runtimeFold}` : serialized, COMPACTION_MAX_CONVERSATION_CHARS);
+      const prepared = prepareCompactionConversation(allMessages, preparation.previousSummary, renderRuntimeFoldContext());
       const generationInput = {
-        conversation,
-        previousSummary: preparation.previousSummary,
+        conversation: prepared.conversation,
+        previousSummary: prepared.previousSummary,
         reason: event.reason,
         willRetry: Boolean(event.willRetry),
       };

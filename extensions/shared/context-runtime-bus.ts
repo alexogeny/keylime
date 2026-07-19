@@ -16,6 +16,10 @@ export type ContextRuntimeTelemetrySnapshot = {
     plans: Array<{ sourceEventId: string; text: string }>;
     unresolvedFailures: Array<{ sourceEventId: string; text: string }>;
   };
+  memoryStats: {
+    observationEntries: number; observationChars: number; trajectoryEvents: number; trajectoryChars: number;
+    controlEntries: number; controlChars: number; experienceEntries: number;
+  };
 };
 
 let latest: ContextRuntimeTelemetrySnapshot | undefined;

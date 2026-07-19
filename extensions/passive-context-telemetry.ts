@@ -144,7 +144,7 @@ export function createPassiveTelemetryStore(options: StoreOptions = {}) {
   const maxBytes = requestedMaxBytes <= 0 ? 0 : Math.max(1_024, Math.min(1024 * 1024 * 1024, requestedMaxBytes));
   const now = options.now ?? (() => new Date());
   let queued = Promise.resolve();
-  const cache = new Map<string, DailyAggregate>();
+  let queuedOperations = 0;
 
   const atomicWrite = async (path: string, aggregate: DailyAggregate): Promise<void> => {
     await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -158,21 +158,24 @@ export function createPassiveTelemetryStore(options: StoreOptions = {}) {
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const names = (await readdir(dir)).filter(name => /^\d{4}-\d{2}-\d{2}\.json$/.test(name)).sort();
     const remove = new Set(retentionDays > 0 ? names.slice(0, Math.max(0, names.length - retentionDays)) : []);
-    for (const name of remove) { await rm(join(dir, name), { force: true }); cache.delete(name.slice(0, 10)); }
+    for (const name of remove) await rm(join(dir, name), { force: true });
     const kept = names.filter(name => !remove.has(name));
     const entries = await Promise.all(kept.map(async name => ({ name, size: (await stat(join(dir, name))).size })));
     let total = entries.reduce((sum, entry) => sum + entry.size, 0);
     for (const entry of entries) {
       if (maxBytes <= 0 || total <= maxBytes) break;
       await rm(join(dir, entry.name), { force: true });
-      cache.delete(entry.name.slice(0, 10));
       total -= entry.size;
     }
   };
 
   const enqueue = <T>(work: () => Promise<T>): Promise<T> => {
+    queuedOperations++;
     const result = queued.then(work, work);
-    queued = result.then(() => undefined, () => undefined);
+    queued = result.then(
+      () => { queuedOperations--; },
+      () => { queuedOperations--; },
+    );
     return result;
   };
 
@@ -222,9 +225,8 @@ export function createPassiveTelemetryStore(options: StoreOptions = {}) {
           if (sample.retrievalUtilization !== undefined && Number.isFinite(sample.retrievalUtilization)) { model.runtime.retrievalSamples++; model.runtime.retrievalUtilizationSum += Math.max(0, Math.min(1, sample.retrievalUtilization)); }
           if (sample.folded) model.runtime.folds++;
         }
-        cache.set(day, aggregate);
         await atomicWrite(path, aggregate);
-        if (aggregate.turns === 1 || aggregate.turns % 50 === 0) await pruneNow();
+        if ((retentionDays > 0 || maxBytes > 0) && (aggregate.turns === 1 || aggregate.turns % 50 === 0)) await pruneNow();
         });
       });
     },
@@ -263,13 +265,13 @@ export function createPassiveTelemetryStore(options: StoreOptions = {}) {
               if (cumulative >= threshold) { latency.p95Ms = Number(value); break; }
             }
           }
-          cache.set(day, aggregate);
           await atomicWrite(path, aggregate);
         });
       });
     },
     prune(): Promise<void> { return enqueue(pruneNow); },
-    clear(): Promise<void> { return enqueue(async () => { await rm(dir, { recursive: true, force: true }); cache.clear(); }); },
+    clear(): Promise<void> { return enqueue(async () => { await rm(dir, { recursive: true, force: true }); }); },
+    memoryStats(): { cachedDays: number; queuedOperations: number } { return { cachedDays: 0, queuedOperations }; },
     async aggregates(): Promise<DailyAggregate[]> {
       await queued;
       try {

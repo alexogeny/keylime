@@ -22,12 +22,17 @@ type RuntimeOptions = {
   maxTrajectoryEvents?: number;
   maxExperiences?: number;
   maxControlEntries?: number;
+  maxControlChars?: number;
 };
 type RuntimeTransform = { kind: "observation_mask"; toolCallId: string; beforeChars: number; afterChars: number; recoverable: boolean };
 export type RuntimeControlState = {
   constraints: Array<{ sourceEventId: string; text: string }>;
   plans: Array<{ sourceEventId: string; text: string }>;
   unresolvedFailures: Array<{ sourceEventId: string; text: string }>;
+};
+export type RuntimeMemoryStats = {
+  observationEntries: number; observationChars: number; trajectoryEvents: number; trajectoryChars: number;
+  controlEntries: number; controlChars: number; experienceEntries: number;
 };
 export type RuntimeSnapshot = {
   turn: number;
@@ -39,6 +44,7 @@ export type RuntimeSnapshot = {
   lastFold?: TrajectoryFold;
   compaction?: CompactionStrategyDecision;
   controlState: RuntimeControlState;
+  memoryStats: RuntimeMemoryStats;
 };
 
 export function getLastContextRuntimeSnapshot(): RuntimeSnapshot | undefined { return readContextRuntimeTelemetry(); }
@@ -82,6 +88,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
   const maxTrajectoryEvents = Math.max(10, options.maxTrajectoryEvents ?? 500);
   const maxExperiences = Math.max(10, options.maxExperiences ?? 500);
   const maxControlEntries = Math.max(10, options.maxControlEntries ?? 1_000);
+  const maxControlChars = Math.max(100, options.maxControlChars ?? 100_000);
   const boundObservations = (): void => {
     while (observations.size > maxObservationEntries) {
       const evictable = [...observations.values()].find(item => item.kind !== "failure");
@@ -189,6 +196,18 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
       };
     },
     recordTrajectory(events: TrajectoryEvent[]): void {
+      const projectedControlChars = new Map<string, number>([
+        ...[...durableConstraints.values()].map(event => [`constraint:${event.id}`, event.text.length] as const),
+        ...[...durablePlans.values()].map(event => [`decision:${event.id}`, event.text.length] as const),
+        ...[...durableFailures.values()].map(event => [`failure:${event.id}`, event.text.length] as const),
+      ]);
+      for (const event of events) {
+        const key = `${event.type}:${event.id}`;
+        if (event.type === "constraint" || event.type === "decision") projectedControlChars.set(key, event.text.length);
+        if (event.type === "failure") { if (event.resolved) projectedControlChars.delete(key); else projectedControlChars.set(key, event.text.length); }
+      }
+      const controlChars = [...projectedControlChars.values()].reduce((sum, chars) => sum + chars, 0);
+      if (controlChars > maxControlChars) throw new Error(`Durable control character limit of ${maxControlChars} exceeded`);
       const newDurable = new Set(events.filter(event =>
         (event.type === "constraint" && !durableConstraints.has(event.id))
         || (event.type === "decision" && !durablePlans.has(event.id))
@@ -243,7 +262,16 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
         plans: [...durablePlans.values()].map(event => ({ sourceEventId: event.id, text: event.text })),
         unresolvedFailures: [...durableFailures.values()].map(event => ({ sourceEventId: event.id, text: event.text })),
       };
-      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction, controlState };
+      const memoryStats: RuntimeMemoryStats = {
+        observationEntries: observations.size,
+        observationChars: [...observations.values()].reduce((sum, item) => sum + item.text.length, 0),
+        trajectoryEvents: trajectory.length,
+        trajectoryChars: trajectory.reduce((sum, event) => sum + event.text.length, 0),
+        controlEntries: durableConstraints.size + durablePlans.size + durableFailures.size,
+        controlChars: [...durableConstraints.values(), ...durablePlans.values(), ...durableFailures.values()].reduce((sum, event) => sum + event.text.length, 0),
+        experienceEntries: experiences.length,
+      };
+      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction, controlState, memoryStats };
       publishContextRuntimeTelemetry(snapshot);
       return snapshot;
     },

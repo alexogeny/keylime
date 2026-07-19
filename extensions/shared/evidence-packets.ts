@@ -7,7 +7,7 @@ export type EvidenceCandidate = {
   representation?: "exact_source" | "summary" | "diagnostic" | "generic";
 };
 export type EvidenceIntent = { objective: string; symbols: string[]; paths: string[]; failure?: string; pendingStep?: string };
-export type EvidencePacketBudget = { maxTokens: number; maxPackets: number; maxFiles: number };
+export type EvidencePacketBudget = { maxTokens: number; maxPackets: number; maxFiles: number; maxCandidatesEvaluated?: number };
 export type EvidencePacket = {
   id: string; path: string; lines: string; reason: string; confidence: number; objectId: string; estimatedTokens: number;
   exactText: string; hydratedText: string; contentHash: string; truncated: boolean;
@@ -46,7 +46,8 @@ export function evidenceCandidatesFromRegions(regions: Array<{ path: string; sta
   }));
 }
 
-type SelectedEvidence = { candidate: EvidenceCandidate; exactText: string; contentHash: string; truncated: boolean; estimatedTokens: number };
+type SelectedEvidence = { candidate: EvidenceCandidate; score: number; exactText: string; contentHash: string; truncated: boolean; estimatedTokens: number };
+export type EvidenceSelectionStats = { scoreEvaluations: number; hashEvaluations: number; candidatesSkipped: number; peakRankedCandidates: number };
 
 function hashText(text: string): string { return createHash("sha256").update(text).digest("hex"); }
 function clipEvidence(text: string, maxChars: number): string {
@@ -57,17 +58,37 @@ function clipEvidence(text: string, maxChars: number): string {
   return `${text.slice(0, head)}${marker}${text.slice(-(maxChars - marker.length - head))}`;
 }
 
-export function selectEvidencePackets(intent: EvidenceIntent, candidates: EvidenceCandidate[], budget: EvidencePacketBudget): EvidencePacket[] {
-  const ranked = [...candidates].sort((a, b) => score(intent, b) - score(intent, a) || a.path.localeCompare(b.path) || a.startLine - b.startLine || a.id.localeCompare(b.id));
+function cheapScore(intent: EvidenceIntent, candidate: EvidenceCandidate): number {
+  const symbolMatch = candidate.symbols.some(symbol => intent.symbols.includes(symbol)) ? 1 : 0;
+  const pathMatch = intent.paths.includes(candidate.path) ? 1 : 0;
+  const representation = candidate.representation === "exact_source" ? .55 : candidate.representation === "summary" ? -.45 : 0;
+  return candidate.lexical * .22 + candidate.semantic * .24 + candidate.graph * .18 + candidate.recency * .04 + symbolMatch * .18 + pathMatch * .1 + representation;
+}
+
+export function selectEvidencePacketsWithStats(intent: EvidenceIntent, candidates: EvidenceCandidate[], budget: EvidencePacketBudget): {
+  packets: EvidencePacket[]; stats: EvidenceSelectionStats;
+} {
+  const evaluationLimit = Math.max(budget.maxPackets, Math.min(candidates.length, budget.maxCandidatesEvaluated ?? 10_000));
+  const prefiltered = candidates.length > evaluationLimit
+    ? [...candidates].sort((a, b) => cheapScore(intent, b) - cheapScore(intent, a) || a.id.localeCompare(b.id)).slice(0, evaluationLimit)
+    : [...candidates];
+  let scoreEvaluations = 0;
+  let hashEvaluations = 0;
+  const ranked = prefiltered.map(candidate => {
+    scoreEvaluations++;
+    return { candidate, score: score(intent, candidate) };
+  }).sort((a, b) => b.score - a.score || a.candidate.path.localeCompare(b.candidate.path) || a.candidate.startLine - b.candidate.startLine || a.candidate.id.localeCompare(b.candidate.id));
   const selected: SelectedEvidence[] = [];
   const files = new Set<string>();
   const contentHashes = new Set<string>();
   let tokens = 0;
-  for (const candidate of ranked) {
+  for (const rankedCandidate of ranked) {
+    const { candidate, score: candidateScore } = rankedCandidate;
     if (selected.length >= budget.maxPackets) break;
     if (selected.some(item => overlap(item.candidate, candidate))) continue;
     if (!files.has(candidate.path) && files.size >= budget.maxFiles) continue;
-    if (score(intent, candidate) < .25) continue;
+    if (candidateScore < .25) continue;
+    hashEvaluations++;
     const contentHash = hashText(candidate.text);
     const deduplicationHash = hashText(candidate.text.replace(/\s+/g, " ").trim());
     if (contentHashes.has(deduplicationHash)) continue;
@@ -82,13 +103,13 @@ export function selectEvidencePackets(intent: EvidenceIntent, candidates: Eviden
       estimatedTokens = Math.max(1, Math.ceil((exactText.length + 80) / 4));
       truncated = true;
     }
-    selected.push({ candidate, exactText, contentHash, truncated, estimatedTokens });
+    selected.push({ candidate, score: candidateScore, exactText, contentHash, truncated, estimatedTokens });
     contentHashes.add(deduplicationHash);
     files.add(candidate.path);
     tokens += estimatedTokens;
   }
-  return selected.map(({ candidate, exactText, contentHash, truncated, estimatedTokens }) => {
-    const confidence = Math.max(0, Math.min(1, score(intent, candidate)));
+  const packets = selected.map(({ candidate, score: candidateScore, exactText, contentHash, truncated, estimatedTokens }) => {
+    const confidence = Math.max(0, Math.min(1, candidateScore));
     const packet: EvidencePacket = {
       id: candidate.id,
       path: candidate.path,
@@ -105,4 +126,12 @@ export function selectEvidencePackets(intent: EvidenceIntent, candidates: Eviden
     Object.defineProperty(packet, "hydratedText", { value: candidate.text, enumerable: false, writable: false });
     return packet;
   });
+  return {
+    packets,
+    stats: { scoreEvaluations, hashEvaluations, candidatesSkipped: candidates.length - prefiltered.length, peakRankedCandidates: ranked.length },
+  };
+}
+
+export function selectEvidencePackets(intent: EvidenceIntent, candidates: EvidenceCandidate[], budget: EvidencePacketBudget): EvidencePacket[] {
+  return selectEvidencePacketsWithStats(intent, candidates, budget).packets;
 }
