@@ -89,6 +89,7 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "codemod_plan", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
   { name: "inspect_tool_result", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
   { name: "inspect_context_object", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
+  { name: "bounded_tool_pipeline", group: "safety", alwaysOn: false, domain: true, risk: "safe" },
 
   { name: "commit_history", group: "repo", alwaysOn: false, domain: true, risk: "safe" },
   { name: "see_file_commit_history", group: "repo", alwaysOn: false, domain: true, risk: "safe" },

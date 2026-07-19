@@ -69,9 +69,11 @@ Examples:
 - `turn-context-composer.ts` — one bounded reminder per turn.
 - `tool-result-compactor.ts`, `context-object-store.ts` — typed reduction, verified sidecars, exact partial recovery, duplicate folding, and legacy `.pi/tool-results` compatibility.
 - `structured-compaction.ts` — validated evidence-linked checkpoints with automatic fallback to Pi's default compaction.
+- `bounded-tool-pipeline.ts`, `shared/bounded-pipeline.ts` — allowlisted read-only aggregation over verified context-object rows with call, intermediate, output, cancellation, and wall-clock budgets; no arbitrary expressions or dynamic tool execution.
+- `repo-index/index.ts`, `shared/repo-regions.ts`, `shared/retrieval-utilization.ts` — optional overlap-aware code-region budgets, deterministic structural reasons, retrieval metrics, and repository/task-scoped identifier-only utilization telemetry.
 - `policy-tools.ts`, `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts` — reusable BM25/TF-IDF/JMLM hybrid retrieval plus policy/codemod/check-recipe tools.
 - `user-memory/` — durable memory and entity recall.
-- `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, and locally persisted web knowledge.
+- `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, compact claims/source/object references, and locally persisted web knowledge.
 - `project-planner.ts` — project plan, TDD state, decisions, and questions.
 - `shoe-database/` — running shoe catalog and query tools.
 

@@ -42,6 +42,18 @@ describe("fixed-budget repository regions", () => {
     expect(candidates[1]).toMatchObject({ path: "src/auth.ts", startLine: 11, score: 0.6, reasons: ["context_line"] });
   });
 
+  test("ranks declaration and import-neighbor evidence above unrelated context", () => {
+    const candidates = parseRipgrepCodeRegions([
+      "src/model.ts:4:export function target() {}",
+      "src/model.ts-5-import { dependency } from './dep';",
+      "src/noise.ts-20-plain surrounding prose",
+    ].join("\n"), { mode: "structural" });
+    const result = rankCodeRegions(candidates, { maxLines: 2, maxChars: 200, maxFiles: 2 });
+    expect(result.regions[0].reasons).toContain("declaration_match");
+    expect(result.regions[0].reasons).toContain("import_neighbor");
+    expect(result.regions.some(region => region.path === "src/noise.ts")).toBe(false);
+  });
+
   test("never exceeds the character budget", () => {
     const result = rankCodeRegions([
       { path: "src/large.ts", startLine: 1, lines: ["x".repeat(90)], score: 1, reasons: ["exact"] },

@@ -1,0 +1,6 @@
+{
+  "toolName": "run_checks",
+  "content": "running 12 tests\npass auth accepts valid token\npass auth rejects expired token\nfixture setup complete\nFAIL auth rejects forged signature\nError: expected 401, received 200\nat src/auth.test.ts:44\ncleanup complete\n11 passed, 1 failed",
+  "requiredFacts": ["FAIL auth rejects forged signature", "Error: expected 401, received 200", "at src/auth.test.ts:44"],
+  "maxActiveChars": 180
+}

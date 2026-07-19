@@ -56,18 +56,18 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 
 - [x] Write gold-region retrieval budget and utilization tests.
 - [x] Add ranked code-region contracts and overlap-aware budgets.
-- [~] Add structural evidence to existing hybrid ranking.
-- [~] Track explored-versus-utilized identifiers without source bodies.
-- [ ] Write red tests for allowlists, budgets, cancellation, redaction, and partial failure.
-- [ ] Implement bounded read-only aggregation pipeline without arbitrary execution.
-- [ ] Integrate compact source/object references into research workflows.
-- [ ] Verify retrieval, repo-index, pipeline, and research tests.
+- [x] Add structural evidence to existing hybrid ranking.
+- [x] Track explored-versus-utilized identifiers without source bodies.
+- [x] Write red tests for allowlists, budgets, cancellation, redaction, and partial failure.
+- [x] Implement bounded read-only aggregation pipeline without arbitrary execution.
+- [x] Integrate compact source/object references into research workflows.
+- [x] Verify retrieval, repo-index, pipeline, and research tests.
 
 ## Slice 6 — evaluation and release gates
 
-- [ ] Add synthetic trajectory fixture contract and helpers.
-- [ ] Add tool-selection thesis fixtures.
-- [ ] Add typed-reducer and exact-recovery fixtures.
+- [x] Add synthetic trajectory fixture contract and helpers.
+- [x] Add tool-selection thesis fixtures.
+- [x] Add typed-reducer and exact-recovery fixtures.
 - [ ] Add compaction continuation and constraint-retention fixtures.
 - [ ] Add repository retrieval quality fixtures.
 - [ ] Add stale-state and end-to-end safety fixtures.
@@ -92,3 +92,6 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - 2026-07-19: Slice 4 complete: TypeBox checkpoint schema plus deterministic validation/rendering, Pi hook with active-model JSON generation and default fallback, evidence verification/pinning, 65% readiness snapshots, repository-filtered working-set retrieval, incremental deltas, checkpoint adapters, docs, and full 477-test suite pass.
 - 2026-07-19: Began slice 5 red-test planning for overlap-aware fixed-budget code-region ranking.
 - 2026-07-19: Added overlap-aware ranked regions, ripgrep match/context parsing, optional `code_search` line/character/file budgets with metrics, and repository/task-scoped utilization contracts that retain identifiers and counts but no source text; focused tests and typecheck pass.
+- 2026-07-19: Added the fixed-operation `bounded_tool_pipeline` over verified context-object JSON rows with deterministic filter/sort/select/aggregate operators, preflight safety checks, cancellation/wall-clock/call/intermediate/output budgets, recoverable oversized sidecars, and structured partial failures. Web research now returns compact claims, source URLs, fetch timestamps, and exact object IDs while preserving raw results in the verified store.
+- 2026-07-19: Slice 5 complete: region ranking and metrics, identifier-only utilization, bounded aggregation, compact research references, docs, typecheck, and full 494-test suite pass.
+- 2026-07-19: Began Slice 6 with deterministic trajectory/metrics/release-gate helpers, category-specific failure checks for over-aggressive and over-budget output, tool-selection discovery/schema fixtures, and typed failing-test reduction with exact verified section recovery; focused tests and typecheck pass.

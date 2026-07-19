@@ -251,10 +251,19 @@ export default function webContentExtension(pi: ExtensionAPI) {
       const text = matches.length ? matches.map((match, index) => [
         `${index + 1}) ${match.page.title}`,
         `   ${match.page.url}`,
-        `   page_id: ${match.page.id} · score: ${match.score}`,
+        `   page_id: ${match.page.id} · fetched_at: ${new Date(match.page.fetchedAt).toISOString()} · score: ${match.score}`,
         `   ${excerpt(match.content, queryTerms)}`,
       ].join("\n")).join("\n\n") : "No stored site content matched.";
-      return { content: [{ type: "text", text }], details: { query: params.query, resultCount: matches.length, pageIds: matches.map(match => match.page.id) } };
+      return {
+        content: [{ type: "text", text }],
+        details: {
+          query: params.query,
+          resultCount: matches.length,
+          pageIds: matches.map(match => match.page.id),
+          sourceIds: matches.map(match => match.page.url),
+          fetchedAt: matches.map(match => new Date(match.page.fetchedAt).toISOString()),
+        },
+      };
     },
   });
 

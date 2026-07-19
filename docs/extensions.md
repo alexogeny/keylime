@@ -40,6 +40,14 @@ Oversized successful outputs are classified and reduced with tool-specific reduc
 
 `cache-guard.ts` now reports prompt-cache efficiency only; it no longer rewrites trajectory history or applies a second generic truncation layer.
 
+### `bounded-tool-pipeline.ts`, `shared/bounded-pipeline.ts`, and retrieval regions
+
+`bounded_tool_pipeline` performs a deliberately small filter/sort/select/aggregate language over verified JSON rows already stored as context objects. The only initial operation is `context_object_rows`; dynamic tool names, mutation, shell, fetch, expressions, loops, and writes are unavailable. Execution rechecks the fixed allowlist and enforces call, intermediate-character, output-character, cancellation, and wall-clock budgets. Oversized intermediates are stored through the verified context-object store and returned by object reference. Partial failures raise structured failure metadata and never render a successful aggregate.
+
+`code_search` callers may opt into `max_lines`, `max_chars`, and `max_files` region budgets. Overlapping ripgrep match/context ranges merge before budgeting, ties are deterministic, and details report reasons plus returned/omitted metrics. Identifier-only utilization records are repository and task scoped and never retain source bodies.
+
+Web search now stores exact raw results as recoverable research context objects while returning compact deterministic claims, source URLs, fetch dates, and object IDs. The research orchestrator preserves these references and asks for exact recovery only when a claim requires verification.
+
 ### `structured-compaction.ts` and `shared/compaction-schema.ts`
 
 Intercepts Pi's `session_before_compact` hook and asks the active authenticated model for a strict JSON checkpoint. The checkpoint preserves goal, constraints, acceptance criteria, decisions, active files and locators, changes, verification, failures, blockers, pending actions, safety state, and context-object evidence. Keylime validates and renders the checkpoint, verifies and pins every referenced context object, and passes Pi's `firstKeptEntryId` and `tokensBefore` through unchanged. Invalid output, missing evidence, cancellation, authentication failure, or model failure returns `undefined` so Pi's default compaction remains authoritative.

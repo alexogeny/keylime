@@ -22,7 +22,7 @@ export type CodeRegionBudget = {
   maxFiles: number;
 };
 
-export function parseRipgrepCodeRegions(output: string): CodeRegionCandidate[] {
+export function parseRipgrepCodeRegions(output: string, options: { mode?: "auto" | "structural" | "lexical" } = {}): CodeRegionCandidate[] {
   const candidates: CodeRegionCandidate[] = [];
   for (const line of output.split("\n")) {
     if (!line.trim() || line === "--") continue;
@@ -30,12 +30,16 @@ export function parseRipgrepCodeRegions(output: string): CodeRegionCandidate[] {
     const context = match ? undefined : line.match(/^(.+?)-(\d+)-(.*)$/);
     const parsed = match ?? context;
     if (!parsed) continue;
+    const importNeighbor = !match && /^\s*(?:import\b|export\b.*\bfrom\b|use\b|from\b.*\bimport\b|mod\b)/.test(parsed[3]);
+    const reason = match
+      ? (options.mode === "structural" ? "declaration_match" : "lexical_match")
+      : (importNeighbor ? "import_neighbor" : "context_line");
     candidates.push({
       path: parsed[1].replace(/\\/g, "/").replace(/^\.\//, ""),
       startLine: Number(parsed[2]),
       lines: [parsed[3]],
-      score: match ? 1 : 0.6,
-      reasons: [match ? "lexical_match" : "context_line"],
+      score: match ? (options.mode === "structural" ? 1.2 : 1) : (importNeighbor ? 0.8 : 0.6),
+      reasons: [reason],
     });
   }
   return candidates;

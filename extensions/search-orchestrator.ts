@@ -261,16 +261,10 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
       // Step 3 — Distil and save
       if (hasSearch) {
         plan.push(
-          `## Step 3 — Distil and Save (after EACH search)`,
-          `For every web_search call, immediately follow up with save_search_knowledge:`,
-          `  save_search_knowledge(`,
-          `    search_id = <id from web_search>,`,
-          `    summary   = "2–4 sentence summary of key findings",`,
-          `    key_facts = ["fact 1", "fact 2", …],   // 5–8 concrete facts`,
-          `    tags       = ["lowercase", "topic", "tags"],`,
-          `    categories = ["technology" | "news" | "research" | "tutorial" | "product" | "science" | …],`,
-          `    sources    = [{ title, url, relevance: "high"|"medium"|"low" }, …]`,
-          `  )`,
+          `## Step 3 — Review Compact Claims and References`,
+          `Each web_search result returns deterministic claims, source URLs, a fetch timestamp, and an exact result_object reference instead of every raw snippet.`,
+          `Keep those source/object references while synthesising. Raw results can be recovered with inspect_context_object only when a specific claim needs verification.`,
+          `The deterministic baseline is already saved. Call save_search_knowledge only to refine an inadequate summary or claim set.`,
           ``,
         );
       }
@@ -282,7 +276,7 @@ export default function searchOrchestratorExtension(pi: ExtensionAPI) {
         `  • Integrates all sources (memory recall + fresh searches)`,
         `  • Distinguishes established facts from recent/evolving developments`,
         `  • Notes conflicting information or uncertainty where present`,
-        `  • Cites key sources inline (title + URL)`,
+        `  • Cites key sources inline (title + URL) and preserves relevant result_object IDs`,
         depth === "deep" ? `  • Includes an executive summary at the top` : "",
         `  • Flags information likely to change quickly`,
       ].filter(s => s !== ""));

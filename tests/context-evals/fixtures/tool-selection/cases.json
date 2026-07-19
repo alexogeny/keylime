@@ -1,0 +1,10 @@
+{
+  "minSchemaReductionRate": 0.75,
+  "cases": [
+    { "query": "compare files", "required": "compare_files" },
+    { "query": "inspect document", "required": "inspect_document" },
+    { "query": "run checks", "required": "run_checks" },
+    { "query": "retrieve policy", "required": "retrieve_policy" }
+  ],
+  "forbidden": ["write", "edit", "bash"]
+}

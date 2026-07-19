@@ -614,7 +614,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
       }
 
       if (params.max_lines !== undefined || params.max_chars !== undefined || params.max_files !== undefined) {
-        const candidates = parseRipgrepCodeRegions(output);
+        const candidates = parseRipgrepCodeRegions(output, { mode: usedMode });
         const ranked = rankCodeRegions(candidates, {
           maxLines: params.max_lines ?? maxResults * 4,
           maxChars: params.max_chars ?? SEARCH_MAX_CHARS,

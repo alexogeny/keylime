@@ -42,4 +42,24 @@ describe("web search deterministic auto-distillation", () => {
     expect(distilled.categories).toContain("technology");
     expect(distilled.categories).toContain("research");
   });
+
+  test("formats compact claims and source/object references without raw snippets", () => {
+    const entry: SearchEntry = {
+      id: "search-2",
+      query: "bounded research",
+      provider: "fixture",
+      timestamp: Date.UTC(2026, 6, 19),
+      raw: { results: [{ title: "Source", url: "https://example.test/source", snippet: "very large raw page snippet", position: 1 }] },
+      distilled: {
+        summary: "A bounded summary.", keyFacts: ["A compact claim."], tags: ["bounded"], categories: ["research"],
+        sources: [{ title: "Source", url: "https://example.test/source", relevance: "high" }],
+      },
+    };
+    const compact = __testables.formatCompactSearchResult(entry, "object://research-search-2");
+    expect(compact).toContain("A compact claim.");
+    expect(compact).toContain("https://example.test/source");
+    expect(compact).toContain("object://research-search-2");
+    expect(compact).toContain("fetched_at: 2026-07-19T00:00:00.000Z");
+    expect(compact).not.toContain("very large raw page snippet");
+  });
 });

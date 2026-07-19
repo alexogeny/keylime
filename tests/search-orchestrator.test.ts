@@ -16,6 +16,8 @@ describe("search orchestrator", () => {
 
     expect(result.content[0].text).toContain("## Step 4 — Synthesise");
     expect(result.content[0].text).toContain("web_search(query=");
+    expect(result.content[0].text).toContain("result_object");
+    expect(result.content[0].text).toContain("inspect_context_object");
     expect(result.content[0].text).not.toContain("\n\n\n");
     expect(result.details.numSearches).toBe(3);
   });

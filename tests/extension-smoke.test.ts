@@ -11,6 +11,7 @@ import toolResultCompactor from "../extensions/tool-result-compactor";
 import controlPlaneApi from "../extensions/control-plane-api";
 import contextObjectStore from "../extensions/context-object-store";
 import structuredCompaction from "../extensions/structured-compaction";
+import boundedToolPipeline from "../extensions/bounded-tool-pipeline";
 import webContent from "../extensions/web-content";
 import { mockPiFixture } from "./helpers/mock-pi";
 
@@ -30,6 +31,7 @@ describe("extension registration smoke", () => {
     controlPlaneApi(harness.pi);
     contextObjectStore(harness.pi);
     structuredCompaction(harness.pi);
+    boundedToolPipeline(harness.pi);
     webContent(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
@@ -43,6 +45,7 @@ describe("extension registration smoke", () => {
       "codemod_plan",
       "inspect_tool_result",
       "inspect_context_object",
+      "bounded_tool_pipeline",
       "run_checks",
       "read_agent_registers",
       "ctx_region_write",

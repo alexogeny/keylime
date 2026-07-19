@@ -29,6 +29,7 @@ import {
 } from "./shared/web-search-store";
 import type { SearchEntry } from "./shared/web-search-types";
 import { summarizeText } from "./shared/content-distill";
+import { storeContextObject } from "./context-object-store";
 
 // ─── Deterministic search distillation ───────────────────────────────────────
 
@@ -102,10 +103,28 @@ function autoDistillSearchEntry(entry: SearchEntry): NonNullable<SearchEntry["di
   };
 }
 
+function formatCompactSearchResult(entry: SearchEntry, objectId: string): string {
+  const distilled = entry.distilled ?? autoDistillSearchEntry(entry);
+  const lines = [
+    `search_id: ${entry.id}`,
+    `query: ${JSON.stringify(entry.query)}`,
+    `provider: ${entry.provider}`,
+    `fetched_at: ${new Date(entry.timestamp).toISOString()}`,
+    `result_object: ${objectId}`,
+    `summary: ${distilled.summary}`,
+    "claims:",
+    ...distilled.keyFacts.map((fact, index) => `  ${index + 1}. ${fact}`),
+    "sources:",
+    ...distilled.sources.map((source, index) => `  ${index + 1}. [${source.title}](${source.url}) relevance=${source.relevance}`),
+  ];
+  return lines.join("\n");
+}
+
 export const __testables = {
   autoDistillSearchEntry,
   keywordTags,
   inferCategories,
+  formatCompactSearchResult,
 };
 
 // ─── Config (env vars with fallback to config.json) ──────────────────────────
@@ -224,7 +243,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
       })),
     }),
 
-    async execute(_id, params, signal, onUpdate) {
+    async execute(_id, params, signal, onUpdate, ctx) {
       const found = await detectProvider();
       if (!found) {
         throw new Error(
@@ -273,41 +292,28 @@ export default function webSearchExtension(pi: ExtensionAPI) {
       });
       await saveSearchIndex(index);
 
-      // Format for LLM
-      const lines: string[] = [
-        `search_id: ${entry.id}`,
-        `query:     "${params.query}"`,
-        `provider:  ${provider}`,
-        `results:   ${raw.results.length}`,
-        `saved:     deterministic baseline knowledge (${entry.distilled.keyFacts.length} facts, ${entry.distilled.sources.length} sources)`,
-        ``,
-      ];
-
-      if (raw.answerBox) {
-        lines.push(`⬡ Answer Box: ${raw.answerBox}`, ``);
-      }
-      if (raw.knowledgeGraph?.title) {
-        lines.push(`⬡ Knowledge Graph: ${raw.knowledgeGraph.title}`, raw.knowledgeGraph.description ?? "", ``);
-      }
-
-      for (const r of raw.results) {
-        lines.push(
-          `${r.position ?? "•"}) ${r.title}`,
-          `   ${r.url}`,
-          `   ${r.snippet}`,
-          ``,
-        );
-      }
-
-      lines.push(
-        `───`,
-        `Deterministic baseline knowledge was already saved for recall. To improve it, call:`,
-        `  save_search_knowledge(search_id="${entry.id}", summary=..., key_facts=[...], tags=[...], categories=[...], sources=[...])`,
-      );
-
+      const stored = await storeContextObject(ctx?.cwd ?? process.cwd(), {
+        id: `research-${entry.id}`,
+        kind: "research",
+        sourceTool: "web_search",
+        content: JSON.stringify(entry),
+        summary: `Raw web search results for ${entry.query}`,
+        retention: "reconstructable",
+      });
+      const objectId = `object://${stored.object.id}`;
+      const sourceIds = entry.distilled.sources.map(source => source.url);
       return {
-        content: [{ type: "text", text: lines.join("\n") }],
-        details:  { searchId: entry.id, query: params.query, provider, resultCount: raw.results.length, summarize: params.summarize === true },
+        content: [{ type: "text", text: formatCompactSearchResult(entry, objectId) }],
+        details: {
+          searchId: entry.id,
+          query: params.query,
+          provider,
+          resultCount: raw.results.length,
+          summarize: params.summarize === true,
+          objectId,
+          sourceIds,
+          fetchedAt: new Date(entry.timestamp).toISOString(),
+        },
       };
     },
   });
