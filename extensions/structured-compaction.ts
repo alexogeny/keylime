@@ -5,19 +5,23 @@ import {
   renderCompactionCheckpoint,
   validateCompactionCheckpoint,
   type CompactionCheckpoint,
-  type EvidenceClaim,
 } from "./shared/compaction-schema";
 import { pinContextObjects, readStoredContextObject } from "./context-object-store";
 import { readContextRuntimeTelemetry } from "./shared/context-runtime-bus";
 import { selectAgentExecutionProfile } from "./shared/agent-execution-profile";
+import { COMPACTION_MAX_CONTROL_CHARS, stabilizeCompactionControlPlane } from "./shared/compaction-control";
+import { finalizeLiveCompaction, loadLiveControlState, saveLiveControlState, sourceEntriesFromMessages } from "./shared/live-compaction-control";
+import { compactionMetricsChannel } from "./shared/compaction-metrics-channel";
+import { createProviderCircuitBreaker, type ProviderFailureKind } from "./shared/provider-circuit-breaker";
+export { COMPACTION_MAX_CONTROL_CHARS, stabilizeCompactionControlPlane } from "./shared/compaction-control";
 
+const providerCircuitBreaker = createProviderCircuitBreaker();
 const COMPACTION_EXECUTION_PROFILE = selectAgentExecutionProfile({
   taskKind: "structured_extraction", ambiguity: 0, risk: "medium", contextPressure: .8, requiresCreativity: false,
 });
 export const COMPACTION_MAX_CONVERSATION_CHARS = 120_000;
 export const COMPACTION_MAX_INCREMENTAL_CONVERSATION_CHARS = 80_000;
 export const COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS = 30_000;
-export const COMPACTION_MAX_CONTROL_CHARS = 40_000;
 export const COMPACTION_MAX_OUTPUT_TOKENS = COMPACTION_EXECUTION_PROFILE.maxOutputTokens;
 const COMPACTION_MAX_MESSAGE_CHARS = 24_000;
 export const COMPACTION_REQUEST_TIMEOUT_MS = COMPACTION_EXECUTION_PROFILE.timeoutMs;
@@ -44,6 +48,8 @@ type StructuredCompactionOptions = {
   pinObjects?: (cwd: string, ids: string[]) => Promise<void>;
   getPreviousCheckpoint?: () => CompactionCheckpoint | undefined;
   setPreviousCheckpoint?: (checkpoint: CompactionCheckpoint) => void;
+  liveSemanticValidation?: boolean;
+  sessionKey?: (event: any, ctx: any) => string;
 };
 
 export type CompactionSerializationStats = {
@@ -141,10 +147,12 @@ export function serializeCompactionMessagesWithStats(messages: unknown[]): { tex
     let chunk: string;
     try {
       const content = boundedJsonValue(message?.content ?? message, state);
-      chunk = `[${index + 1}:${message?.id ?? message?.role ?? "entry"}] ${JSON.stringify(content)}`;
+      const sourceId = message?.id ?? message?.entryId ?? `entry-${index + 1}`;
+      chunk = `[${sourceId}:${message?.role ?? "entry"}] ${JSON.stringify(content)}`;
     } catch {
       state.truncatedValues++;
-      chunk = `[${index + 1}:${message?.id ?? message?.role ?? "entry"}] [unserializable entry]`;
+      const sourceId = message?.id ?? message?.entryId ?? `entry-${index + 1}`;
+      chunk = `[${sourceId}:${message?.role ?? "entry"}] [unserializable entry]`;
     }
     chunk = boundCompactionText(chunk, COMPACTION_MAX_MESSAGE_CHARS);
     buffer.append(index ? `\n\n${chunk}` : chunk);
@@ -165,34 +173,6 @@ export function prepareCompactionConversation(messages: unknown[], previousSumma
     previousSummary: previousSummary ? boundCompactionText(previousSummary, COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS) : undefined,
     stats: serialized.stats,
   };
-}
-
-const CONTROL_SECTIONS = ["constraints", "acceptanceCriteria", "pendingActions", "safetyState"] as const;
-function claimHash(text: string): string { return createHash("sha256").update(text).digest("hex"); }
-
-export function stabilizeCompactionControlPlane(checkpoint: CompactionCheckpoint, previous?: CompactionCheckpoint): CompactionCheckpoint {
-  const next = structuredClone(checkpoint);
-  for (const section of CONTROL_SECTIONS) {
-    const normalized = next[section].map((claim): EvidenceClaim => {
-      const contentHash = claimHash(claim.text);
-      return { ...claim, controlId: claim.controlId ?? `${section}:${contentHash.slice(0, 16)}`, contentHash };
-    });
-    const byHash = new Map<string, EvidenceClaim>();
-    for (const claim of normalized) if (!byHash.has(claim.contentHash!)) byHash.set(claim.contentHash!, claim);
-    for (const prior of previous?.[section] ?? []) {
-      if (prior.status !== "active") continue;
-      const contentHash = prior.contentHash ?? claimHash(prior.text);
-      const controlId = prior.controlId ?? `${section}:${contentHash.slice(0, 16)}`;
-      const current = byHash.get(contentHash);
-      if (!current || current.text !== prior.text || current.status !== "active") {
-        byHash.set(contentHash, { ...prior, controlId, contentHash, status: "active" });
-      }
-    }
-    next[section] = [...byHash.values()];
-  }
-  const controlChars = CONTROL_SECTIONS.reduce((sum, section) => sum + next[section].reduce((sectionSum, claim) => sectionSum + claim.text.length + (claim.controlId?.length ?? 0) + 80, 0), 0);
-  if (controlChars > COMPACTION_MAX_CONTROL_CHARS) throw new Error(`Compaction control plane exceeds control character budget (${controlChars}/${COMPACTION_MAX_CONTROL_CHARS})`);
-  return next;
 }
 
 function checkpointObjectIds(checkpoint: CompactionCheckpoint): string[] {
@@ -233,48 +213,69 @@ export function renderRuntimeFoldContext(): string {
 
 export function createStructuredCompactionHandler(options: StructuredCompactionOptions) {
   return async (event: any, ctx: any): Promise<any | undefined> => {
+    const startedAt = Date.now();
+    let schemaValid = false;
+    let fallbackUsed = false;
+    let activeControlsBefore = 0;
+    let activeControlsAfter = 0;
+    let relinkingDetected = false;
     try {
       const { preparation } = event;
       const sourceSignal: AbortSignal = event.signal ?? new AbortController().signal;
       const signal = AbortSignal.any([sourceSignal, AbortSignal.timeout(COMPACTION_REQUEST_TIMEOUT_MS)]);
       const allMessages = [...(preparation.messagesToSummarize ?? []), ...(preparation.turnPrefixMessages ?? [])];
       const prepared = prepareCompactionConversation(allMessages, preparation.previousSummary, renderRuntimeFoldContext());
+      const sessionKey = options.sessionKey?.(event, ctx) ?? String(preparation.firstKeptEntryId ?? "session");
+      const persisted = options.liveSemanticValidation ? await loadLiveControlState(ctx.cwd, sessionKey) : undefined;
+      const previous = options.getPreviousCheckpoint?.() ?? persisted?.checkpoint;
+      const sourceEntries = sourceEntriesFromMessages(allMessages);
       const generationInput = {
         conversation: prepared.conversation,
         previousSummary: prepared.previousSummary,
         reason: event.reason,
         willRetry: Boolean(event.willRetry),
       };
+      const finalize = async (value: unknown): Promise<CompactionCheckpoint> => {
+        const structural = validateCompactionCheckpoint(value);
+        if (!options.liveSemanticValidation) return stabilizeCompactionControlPlane(structural, previous);
+        const result = await finalizeLiveCompaction({ cwd: ctx.cwd, generated: structural, previous, sourceEntries });
+        activeControlsBefore = result.audit.activeControlsBefore;
+        activeControlsAfter = result.audit.activeControlsAfter;
+        return result.checkpoint;
+      };
+
       let generated: unknown;
       let retryUsed = false;
       try {
         generated = await options.generateCheckpoint(generationInput, signal, ctx, 0);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (!isRetryableCheckpointGenerationError(error) || signal?.aborted) throw error;
+        if (!isRetryableCheckpointGenerationError(error) || signal.aborted) throw error;
         retryUsed = true;
         generated = await options.generateCheckpoint({ ...generationInput, validationError: message }, signal, ctx, 1);
       }
-      if (signal?.aborted) return;
+      if (signal.aborted) return;
       let checkpoint: CompactionCheckpoint;
       try {
-        checkpoint = validateCompactionCheckpoint(generated);
+        checkpoint = await finalize(generated);
       } catch (error) {
-        if (signal?.aborted) return;
+        if (signal.aborted) return;
         if (retryUsed) throw error;
+        retryUsed = true;
         const validationError = error instanceof Error ? error.message : String(error);
         generated = await options.generateCheckpoint({ ...generationInput, validationError }, signal, ctx, 1);
-        if (signal?.aborted) return;
-        checkpoint = validateCompactionCheckpoint(generated);
+        if (signal.aborted) return;
+        checkpoint = await finalize(generated);
       }
-      checkpoint = stabilizeCompactionControlPlane(checkpoint, options.getPreviousCheckpoint?.());
+      schemaValid = true;
       const objectIds = checkpointObjectIds(checkpoint);
-      if (options.objectExists && objectIds.length > 0) {
+      if (!options.liveSemanticValidation && options.objectExists && objectIds.length > 0) {
         const existence = await Promise.all(objectIds.map(async id => ({ id, exists: await options.objectExists!(ctx.cwd, id) })));
         const missing = existence.find(item => !item.exists);
         if (missing) throw new Error(`Missing context object evidence: ${missing.id}`);
       }
       if (options.pinObjects && objectIds.length > 0) await options.pinObjects(ctx.cwd, objectIds);
+      if (options.liveSemanticValidation) await saveLiveControlState(ctx.cwd, sessionKey, checkpoint);
       options.setPreviousCheckpoint?.(checkpoint);
       return {
         compaction: {
@@ -284,11 +285,25 @@ export function createStructuredCompactionHandler(options: StructuredCompactionO
         },
       };
     } catch (error) {
-      if (!event.signal?.aborted) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui?.notify?.(`Structured compaction failed (${message}); using default compaction.`, "warning");
-      }
+      fallbackUsed = true;
+      const message = error instanceof Error ? error.message : String(error);
+      relinkingDetected = /synthesized|relink/i.test(message);
+      if (!event.signal?.aborted) ctx.ui?.notify?.(`Structured compaction failed (${message}); using default compaction.`, "warning");
       return;
+    } finally {
+      if (!event.signal?.aborted) {
+        const model = ctx?.model;
+        compactionMetricsChannel.publish({
+          model: model ? { provider: String(model.provider ?? "unknown"), model: String(model.id ?? model.model ?? "unknown"), thinking: COMPACTION_EXECUTION_PROFILE.reasoning } : undefined,
+          durationMs: Date.now() - startedAt,
+          schemaValid,
+          fallbackUsed,
+          activeControlsBefore,
+          activeControlsAfter,
+          relinkingDetected,
+          prohibitedBackendActions: 0,
+        });
+      }
     }
   };
 }
@@ -304,6 +319,14 @@ function isRetryableCheckpointGenerationError(error: unknown): boolean {
   return /empty checkpoint response|invalid checkpoint json|unterminated string|unexpected end.*json|expected.*json/i.test(message);
 }
 
+function providerFailureKind(error: unknown): ProviderFailureKind {
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  if (/timeout|timed out|abort/i.test(message)) return "timeout";
+  if (/rate.?limit|\b429\b/i.test(message)) return "rate_limit";
+  if (/unavailable|\b50[234]\b/i.test(message)) return "provider_unavailable";
+  return "network";
+}
+
 async function generateWithActiveModel(input: CompactionGenerationInput, signal: AbortSignal, ctx: any, attempt = 0): Promise<unknown> {
   const model = ctx.model;
   if (!model) throw new Error("No active model available");
@@ -312,8 +335,8 @@ async function generateWithActiveModel(input: CompactionGenerationInput, signal:
   const prompt = `Create a JSON compaction checkpoint with exactly these keys:
 version, goal, constraints, acceptanceCriteria, decisions, activeFiles, changes, verification, failures, blockers, pendingActions, safetyState, objectIds.
 
-Each claim is {"text": string, "sourceEntryIds"?: string[], "objectIds"?: string[], "status"?: "active"|"resolved"|"superseded", "controlId"?: string, "contentHash"?: string}. Preserve controlId and contentHash exactly for active constraints, acceptance criteria, pending actions, and safety state.
-Each activeFiles item is {"path": string, "relevance": string, "contentHash"?: string, "locators"?: [{"path"?: string, "lines"?: {"start": number, "end": number}, "section"?: string, "resultId"?: string}]}. Never use a bare path string in activeFiles.
+Each claim is {"text": string, "sourceEntryIds": string[], "objectIds"?: string[], "status"?: "active"|"resolved"|"superseded", "controlId"?: string, "contentHash"?: string}. Every factual claim must cite at least one exact source entry id shown in the conversation labels or an existing object id. Preserve controlId and contentHash exactly for active constraints, acceptance criteria, pending actions, and safety state.
+Each activeFiles item is {"path": string, "relevance": string, "contentHash"?: string, "locators"?: [{"path"?: string, "lines"?: {"start": number, "end": number}, "section"?: string, "resultId"?: string}]}. Never use a bare path string in activeFiles. Never invent contentHash; omit it unless an exact hash already appears in the source context because Keylime verifies file bytes.
 Preserve exact user constraints, paths, line ranges, hashes, errors, blockers, pending work, safety state, and existing object ids. Be concise: merge duplicates, prefer active over resolved history, use at most 6 claims per section, 12 active files, and 240 characters per text field. Keep the entire JSON under 10,000 characters. Use empty arrays rather than omitting keys. Return JSON only.
 ${input.previousSummary ? `\nPrevious checkpoint:\n${boundCompactionText(input.previousSummary, COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS)}\n` : ""}${input.validationError ? `\nCorrection required: the previous JSON was rejected because ${input.validationError}. Regenerate the entire checkpoint with the exact schema.\n` : ""}
 <conversation>
@@ -321,16 +344,25 @@ ${attempt > 0 && input.conversation.length > 60_000 ? `[earlier conversation omi
 </conversation>`;
   const timeoutSignal = AbortSignal.timeout(COMPACTION_REQUEST_TIMEOUT_MS);
   const requestSignal = AbortSignal.any([signal, timeoutSignal]);
-  const response = await complete(model, {
-    messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
-  }, {
-    apiKey: auth.apiKey,
-    headers: auth.headers,
-    env: auth.env,
-    maxTokens: COMPACTION_MAX_OUTPUT_TOKENS,
-    reasoning: COMPACTION_EXECUTION_PROFILE.reasoning,
-    signal: requestSignal,
-  });
+  const circuitKey = `${String(model.provider ?? "unknown")}/${String(model.id ?? model.model ?? "unknown")}`;
+  if (!providerCircuitBreaker.allowRequest(circuitKey)) throw new Error(`Provider circuit is open for ${circuitKey}; using default compaction`);
+  let response: Awaited<ReturnType<typeof complete>>;
+  try {
+    response = await complete(model, {
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
+    }, {
+      apiKey: auth.apiKey,
+      headers: auth.headers,
+      env: auth.env,
+      maxTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+      reasoning: COMPACTION_EXECUTION_PROFILE.reasoning,
+      signal: requestSignal,
+    });
+    providerCircuitBreaker.recordSuccess(circuitKey);
+  } catch (error) {
+    providerCircuitBreaker.recordFailure(circuitKey, providerFailureKind(error));
+    throw error;
+  }
   const text = response.content
     .filter((part): part is { type: "text"; text: string } => part.type === "text")
     .map(part => part.text)
@@ -384,6 +416,11 @@ export default function structuredCompactionExtension(pi: ExtensionAPI) {
     pinObjects: pinContextObjects,
     getPreviousCheckpoint: () => lastCheckpoint,
     setPreviousCheckpoint: checkpoint => { lastCheckpoint = checkpoint; },
+    liveSemanticValidation: true,
+    sessionKey: (event, ctx) => {
+      const first = ctx.sessionManager?.getEntries?.()?.[0];
+      return String(first?.id ?? event.preparation?.firstKeptEntryId ?? "session");
+    },
   });
   pi.on("session_before_compact", handler);
 }

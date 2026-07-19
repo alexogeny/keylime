@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { readContextRuntimeTelemetry } from "./shared/context-runtime-bus";
+import { compactionMetricsChannel } from "./shared/compaction-metrics-channel";
 
 export const DEFAULT_CONTEXT_TELEMETRY_DIR = join(homedir(), ".pi", "data", "keylime-context-telemetry");
 const DEFAULT_RETENTION_DAYS = 0; // permanent unless explicitly configured
@@ -344,12 +345,14 @@ export default function passiveContextTelemetryExtension(pi: ExtensionAPI, optio
     maxBytes: options.maxBytes ?? Number(process.env.PI_CONTEXT_TELEMETRY_MAX_BYTES || DEFAULT_MAX_BYTES),
   };
   const store = createPassiveTelemetryStore(configured);
+  let detachCompactionMetrics: (() => void) | undefined;
   let lastFoldId: string | undefined;
   let selectedProvider = "unknown";
   let selectedModel = "unknown";
   let thinkingLevel = String((pi as any).getThinkingLevel?.() ?? "unknown");
   const currentVariant = (): ModelVariant => ({ provider: selectedProvider, model: selectedModel, thinking: thinkingLevel });
   pi.on("session_start", async (_event: any, ctx: any) => {
+    if (!detachCompactionMetrics) detachCompactionMetrics = compactionMetricsChannel.attachStore(store);
     const model = ctx?.model;
     if (model) { selectedProvider = String(model.provider ?? selectedProvider); selectedModel = String(model.id ?? model.model ?? selectedModel); }
     await store.prune();
@@ -385,7 +388,8 @@ export default function passiveContextTelemetryExtension(pi: ExtensionAPI, optio
       modelVariant: currentVariant(),
     });
   });
-  pi.on("session_before_compact", async () => { await store.recordCompaction(currentVariant()); });
+  pi.on("session_before_compact", async () => { await compactionMetricsChannel.flush(); });
+  pi.on("session_shutdown", async () => { await compactionMetricsChannel.flush(); detachCompactionMetrics?.(); detachCompactionMetrics = undefined; });
   pi.registerCommand("context-telemetry", {
     description: "Show, query models, or clear bounded anonymous context telemetry",
     handler: async (args, ctx) => {
