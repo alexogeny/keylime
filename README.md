@@ -71,13 +71,15 @@ Examples:
 - `structured-compaction.ts` — validated evidence-linked checkpoints with automatic fallback to Pi's default compaction.
 - `bounded-tool-pipeline.ts`, `shared/bounded-pipeline.ts` — allowlisted read-only aggregation over verified context-object rows with call, intermediate, output, cancellation, and wall-clock budgets; no arbitrary expressions or dynamic tool execution.
 - `repo-index/index.ts`, `shared/repo-regions.ts`, `shared/retrieval-utilization.ts` — optional overlap-aware code-region budgets, deterministic structural reasons, retrieval metrics, and repository/task-scoped identifier-only utilization telemetry.
+- `context-runtime.ts` — trajectory-aware observation masking, intent-aware packets, retrieval credit, cache fingerprints, proactive folds, adaptive budgets, and provider-compaction coordination.
+- `passive-context-telemetry.ts` — text-free daily aggregates in `~/.pi/data/keylime-context-telemetry`, retained for 14 days under a 256 KiB hard cap; inspect with `/context-telemetry` and erase with `/context-telemetry clear`.
 - `policy-tools.ts`, `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts` — reusable BM25/TF-IDF/JMLM hybrid retrieval plus policy/codemod/check-recipe tools.
 - `user-memory/` — durable memory and entity recall.
 - `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, compact claims/source/object references, and locally persisted web knowledge.
 - `project-planner.ts` — project plan, TDD state, decisions, and questions.
 - `shoe-database/` — running shoe catalog and query tools.
 
-Context-specific release checks are available as `bun run test:context`; `bun run bench:context` prints the deterministic category report used to review schema, trajectory, recall, recoverability, and safety budgets.
+Context-specific release checks are available as `bun run test:context`; `bun run test:context:e2e` exercises live Pi hook wiring, and `bun run bench:context` prints the deterministic category report used to review schema, trajectory, recall, recoverability, and safety budgets.
 
 See [docs/extensions.md](docs/extensions.md) for the full extension map.
 

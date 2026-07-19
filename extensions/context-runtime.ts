@@ -18,7 +18,7 @@ type RuntimeOptions = {
   provider?: ProviderContextCapabilities;
 };
 type RuntimeTransform = { kind: "observation_mask"; toolCallId: string; beforeChars: number; afterChars: number; recoverable: boolean };
-type RuntimeSnapshot = {
+export type RuntimeSnapshot = {
   turn: number;
   observations: number;
   maskedObservations: number;
@@ -28,6 +28,9 @@ type RuntimeSnapshot = {
   lastFold?: TrajectoryFold;
   compaction?: CompactionStrategyDecision;
 };
+
+let lastContextRuntimeSnapshot: RuntimeSnapshot | undefined;
+export function getLastContextRuntimeSnapshot(): RuntimeSnapshot | undefined { return lastContextRuntimeSnapshot; }
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -163,7 +166,9 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
     },
 
     snapshot(): RuntimeSnapshot {
-      return { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction };
+      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction };
+      lastContextRuntimeSnapshot = snapshot;
+      return snapshot;
     },
   };
 }

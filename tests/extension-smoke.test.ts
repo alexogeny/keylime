@@ -14,6 +14,7 @@ import structuredCompaction from "../extensions/structured-compaction";
 import boundedToolPipeline from "../extensions/bounded-tool-pipeline";
 import webContent from "../extensions/web-content";
 import contextRuntime from "../extensions/context-runtime";
+import passiveContextTelemetry from "../extensions/passive-context-telemetry";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 describe("extension registration smoke", () => {
@@ -35,6 +36,7 @@ describe("extension registration smoke", () => {
     boundedToolPipeline(harness.pi);
     webContent(harness.pi);
     contextRuntime(harness.pi);
+    passiveContextTelemetry(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
       "list_files",
@@ -68,6 +70,7 @@ describe("extension registration smoke", () => {
       "keylime",
       "keylime-stop",
       "context-runtime",
+      "context-telemetry",
     ]));
     expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining([
       "tool_result",
