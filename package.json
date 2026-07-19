@@ -14,6 +14,7 @@
     "bench:systems": "bun tests/benchmarks/keylime-systems.bench.ts",
     "test:context": "bun test tests/context-evals tests/context-ledger.test.ts tests/policy-tools.test.ts tests/context-object-store.test.ts tests/structured-compaction.test.ts tests/repo-retrieval-budget.test.ts tests/retrieval-utilization.test.ts tests/bounded-tool-pipeline.test.ts tests/bounded-tool-pipeline-extension.test.ts",
     "test:context:red": "bun test tests/context-theses",
+    "test:context:e2e": "bun test tests/context-theses/runtime-integration.e2e.test.ts",
     "bench:context": "bun tests/context-evals/report.ts"
   },
   "dependencies": {

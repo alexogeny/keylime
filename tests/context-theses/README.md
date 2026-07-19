@@ -20,4 +20,6 @@ bun test tests/context-theses
 - `provider-compaction-policy.ts` — safe coordination with provider-native compaction.
 - `context-efficiency-frontier.ts` — quality-gated end-to-end efficiency evaluation.
 
+`runtime-integration.e2e.test.ts` exercises the Pi hooks that connect these policies to tool results, context rewriting, retrieval telemetry, turn boundaries, provider compaction, status UI, and extension registration.
+
 The suite deliberately requires safety, continuation-fact survival, exact recovery handles, deterministic output, and task-quality floors. Token reduction by itself is not considered success.

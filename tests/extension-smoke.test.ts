@@ -13,6 +13,7 @@ import contextObjectStore from "../extensions/context-object-store";
 import structuredCompaction from "../extensions/structured-compaction";
 import boundedToolPipeline from "../extensions/bounded-tool-pipeline";
 import webContent from "../extensions/web-content";
+import contextRuntime from "../extensions/context-runtime";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 describe("extension registration smoke", () => {
@@ -33,6 +34,7 @@ describe("extension registration smoke", () => {
     structuredCompaction(harness.pi);
     boundedToolPipeline(harness.pi);
     webContent(harness.pi);
+    contextRuntime(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
       "list_files",
@@ -46,6 +48,7 @@ describe("extension registration smoke", () => {
       "inspect_tool_result",
       "inspect_context_object",
       "bounded_tool_pipeline",
+      "context_runtime_status",
       "run_checks",
       "read_agent_registers",
       "ctx_region_write",
@@ -64,6 +67,7 @@ describe("extension registration smoke", () => {
       "checkpoint",
       "keylime",
       "keylime-stop",
+      "context-runtime",
     ]));
     expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining([
       "tool_result",
@@ -73,6 +77,8 @@ describe("extension registration smoke", () => {
       "agent_end",
       "model_select",
       "session_before_compact",
+      "turn_end",
+      "message_end",
     ]));
   });
 });
