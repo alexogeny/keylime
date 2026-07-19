@@ -11,6 +11,11 @@ export type ContextRuntimeTelemetrySnapshot = {
   retrievalBudget: { maxPackets: number; maxChars: number };
   lastFold?: TrajectoryFold;
   compaction?: CompactionStrategyDecision;
+  controlState: {
+    constraints: Array<{ sourceEventId: string; text: string }>;
+    plans: Array<{ sourceEventId: string; text: string }>;
+    unresolvedFailures: Array<{ sourceEventId: string; text: string }>;
+  };
 };
 
 let latest: ContextRuntimeTelemetrySnapshot | undefined;

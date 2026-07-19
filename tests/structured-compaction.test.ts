@@ -9,6 +9,7 @@ import structuredCompactionExtension, {
   COMPACTION_MAX_CONVERSATION_CHARS,
   COMPACTION_MAX_OUTPUT_TOKENS,
   createStructuredCompactionHandler,
+  stabilizeCompactionControlPlane,
 } from "../extensions/structured-compaction";
 
 const checkpoint: CompactionCheckpoint = {
@@ -159,6 +160,27 @@ describe("structured compaction checkpoint", () => {
     expect(result?.compaction.summary).toContain("Goal: Implement verified context compaction");
   });
 
+  test("retries truncated JSON with corrective feedback", async () => {
+    const attempts: number[] = [];
+    const feedback: Array<string | undefined> = [];
+    const handler = createStructuredCompactionHandler({
+      generateCheckpoint: async (input, _signal, _ctx, attempt = 0) => {
+        attempts.push(attempt);
+        feedback.push(input.validationError);
+        if (attempt === 0) throw new SyntaxError("Unterminated string in JSON at position 11879");
+        return checkpoint;
+      },
+    });
+    const result = await handler({
+      preparation: { firstKeptEntryId: "kept", tokensBefore: 100, messagesToSummarize: [], turnPrefixMessages: [] },
+      branchEntries: [], reason: "manual", willRetry: false, signal: new AbortController().signal,
+    } as any, { cwd: "/tmp/repo", ui: { notify: () => {} } } as any);
+
+    expect(attempts).toEqual([0, 1]);
+    expect(feedback[1]).toContain("Unterminated string in JSON");
+    expect(result?.compaction.summary).toContain("Goal: Implement verified context compaction");
+  });
+
   test("retries a schema-invalid checkpoint before defaulting", async () => {
     const attempts: number[] = [];
     const handler = createStructuredCompactionHandler({
@@ -175,6 +197,26 @@ describe("structured compaction checkpoint", () => {
 
     expect(attempts).toEqual([0, 1]);
     expect(result?.compaction.summary).toContain("Goal: Implement verified context compaction");
+  });
+
+  test("stabilizes control ids and hashes deterministically", () => {
+    const first = stabilizeCompactionControlPlane(checkpoint);
+    const second = stabilizeCompactionControlPlane(checkpoint);
+    expect(first).toEqual(second);
+    expect(first.constraints[0].controlId).toMatch(/^constraints:[a-f0-9]{16}$/);
+    expect(first.constraints[0].contentHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  test("carries active controls forward when a later model checkpoint omits them", () => {
+    const previous = stabilizeCompactionControlPlane(checkpoint);
+    const candidate = structuredClone(checkpoint);
+    candidate.constraints = [];
+    candidate.pendingActions = [];
+    candidate.safetyState = [];
+    const stabilized = stabilizeCompactionControlPlane(candidate, previous);
+    expect(stabilized.constraints).toEqual(previous.constraints);
+    expect(stabilized.pendingActions).toEqual(previous.pendingActions);
+    expect(stabilized.safetyState).toEqual(previous.safetyState);
   });
 
   test("renders exact paths locators hashes and evidence ids", () => {

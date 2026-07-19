@@ -1,4 +1,4 @@
-export type ContextValueItem = { id: string; category: string; chars: number; relevance: number; impact: number; freshness: number; confidence: number; lossRisk: number; recoverable: boolean; mandatory?: boolean };
+export type ContextValueItem = { id: string; category: string; chars: number; relevance: number; impact: number; freshness: number; confidence: number; lossRisk: number; recoverable: boolean; mandatory?: boolean; contentHash?: string };
 export type ContextAllocationOptions = { maxChars: number; categoryFloors?: Record<string, number> };
 export type ContextAllocation = { selected: ContextValueItem[]; rejected: ContextValueItem[]; totalChars: number; scores: Record<string, number>; categoryChars: Record<string, number> };
 
@@ -9,7 +9,16 @@ function value(item: ContextValueItem): number {
 }
 
 export function allocateContextBudget(items: ContextValueItem[], options: ContextAllocationOptions): ContextAllocation {
-  const ordered = [...items].sort((a, b) => Number(Boolean(b.mandatory)) - Number(Boolean(a.mandatory)) || value(b) - value(a) || a.id.localeCompare(b.id));
+  const mandatoryChars = items.filter(item => item.mandatory).reduce((sum, item) => sum + item.chars, 0);
+  if (mandatoryChars > options.maxChars) throw new Error(`Mandatory context requires ${mandatoryChars} chars but budget is ${options.maxChars}`);
+  const ranked = [...items].sort((a, b) => Number(Boolean(b.mandatory)) - Number(Boolean(a.mandatory)) || value(b) - value(a) || a.id.localeCompare(b.id));
+  const seenHashes = new Set<string>();
+  const ordered = ranked.filter(item => {
+    if (!item.contentHash) return true;
+    if (seenHashes.has(item.contentHash)) return false;
+    seenHashes.add(item.contentHash);
+    return true;
+  });
   const selected: ContextValueItem[] = [];
   const selectedIds = new Set<string>();
   let totalChars = 0;
@@ -30,7 +39,7 @@ export function allocateContextBudget(items: ContextValueItem[], options: Contex
   for (const item of selected) categoryChars[item.category] = (categoryChars[item.category] ?? 0) + item.chars;
   return {
     selected,
-    rejected: ordered.filter(item => !selectedIds.has(item.id)),
+    rejected: ranked.filter(item => !selectedIds.has(item.id)),
     totalChars,
     scores: Object.fromEntries(items.map(item => [item.id, value(item)])),
     categoryChars,

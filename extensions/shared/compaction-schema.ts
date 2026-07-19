@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Type } from "typebox";
 
 export type CompactionEvidenceStatus = "active" | "resolved" | "superseded";
@@ -14,6 +15,17 @@ export type EvidenceClaim = {
   sourceEntryIds?: string[];
   objectIds?: string[];
   status?: CompactionEvidenceStatus;
+  controlId?: string;
+  contentHash?: string;
+};
+
+export type CompactionSourceEntry = { id: string; role: "user" | "assistant" | "tool"; text: string; trusted: boolean };
+export type CompactionValidationContext = {
+  previousCheckpoint?: CompactionCheckpoint;
+  sourceEntries: CompactionSourceEntry[];
+  knownObjectIds: string[];
+  rejectSynthesizedInstructions?: boolean;
+  authorizedControlTransitions?: string[];
 };
 
 export type CompactionCheckpoint = {
@@ -45,6 +57,8 @@ const EvidenceClaimSchema = Type.Object({
   sourceEntryIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
   objectIds: Type.Optional(Type.Array(Type.String({ pattern: OBJECT_ID_PATTERN }))),
   status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("resolved"), Type.Literal("superseded")])),
+  controlId: Type.Optional(Type.String({ minLength: 1 })),
+  contentHash: Type.Optional(Type.String({ pattern: "^[a-fA-F0-9]{64}$" })),
 });
 
 const LocatorSchema = Type.Object({
@@ -120,7 +134,55 @@ function validateLocator(locator: CompactionLocator, field: string): void {
   if (locator.resultId !== undefined && !OBJECT_ID.test(locator.resultId)) throw new Error(`${field}.resultId is invalid`);
 }
 
-export function validateCompactionCheckpoint(value: unknown): CompactionCheckpoint {
+const CONTROL_KEYS = ["constraints", "acceptanceCriteria", "pendingActions", "safetyState"] as const;
+const ACTIONABLE = /\b(?:disable|execute|run|delete|bypass|permitted|permission|must|should)\b/i;
+
+function textHash(text: string): string { return createHash("sha256").update(text).digest("hex"); }
+
+function validateSemanticCheckpoint(checkpoint: CompactionCheckpoint, context: CompactionValidationContext): void {
+  const sources = new Map(context.sourceEntries.map(entry => [entry.id, entry]));
+  const knownObjects = new Set(context.knownObjectIds);
+  for (const id of checkpoint.objectIds) if (!knownObjects.has(id)) throw new Error(`Unknown context object evidence: ${id}`);
+
+  for (const key of CLAIM_KEYS) for (const claim of checkpoint[key]) {
+    const sourceIds = claim.sourceEntryIds ?? [];
+    const objectIds = claim.objectIds ?? [];
+    if (sourceIds.length + objectIds.length === 0) throw new Error(`${key} claims require provenance`);
+    for (const id of sourceIds) if (!sources.has(id)) throw new Error(`${key} references unknown source entry: ${id}`);
+    for (const id of objectIds) if (!knownObjects.has(id)) throw new Error(`${key} references unknown context object: ${id}`);
+    if (context.rejectSynthesizedInstructions && ACTIONABLE.test(claim.text)) {
+      const grounded = sourceIds.some(id => {
+        const source = sources.get(id);
+        return source?.trusted && source.text.toLowerCase().includes(claim.text.toLowerCase());
+      });
+      if (!grounded) throw new Error(`${key} contains a synthesized actionable instruction`);
+    }
+  }
+
+  for (const key of CONTROL_KEYS) for (const claim of checkpoint[key]) {
+    if (!claim.controlId || !claim.contentHash) throw new Error(`${key} controls require stable ids and hashes`);
+    if (claim.contentHash !== textHash(claim.text)) throw new Error(`${key} control hash does not match its text`);
+    const trusted = (claim.sourceEntryIds ?? []).some(id => sources.get(id)?.trusted);
+    if (!trusted) throw new Error(`${key} controls require trusted provenance`);
+  }
+  for (const [index, file] of checkpoint.activeFiles.entries()) {
+    if (!file.contentHash) throw new Error(`activeFiles[${index}] requires a current content hash`);
+  }
+
+  const authorized = new Set(context.authorizedControlTransitions ?? []);
+  for (const key of CONTROL_KEYS) {
+    const next = new Map(checkpoint[key].map(claim => [claim.controlId, claim]));
+    for (const previous of context.previousCheckpoint?.[key] ?? []) {
+      if (previous.status !== "active" || !previous.controlId) continue;
+      const current = next.get(previous.controlId);
+      if (!current) throw new Error(`Active control was dropped: ${previous.controlId}`);
+      if (current.text !== previous.text || current.contentHash !== previous.contentHash) throw new Error(`Active control was altered: ${previous.controlId}`);
+      if (current.status !== "active" && !authorized.has(previous.controlId)) throw new Error(`Unauthorized control transition: ${previous.controlId}`);
+    }
+  }
+}
+
+export function validateCompactionCheckpoint(value: unknown, context?: CompactionValidationContext): CompactionCheckpoint {
   const checkpoint = value as Partial<CompactionCheckpoint> | undefined;
   if (!checkpoint || typeof checkpoint !== "object") throw new Error("checkpoint must be an object");
   if (checkpoint.version !== 1) throw new Error("version must be 1");
@@ -132,7 +194,9 @@ export function validateCompactionCheckpoint(value: unknown): CompactionCheckpoi
     for (const locator of file.locators ?? []) validateLocator(locator, `activeFiles[${index}].locators`);
   }
   assertObjectIds(checkpoint.objectIds, "objectIds");
-  return checkpoint as CompactionCheckpoint;
+  const validated = checkpoint as CompactionCheckpoint;
+  if (context) validateSemanticCheckpoint(validated, context);
+  return validated;
 }
 
 function renderClaim(claim: EvidenceClaim): string {
@@ -140,7 +204,8 @@ function renderClaim(claim: EvidenceClaim): string {
     ...(claim.sourceEntryIds ?? []).map(id => `entry://${id}`),
     ...(claim.objectIds ?? []).map(id => `object://${id}`),
   ];
-  return `- ${claim.text}${claim.status ? ` [${claim.status}]` : ""}${refs.length ? ` (${refs.join(", ")})` : ""}`;
+  const control = claim.controlId ? ` {control=${claim.controlId}${claim.contentHash ? ` hash=${claim.contentHash}` : ""}}` : "";
+  return `- ${claim.text}${claim.status ? ` [${claim.status}]` : ""}${control}${refs.length ? ` (${refs.join(", ")})` : ""}`;
 }
 
 function heading(label: string, claims: EvidenceClaim[]): string[] {

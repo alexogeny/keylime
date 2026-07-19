@@ -1,6 +1,6 @@
 # Agent-harness research theses — RED contract
 
-This directory is the intentionally failing acceptance contract for the agent-harness and token-reduction findings researched for **19 June–19 July 2026**.
+This directory began as the intentionally failing acceptance contract for the agent-harness and token-reduction findings researched for **19 June–19 July 2026**. It remains the regression contract as implementation advances.
 
 ## Test-double policy
 
@@ -38,7 +38,7 @@ bun test tests/harness-theses-red
 bun run typecheck:tests
 ```
 
-`typecheck:tests` must remain green throughout RED. Individual runtime tests should transition to green only when the corresponding production behavior is implemented—never by weakening assertions or introducing test doubles.
+The implementation baseline is now **54 pass, 0 fail**. `typecheck:tests` remained green throughout RED. Tests transitioned to green through production behavior, without weakening assertions or introducing test doubles.
 
 ## Research anchors
 

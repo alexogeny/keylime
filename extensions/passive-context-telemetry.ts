@@ -34,6 +34,22 @@ type TelemetrySample = {
   modelVariant?: ModelVariant;
 };
 
+type CompactionTelemetrySample = {
+  model?: ModelVariant;
+  durationMs?: number;
+  schemaValid?: boolean;
+  fallbackUsed?: boolean;
+  activeControlsBefore?: number;
+  activeControlsAfter?: number;
+  relinkingDetected?: boolean;
+  prohibitedBackendActions?: number;
+};
+type CompactionQualityAggregate = {
+  attempts: number; valid: number; fallbacks: number; activeControlsBefore: number; activeControlsAfter: number;
+  relinkingDetected: number; prohibitedBackendActions: number; fallbackRate: number; schemaValidityRate: number;
+};
+type CompactionLatencyAggregate = { count: number; sumMs: number; maxMs: number; p95Ms: number; buckets: Record<string, number> };
+
 type DailyAggregate = {
   version: 1;
   day: string;
@@ -44,6 +60,8 @@ type DailyAggregate = {
   context: { samples: number; percentSum: number; maxPercent: number; maxTokens: number; contextWindow: number; pressure: { low: number; medium: number; high: number } };
   runtime: { maskedObservations: number; retrievalSamples: number; retrievalUtilizationSum: number; folds: number };
   compactions: number;
+  compactionQuality: CompactionQualityAggregate;
+  compactionLatency: CompactionLatencyAggregate;
   models: Record<string, ModelAggregate>;
 };
 
@@ -58,7 +76,10 @@ function blank(day: string, now: Date): DailyAggregate {
     version: 1, day, updatedAt: now.toISOString(), turns: 0,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 0,
     context: { samples: 0, percentSum: 0, maxPercent: 0, maxTokens: 0, contextWindow: 0, pressure: { low: 0, medium: 0, high: 0 } },
-    runtime: { maskedObservations: 0, retrievalSamples: 0, retrievalUtilizationSum: 0, folds: 0 }, compactions: 0, models: {},
+    runtime: { maskedObservations: 0, retrievalSamples: 0, retrievalUtilizationSum: 0, folds: 0 }, compactions: 0,
+    compactionQuality: { attempts: 0, valid: 0, fallbacks: 0, activeControlsBefore: 0, activeControlsAfter: 0, relinkingDetected: 0, prohibitedBackendActions: 0, fallbackRate: 0, schemaValidityRate: 0 },
+    compactionLatency: { count: 0, sumMs: 0, maxMs: 0, p95Ms: 0, buckets: {} },
+    models: {},
   };
 }
 
@@ -67,6 +88,8 @@ async function safeRead(path: string, fallback: DailyAggregate): Promise<DailyAg
     const parsed = JSON.parse(await readFile(path, "utf8"));
     if (parsed?.version !== 1) throw new Error("Unsupported telemetry aggregate version");
     parsed.models ??= {};
+    parsed.compactionQuality ??= { attempts: parsed.compactions ?? 0, valid: 0, fallbacks: 0, activeControlsBefore: 0, activeControlsAfter: 0, relinkingDetected: 0, prohibitedBackendActions: 0, fallbackRate: 0, schemaValidityRate: 0 };
+    parsed.compactionLatency ??= { count: 0, sumMs: 0, maxMs: 0, p95Ms: 0, buckets: {} };
     return parsed as DailyAggregate;
   } catch (error: any) {
     if (error?.code !== "ENOENT") await rename(path, `${path}.corrupt-${Date.now()}-${randomUUID()}`).catch(() => undefined);
@@ -205,13 +228,41 @@ export function createPassiveTelemetryStore(options: StoreOptions = {}) {
         });
       });
     },
-    recordCompaction(variant?: ModelVariant): Promise<void> {
+    recordCompaction(input?: ModelVariant | CompactionTelemetrySample): Promise<void> {
       return enqueue(async () => {
         const timestamp = now(); const day = dayOf(timestamp); const path = join(dir, `${day}.json`);
+        const sample: CompactionTelemetrySample = input && "provider" in input
+          ? { model: input as ModelVariant }
+          : (input as CompactionTelemetrySample | undefined) ?? {};
         await withTelemetryFileLock(path, async () => {
           const aggregate = await safeRead(path, blank(day, timestamp));
           aggregate.updatedAt = timestamp.toISOString(); aggregate.compactions++;
-          if (variant) modelBucket(aggregate, variant).compactions++;
+          if (sample.model) modelBucket(aggregate, sample.model).compactions++;
+          const quality = aggregate.compactionQuality;
+          quality.attempts++;
+          if (sample.schemaValid) quality.valid++;
+          if (sample.fallbackUsed) quality.fallbacks++;
+          quality.activeControlsBefore += Math.max(0, Math.floor(sample.activeControlsBefore ?? 0));
+          quality.activeControlsAfter += Math.max(0, Math.floor(sample.activeControlsAfter ?? 0));
+          if (sample.relinkingDetected) quality.relinkingDetected++;
+          quality.prohibitedBackendActions += Math.max(0, Math.floor(sample.prohibitedBackendActions ?? 0));
+          quality.fallbackRate = quality.fallbacks / quality.attempts;
+          quality.schemaValidityRate = quality.valid / quality.attempts;
+          const durationMs = Math.max(0, Math.round(sample.durationMs ?? 0));
+          if (durationMs > 0) {
+            const latency = aggregate.compactionLatency;
+            const bucket = String(Math.min(60_000, Math.round(durationMs / 100) * 100));
+            latency.count++;
+            latency.sumMs += durationMs;
+            latency.maxMs = Math.max(latency.maxMs, durationMs);
+            latency.buckets[bucket] = (latency.buckets[bucket] ?? 0) + 1;
+            const threshold = Math.ceil(latency.count * .95);
+            let cumulative = 0;
+            for (const [value, count] of Object.entries(latency.buckets).sort((a, b) => Number(a[0]) - Number(b[0]))) {
+              cumulative += count;
+              if (cumulative >= threshold) { latency.p95Ms = Number(value); break; }
+            }
+          }
           cache.set(day, aggregate);
           await atomicWrite(path, aggregate);
         });

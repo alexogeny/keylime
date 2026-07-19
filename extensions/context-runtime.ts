@@ -21,8 +21,14 @@ type RuntimeOptions = {
   maxObservationChars?: number;
   maxTrajectoryEvents?: number;
   maxExperiences?: number;
+  maxControlEntries?: number;
 };
 type RuntimeTransform = { kind: "observation_mask"; toolCallId: string; beforeChars: number; afterChars: number; recoverable: boolean };
+export type RuntimeControlState = {
+  constraints: Array<{ sourceEventId: string; text: string }>;
+  plans: Array<{ sourceEventId: string; text: string }>;
+  unresolvedFailures: Array<{ sourceEventId: string; text: string }>;
+};
 export type RuntimeSnapshot = {
   turn: number;
   observations: number;
@@ -32,6 +38,7 @@ export type RuntimeSnapshot = {
   retrievalBudget: { maxPackets: number; maxChars: number };
   lastFold?: TrajectoryFold;
   compaction?: CompactionStrategyDecision;
+  controlState: RuntimeControlState;
 };
 
 export function getLastContextRuntimeSnapshot(): RuntimeSnapshot | undefined { return readContextRuntimeTelemetry(); }
@@ -57,6 +64,9 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
   let turn = 0;
   let observations = new Map<string, Observation>();
   let trajectory: TrajectoryEvent[] = [];
+  const durableConstraints = new Map<string, TrajectoryEvent>();
+  const durablePlans = new Map<string, TrajectoryEvent>();
+  const durableFailures = new Map<string, TrajectoryEvent>();
   let retrievals: RetrievalInjection[] = [];
   let retrievalUsage: RetrievalUsage = {};
   let retrievalHistory: number[] = [];
@@ -71,10 +81,15 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
   const maxObservationChars = Math.max(100, options.maxObservationChars ?? 250_000);
   const maxTrajectoryEvents = Math.max(10, options.maxTrajectoryEvents ?? 500);
   const maxExperiences = Math.max(10, options.maxExperiences ?? 500);
+  const maxControlEntries = Math.max(10, options.maxControlEntries ?? 1_000);
   const boundObservations = (): void => {
-    while (observations.size > maxObservationEntries) observations.delete(observations.keys().next().value!);
+    while (observations.size > maxObservationEntries) {
+      const evictable = [...observations.values()].find(item => item.kind !== "failure");
+      observations.delete((evictable ?? observations.values().next().value!).id);
+    }
     let chars = [...observations.values()].reduce((sum, item) => sum + item.text.length, 0);
-    for (const [id, item] of observations) {
+    const pressureOrder = [...observations.entries()].sort(([, a], [, b]) => Number(a.kind === "failure") - Number(b.kind === "failure"));
+    for (const [id, item] of pressureOrder) {
       if (chars <= maxObservationChars) break;
       if (item.objectId) {
         const text = `[observation folded; recover object://${item.objectId}]`;
@@ -86,9 +101,10 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
       }
     }
     while (chars > maxObservationChars && observations.size > 0) {
-      const id = observations.keys().next().value!;
-      chars -= observations.get(id)!.text.length;
-      observations.delete(id);
+      const evictable = [...observations.values()].find(item => item.kind !== "failure");
+      const item = evictable ?? observations.values().next().value!;
+      chars -= item.text.length;
+      observations.delete(item.id);
     }
   };
 
@@ -96,7 +112,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
 
   return {
     reset(): void {
-      turn = 0; observations = new Map(); trajectory = []; retrievals = []; retrievalUsage = {}; retrievalHistory = [];
+      turn = 0; observations = new Map(); trajectory = []; durableConstraints.clear(); durablePlans.clear(); durableFailures.clear(); retrievals = []; retrievalUsage = {}; retrievalHistory = [];
       retrievalBudget = { maxPackets: 6, maxChars: 3_000 }; experiences = []; lastFold = undefined; lastCompaction = undefined; cacheFingerprint = ""; maskedObservations = 0;
       resetContextRuntimeTelemetry();
     },
@@ -172,14 +188,35 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
         supersededIds: [...new Set([...(retrievalUsage.supersededIds ?? []), ...(usage.supersededIds ?? [])])],
       };
     },
-    recordTrajectory(events: TrajectoryEvent[]): void { trajectory.push(...events); if (trajectory.length > maxTrajectoryEvents) trajectory = trajectory.slice(-maxTrajectoryEvents); },
+    recordTrajectory(events: TrajectoryEvent[]): void {
+      const newDurable = new Set(events.filter(event =>
+        (event.type === "constraint" && !durableConstraints.has(event.id))
+        || (event.type === "decision" && !durablePlans.has(event.id))
+        || (event.type === "failure" && !event.resolved && !durableFailures.has(event.id))
+      ).map(event => `${event.type}:${event.id}`)).size;
+      if (durableConstraints.size + durablePlans.size + durableFailures.size + newDurable > maxControlEntries) {
+        throw new Error(`Durable control-state limit of ${maxControlEntries} exceeded`);
+      }
+      for (const event of events) {
+        if (event.type === "constraint") durableConstraints.set(event.id, event);
+        if (event.type === "decision") durablePlans.set(event.id, event);
+        if (event.type === "failure") {
+          if (event.resolved) durableFailures.delete(event.id); else durableFailures.set(event.id, event);
+        }
+      }
+      trajectory.push(...events);
+      if (trajectory.length > maxTrajectoryEvents) trajectory = trajectory.slice(-maxTrajectoryEvents);
+    },
     recordExperiences(items: RepositoryExperience[]): void { experiences.push(...items); if (experiences.length > maxExperiences) experiences = experiences.slice(-maxExperiences); },
     retrieveExperiences(query: ExperienceQuery): ExperienceMatch[] { return retrieveRepositoryExperiences(query, experiences, { maxResults: 5, minConfidence: .5 }); },
 
     endTurn(input: { contextPercent: number; boundary?: string }): { fold?: TrajectoryFold; contextBudget: { maxChars: number }; retrievalBudget: { maxPackets: number; maxChars: number } } {
       turn++;
       if (trajectory.length && shouldFoldTrajectory({ kind: input.boundary ?? "ordinary_turn", contextPercent: input.contextPercent })) {
-        lastFold = foldTrajectory(trajectory, { level: input.contextPercent >= 85 ? "deep" : "granular", completedSubtasks: input.boundary === "subtask_completed" ? [...new Set(trajectory.map(event => event.subtask))] : [], activeSubtask: trajectory.at(-1)?.subtask });
+        const durable = [...durableConstraints.values(), ...durablePlans.values(), ...durableFailures.values()];
+        const byId = new Map([...durable, ...trajectory].map(event => [event.id, event]));
+        const foldEvents = [...byId.values()];
+        lastFold = foldTrajectory(foldEvents, { level: input.contextPercent >= 85 ? "deep" : "granular", completedSubtasks: input.boundary === "subtask_completed" ? [...new Set(foldEvents.map(event => event.subtask))] : [], activeSubtask: trajectory.at(-1)?.subtask });
         trajectory = [];
       }
       const credit = retrievalCredit();
@@ -201,7 +238,12 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
     },
 
     snapshot(): RuntimeSnapshot {
-      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction };
+      const controlState: RuntimeControlState = {
+        constraints: [...durableConstraints.values()].map(event => ({ sourceEventId: event.id, text: event.text })),
+        plans: [...durablePlans.values()].map(event => ({ sourceEventId: event.id, text: event.text })),
+        unresolvedFailures: [...durableFailures.values()].map(event => ({ sourceEventId: event.id, text: event.text })),
+      };
+      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction, controlState };
       publishContextRuntimeTelemetry(snapshot);
       return snapshot;
     },

@@ -39,7 +39,7 @@ describe("Context thesis: end-to-end efficiency/effectiveness frontier", () => {
   test("optimizes uncached tokens rather than headline input tokens", async () => {
     const cachedButHuge = { ...baseline, strategy: "cached-huge", inputTokens: 120_000, uncachedInputTokens: 20_000 };
     const compactUncached = { ...optimized, strategy: "compact", inputTokens: 45_000, uncachedInputTokens: 25_000 };
-    expect((await evaluate([cachedButHuge, compactUncached])).best?.strategy).toBe("cached-huge");
+    expect((await evaluate([baseline, cachedButHuge, compactUncached])).best?.strategy).toBe("cached-huge");
   });
 
   test("reports finite tokens per successful task", async () => {
@@ -50,7 +50,7 @@ describe("Context thesis: end-to-end efficiency/effectiveness frontier", () => {
 
   test("allows a bounded rehydration cost while rejecting thrashing", async () => {
     const thrashing = { ...optimized, strategy: "thrashing", inputTokens: 35_000, uncachedInputTokens: 25_000, rehydrations: 20 };
-    const result = await evaluate([optimized, thrashing], { maxRehydrations: 4 });
+    const result = await evaluate([baseline, optimized, thrashing], { maxRehydrations: 4 });
     expect(result.accepted.map(run => run.strategy)).toContain("hybrid");
     expect(result.rejected.find(run => run.strategy === "thrashing")?.rejectionReasons).toContain("rehydration_budget_exceeded");
   });
