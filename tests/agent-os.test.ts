@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import agentOsExtension, { resetAgentOsMemoryForTests } from "../extensions/agent-os";
@@ -7,6 +7,7 @@ import { routeForPrompt } from "../extensions/intent-router";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 import { mockPiFixture } from "./helpers/mock-pi";
 import { clearContextProviders, composeTurnContext } from "../extensions/shared/turn-context";
+import { bindRepositoryState, resolveRepositoryIdentity } from "../extensions/shared/repository-identity";
 
 function registerAgentOs() {
   const tools: Record<string, any> = {};
@@ -144,5 +145,46 @@ describe("agent OS extension", () => {
     const reporterGrammar = await tools.compile_tool_grammar.execute("id", { intent: "reporter_document_create" }, undefined, undefined, { cwd });
     expect(reporterGrammar.details.grammar.id).toBe("reporter_document_create");
     expect(reporterGrammar.details.grammar.allowedTools).toContain("create_reporter_document");
+  });
+
+  test("quarantines legacy and foreign agent OS state from context and routing", async () => {
+    clearContextProviders();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-os-quarantine-"));
+    const foreign = await mkdtemp(join(tmpdir(), "agent-os-foreign-"));
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    const staleState = {
+      registers: { goal: "unrelated foreign goal" },
+      regions: [],
+      budget: { maxContextChars: 1000, maxToolCalls: 4, maxCheckRuns: 1, maxBranchCount: 0, reasoningBudget: "low" },
+    };
+    await writeFile(join(cwd, ".pi", "agent-os.json"), JSON.stringify(staleState), "utf8");
+    const { commands } = registerAgentOs();
+    setCurrentRoute(classifyIntent("debug failing tests"));
+
+    const legacyContext = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue" }]);
+    expect(legacyContext.providerIds).not.toContain("agent-os");
+    expect(legacyContext.messages[0].content).not.toContain("unrelated foreign goal");
+
+    await commands["adopt-agent-os-state"].handler("", {
+      cwd,
+      hasUI: true,
+      ui: { confirm: async () => true, notify: () => {} },
+    });
+    const adoptedContext = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue" }]);
+    expect(adoptedContext.providerIds).toContain("agent-os");
+    expect(adoptedContext.messages[0].content).toContain("unrelated foreign goal");
+
+    clearContextProviders();
+    resetAgentOsMemoryForTests();
+    const foreignIdentity = await resolveRepositoryIdentity(foreign);
+    await writeFile(
+      join(cwd, ".pi", "agent-os.json"),
+      JSON.stringify(bindRepositoryState(foreignIdentity, staleState)),
+      "utf8",
+    );
+    registerAgentOs();
+    const foreignContext = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue" }]);
+    expect(foreignContext.providerIds).not.toContain("agent-os");
+    expect(foreignContext.messages[0].content).not.toContain("unrelated foreign goal");
   });
 });

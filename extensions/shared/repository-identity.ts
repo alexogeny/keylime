@@ -19,7 +19,7 @@ export type BoundStateEnvelope<T> = {
 export type BoundStateLoad<T> =
   | { status: "ok"; value: T; envelope: BoundStateEnvelope<T> }
   | { status: "legacy"; path: string }
-  | { status: "mismatch"; path: string; expected: RepositoryIdentity; actual: RepositoryIdentity };
+  | { status: "mismatch"; path: string; expected: RepositoryIdentity; actual: RepositoryIdentity; quarantinedValue: T };
 
 function hash(parts: string[]): string {
   const digest = createHash("sha256");
@@ -96,7 +96,7 @@ export function repositoryIdentitiesEqual(left: RepositoryIdentity, right: Repos
 export function loadBoundRepositoryState<T>(value: unknown, expected: RepositoryIdentity, path: string): BoundStateLoad<T> {
   if (!isBoundEnvelope<T>(value)) return { status: "legacy", path };
   if (!repositoryIdentitiesEqual(value.repository, expected)) {
-    return { status: "mismatch", path, expected, actual: value.repository };
+    return { status: "mismatch", path, expected, actual: value.repository, quarantinedValue: value.payload };
   }
   return { status: "ok", value: value.payload, envelope: value };
 }

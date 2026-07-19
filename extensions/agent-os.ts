@@ -6,6 +6,8 @@ import { readJsonFile, writeJsonFile } from "./shared/json-store";
 import { registerContextProvider } from "./shared/turn-context";
 import { truncateWithMarker } from "./shared/output-preview";
 import { stringEnum } from "./shared/schema";
+import { existsSync } from "node:fs";
+import { bindRepositoryState, loadBoundRepositoryState, resolveRepositoryIdentity } from "./shared/repository-identity";
 
 type RegionKind = "task" | "code" | "failure" | "policy" | "decision" | "scratch" | "checks" | "diff";
 type ReasoningBudget = "low" | "medium" | "high" | "max";
@@ -103,20 +105,65 @@ function defaultState(): AgentOsState {
   return { registers: {}, regions: [], budget: { ...DEFAULT_BUDGET } };
 }
 
+type AgentOsStateLoad = {
+  status: "ok" | "missing" | "legacy" | "mismatch";
+  state: AgentOsState;
+};
+
+function normalizeState(state: AgentOsState): AgentOsState {
+  return {
+    ...defaultState(),
+    ...state,
+    budget: { ...DEFAULT_BUDGET, ...(state as any).budget },
+    regions: state.regions ?? [],
+    registers: state.registers ?? {},
+  };
+}
+
+async function loadStateRecord(cwd: string): Promise<AgentOsStateLoad> {
+  const path = statePath(cwd);
+  if (!existsSync(path)) {
+    const state = defaultState();
+    updateInMemoryAgentOs(state);
+    return { status: "missing", state };
+  }
+  const raw = await readJsonFile<unknown>(path, null);
+  const identity = await resolveRepositoryIdentity(cwd);
+  const loaded = loadBoundRepositoryState<AgentOsState>(raw, identity, path);
+  if (loaded.status !== "ok") {
+    const state = defaultState();
+    updateInMemoryAgentOs(state);
+    return { status: loaded.status, state };
+  }
+  const state = normalizeState(loaded.value);
+  updateInMemoryAgentOs(state);
+  return { status: "ok", state };
+}
+
 async function loadState(cwd: string): Promise<AgentOsState> {
-  const state = await readJsonFile<AgentOsState>(statePath(cwd), defaultState());
-  const normalized = { ...defaultState(), ...state, budget: { ...DEFAULT_BUDGET, ...(state as any).budget }, regions: state.regions ?? [], registers: state.registers ?? {} };
-  updateInMemoryAgentOs(normalized);
-  return normalized;
+  const loaded = await loadStateRecord(cwd);
+  if (loaded.status === "legacy" || loaded.status === "mismatch") {
+    throw new Error("Agent OS state is quarantined for this repository; explicitly adopt or replace it before using agent state tools.");
+  }
+  return loaded.state;
 }
 
 async function saveState(cwd: string, state: AgentOsState): Promise<void> {
   updateInMemoryAgentOs(state);
-  await writeJsonFile(statePath(cwd), state, { finalNewline: true });
+  const identity = await resolveRepositoryIdentity(cwd);
+  await writeJsonFile(statePath(cwd), bindRepositoryState(identity, state), { finalNewline: true });
 }
 
 function checksum(content: string): string {
   return createHash("sha256").update(content).digest("hex").slice(0, 12);
+}
+
+function isAgentOsState(value: unknown): value is AgentOsState {
+  const candidate = value as AgentOsState | undefined;
+  return Boolean(candidate)
+    && typeof candidate?.registers === "object"
+    && Array.isArray(candidate.regions)
+    && typeof candidate.budget === "object";
 }
 
 function renderList(values: string[] | undefined): string {
@@ -239,7 +286,9 @@ export default function agentOsExtension(pi: ExtensionAPI) {
     maxChars: 1800,
     stability: "turn",
     build: async ({ ctx, remainingBudget }) => {
-      const state = await loadState(ctx.cwd);
+      const loaded = await loadStateRecord(ctx.cwd);
+      if (loaded.status === "legacy" || loaded.status === "mismatch") return null;
+      const state = loaded.state;
       const sections: string[] = [];
       const registers = renderRegisters(state.registers);
       if (registers) sections.push(registers);
@@ -249,6 +298,33 @@ export default function agentOsExtension(pi: ExtensionAPI) {
       if (grammar) sections.push(grammar);
       sections.push(renderBudget(state.budget));
       return sections.filter(Boolean).join("\n\n");
+    },
+  });
+
+  pi.registerCommand("adopt-agent-os-state", {
+    description: "Adopt quarantined agent OS state into the current repository",
+    handler: async (_args, ctx) => {
+      const path = statePath(ctx.cwd);
+      if (!existsSync(path)) {
+        ctx.ui.notify("No agent OS state found to adopt.", "warning");
+        return;
+      }
+      const raw = await readJsonFile<unknown>(path, null);
+      const identity = await resolveRepositoryIdentity(ctx.cwd);
+      const loaded = loadBoundRepositoryState<AgentOsState>(raw, identity, path);
+      if (loaded.status === "ok") {
+        ctx.ui.notify("Agent OS state is already bound to this repository.", "info");
+        return;
+      }
+      const candidate = loaded.status === "mismatch" ? loaded.quarantinedValue : raw;
+      if (!isAgentOsState(candidate)) {
+        ctx.ui.notify("Quarantined agent OS state is invalid.", "error");
+        return;
+      }
+      if (!ctx.hasUI || !(await ctx.ui.confirm("Adopt agent OS state?", `Bind ${path} to the current repository. A backup will be retained.`))) return;
+      await writeJsonFile(`${path}.backup-${Date.now()}`, raw, { finalNewline: true });
+      await saveState(ctx.cwd, normalizeState(candidate));
+      ctx.ui.notify("Agent OS state adopted for this repository.", "info");
     },
   });
 

@@ -12,17 +12,17 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - [x] Write red tests for context category and transform accounting.
 - [x] Implement `extensions/shared/context-ledger.ts`.
 - [x] Add provider fingerprints and contribution diagnostics to turn context.
-- [ ] Extend usage tracking with v2 context/cache records without message bodies.
-- [ ] Bind project-planner state to repository identity with explicit legacy adoption.
-- [ ] Bind agent-OS state to repository identity and quarantine mismatches.
-- [ ] Run targeted slice-1 tests.
-- [ ] Run full typecheck and test suite.
+- [x] Extend usage tracking with v2 context/cache records without message bodies.
+- [x] Bind project-planner state to repository identity with explicit legacy adoption.
+- [x] Bind agent-OS state to repository identity and quarantine mismatches.
+- [x] Run targeted slice-1 tests.
+- [x] Run full typecheck and test suite.
 
 ## Slice 2 — deferred tools and stable context
 
-- [ ] Write red tests for bootstrap tools, additive discovery, policy gates, and schema budgets.
+- [~] Write red tests for bootstrap tools, additive discovery, policy gates, and schema budgets.
 - [ ] Implement shared tool catalog using existing retrieval primitives.
-- [ ] Implement Pi-native `tool_search` loader.
+- [x] Implement Pi-native `tool_search` loader.
 - [ ] Split mandatory/bootstrap/searchable tool policy.
 - [ ] Preserve additive tools during a turn and reset at the next user boundary.
 - [ ] Memoize declared-stable context providers by dependency fingerprint.
@@ -80,3 +80,6 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - 2026-07-19: Research and six implementation slices documented.
 - 2026-07-19: Began slice 1; repository identity and context-ledger pure contracts are the first TDD target.
 - 2026-07-19: Repository identity, context ledger, and provider fingerprint tests reached green; state and usage integration remain.
+- 2026-07-19: Slice 1 complete: project/agent state quarantine and explicit adoption, v2 cache/context usage records, 30 targeted tests, typecheck, and full 445-test suite pass.
+- 2026-07-19: Began slice 2 red-test reconnaissance for deferred tools and schema budgets.
+- 2026-07-19: Extended existing `policy-tools.ts` tool search to add up to five available matches additively, exclude locked built-ins, and honor disabled research; policy tests and typecheck pass.

@@ -32,6 +32,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { isCapabilityActive } from "./shared/intent";
 import { registerContextProvider } from "./shared/turn-context";
+import { bindRepositoryState, loadBoundRepositoryState, resolveRepositoryIdentity } from "./shared/repository-identity";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -116,14 +117,18 @@ async function findProjectFile(cwd: string): Promise<string | null> {
 async function loadProject(cwd: string): Promise<ProjectPlan | null> {
   const file = await findProjectFile(cwd);
   if (!file) return null;
-  return readJsonFile<ProjectPlan | null>(file, null);
+  const raw = await readJsonFile<unknown>(file, null);
+  const identity = await resolveRepositoryIdentity(cwd);
+  const loaded = loadBoundRepositoryState<ProjectPlan>(raw, identity, file);
+  return loaded.status === "ok" ? loaded.value : null;
 }
 
 async function saveProject(cwd: string, plan: ProjectPlan): Promise<string> {
   const dir  = join(cwd, PI_DIR);
   const file = join(dir, PROJECT_FILE);
   plan.updatedAt = Date.now();
-  await writeJsonFile(file, plan);
+  const identity = await resolveRepositoryIdentity(cwd);
+  await writeJsonFile(file, bindRepositoryState(identity, plan, plan.updatedAt));
   return file;
 }
 
@@ -136,6 +141,16 @@ const TDD_ICON: Record<TddStatus, string> = {
   refactored: "🔵",
   done:       "✓",
 };
+
+function isProjectPlan(value: unknown): value is ProjectPlan {
+  const candidate = value as ProjectPlan | undefined;
+  return typeof candidate?.name === "string"
+    && typeof candidate.description === "string"
+    && Array.isArray(candidate.features)
+    && Array.isArray(candidate.decisions)
+    && Array.isArray(candidate.questions)
+    && Array.isArray(candidate.principles);
+}
 
 function renderPlan(p: ProjectPlan): string {
   const lines: string[] = [
@@ -253,6 +268,33 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
         pendingCount > shown.filter(f => f.tddStatus === "pending").length ? `  … ${pendingCount} pending hidden` : "",
         openQ.length ? `Open questions:\n${openQ.slice(0, 3).map(q => `  ? ${q.question}`).join("\n")}` : "",
       ].filter(Boolean).join("\n");
+    },
+  });
+
+  pi.registerCommand("adopt-project-state", {
+    description: "Adopt quarantined project state into the current repository",
+    handler: async (_args, ctx) => {
+      const file = await findProjectFile(ctx.cwd);
+      if (!file) {
+        ctx.ui.notify("No project state found to adopt.", "warning");
+        return;
+      }
+      const raw = await readJsonFile<unknown>(file, null);
+      const identity = await resolveRepositoryIdentity(ctx.cwd);
+      const loaded = loadBoundRepositoryState<ProjectPlan>(raw, identity, file);
+      if (loaded.status === "ok") {
+        ctx.ui.notify("Project state is already bound to this repository.", "info");
+        return;
+      }
+      const candidate = loaded.status === "mismatch" ? loaded.quarantinedValue : raw;
+      if (!isProjectPlan(candidate)) {
+        ctx.ui.notify("Quarantined project state is not a valid project plan.", "error");
+        return;
+      }
+      if (!ctx.hasUI || !(await ctx.ui.confirm("Adopt project state?", `Bind ${file} to the current repository. A backup will be retained.`))) return;
+      await writeJsonFile(`${file}.backup-${Date.now()}`, raw, { finalNewline: true });
+      await writeJsonFile(file, bindRepositoryState(identity, candidate), { finalNewline: true });
+      ctx.ui.notify("Project state adopted for this repository.", "info");
     },
   });
 

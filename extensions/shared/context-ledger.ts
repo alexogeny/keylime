@@ -93,6 +93,22 @@ export function buildContextLedgerRecord(input: BuildContextLedgerRecordInput): 
   };
 }
 
+let pendingContextLedgerRecord: ContextLedgerRecord | undefined;
+
+export function setPendingContextLedgerRecord(record: ContextLedgerRecord): void {
+  pendingContextLedgerRecord = record;
+}
+
+export function consumePendingContextLedgerRecord(): ContextLedgerRecord | undefined {
+  const record = pendingContextLedgerRecord;
+  pendingContextLedgerRecord = undefined;
+  return record;
+}
+
+export function clearPendingContextLedgerRecord(): void {
+  pendingContextLedgerRecord = undefined;
+}
+
 export function summarizeContextLedger(records: ContextLedgerRecord[]): {
   requestCount: number;
   activeChars: number;

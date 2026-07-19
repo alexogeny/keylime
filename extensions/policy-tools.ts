@@ -5,8 +5,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { planCodemod, retrievePolicyEvidence, suggestChecks } from "./shared/policy-actions";
 import { classifyToolMutation } from "./shared/safety-policy";
-import { TOOL_POLICIES, toolPolicyFor } from "./shared/tool-policy";
+import { LOCKED_BUILTIN_TOOLS, TOOL_POLICIES, toolPolicyFor } from "./shared/tool-policy";
 import { resolveSafeExistingPath } from "./shared/path-policy";
+import { researchEnabled } from "./shared/research-config";
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -63,7 +64,14 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
     }),
     async execute(_id, params) {
       const terms = params.query.toLowerCase().split(/\s+/).filter(Boolean);
+      const available = typeof (pi as any).getAllTools === "function"
+        ? new Set((pi as any).getAllTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean))
+        : undefined;
+      const locked = new Set(LOCKED_BUILTIN_TOOLS);
       const scored = TOOL_POLICIES
+        .filter(policy => policy.group !== "research" || researchEnabled())
+        .filter(policy => !locked.has(policy.name))
+        .filter(policy => !available || available.has(policy.name))
         .filter(policy => !params.group || policy.group === params.group)
         .filter(policy => !params.risk || policy.risk === params.risk)
         .map(policy => {
@@ -73,12 +81,20 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
         })
         .filter(item => item.score > 0 || terms.length === 0)
         .sort((a, b) => b.score - a.score || a.policy.name.localeCompare(b.policy.name))
-        .slice(0, Math.min(Math.max(1, params.limit ?? 12), 50));
+        .slice(0, Math.min(Math.max(1, params.limit ?? 5), 5));
       const results = scored.map(({ policy }) => policy);
+      const current = typeof (pi as any).getActiveTools === "function"
+        ? (pi as any).getActiveTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean)
+        : [];
+      const currentSet = new Set<string>(current);
+      const loaded = results.map(policy => policy.name).filter(name => !currentSet.has(name));
+      if (loaded.length > 0 && typeof (pi as any).setActiveTools === "function") {
+        (pi as any).setActiveTools([...new Set([...current, ...loaded])].sort());
+      }
       const text = results.length
         ? results.map(policy => `${policy.name} — group=${policy.group ?? "always-on"} risk=${policy.risk}${policy.alwaysOn ? " always_on" : ""}`).join("\n")
         : "No matching tools found.";
-      return { content: [{ type: "text", text }], details: { results } };
+      return { content: [{ type: "text", text }], details: { results, loaded } };
     },
   });
 

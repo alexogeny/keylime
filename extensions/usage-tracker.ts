@@ -1,8 +1,10 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { clearPendingContextLedgerRecord, consumePendingContextLedgerRecord, type ContextLedgerRecord } from "./shared/context-ledger";
 
 type UsageRecord = {
+	version?: 1 | 2;
 	ts: number;
 	turnIndex?: number;
 	input: number;
@@ -13,6 +15,9 @@ type UsageRecord = {
 	routedModel?: string;
 	routedProvider?: string;
 	status?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+	context?: Pick<ContextLedgerRecord, "activeToolFingerprint" | "categories" | "totalChars" | "transforms">;
 };
 
 type ProviderMeta = {
@@ -22,7 +27,8 @@ type ProviderMeta = {
 	responseHeaders?: Record<string, string>;
 };
 
-const CUSTOM_TYPE = "usage-record-v1";
+const CUSTOM_TYPE_V1 = "usage-record-v1";
+const CUSTOM_TYPE = "usage-record-v2";
 
 export default function usageTracker(pi: ExtensionAPI) {
 	const records: UsageRecord[] = [];
@@ -36,16 +42,24 @@ export default function usageTracker(pi: ExtensionAPI) {
 		return typeof v === "number" && Number.isFinite(v) ? v : 0;
 	}
 
+	function maybeOptionalNum(v: unknown): number | undefined {
+		return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+	}
+
 	function summarize() {
 		let input = 0;
 		let output = 0;
 		let cost = 0;
+		let cacheRead = 0;
+		let cacheWrite = 0;
 		for (const r of records) {
 			input += r.input;
 			output += r.output;
 			cost += r.cost;
+			cacheRead += r.cacheRead ?? 0;
+			cacheWrite += r.cacheWrite ?? 0;
 		}
-		return { input, output, cost, count: records.length };
+		return { input, output, cost, cacheRead, cacheWrite, count: records.length };
 	}
 
 	function providerBreakdown() {
@@ -70,7 +84,9 @@ export default function usageTracker(pi: ExtensionAPI) {
 		lines.push(`Messages: ${s.count}`);
 		lines.push(`Input tokens: ${s.input}`);
 		lines.push(`Output tokens: ${s.output}`);
-		lines.push(`Est. cost: $${s.cost.toFixed(4)}`);
+		lines.push(`Cache-read tokens: ${s.cacheRead}`);
+		lines.push(`Cache-write tokens: ${s.cacheWrite}`);
+		lines.push(`Est. cost: ${s.cost.toFixed(4)}`);
 		lines.push("");
 		lines.push("## By provider/route");
 		for (const [k, v] of providerBreakdown()) {
@@ -88,8 +104,9 @@ export default function usageTracker(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		records.length = 0;
+		clearPendingContextLedgerRecord();
 		for (const entry of ctx.sessionManager.getEntries()) {
-			if (entry.type === "custom" && entry.customType === CUSTOM_TYPE && entry.data) {
+			if (entry.type === "custom" && (entry.customType === CUSTOM_TYPE || entry.customType === CUSTOM_TYPE_V1) && entry.data) {
 				records.push(entry.data as UsageRecord);
 			}
 		}
@@ -131,7 +148,9 @@ export default function usageTracker(pi: ExtensionAPI) {
 			turnMeta?.responseHeaders?.["openrouter-model"] ||
 			turnMeta?.payloadModel;
 
+		const contextRecord = consumePendingContextLedgerRecord();
 		const rec: UsageRecord = {
+			version: 2,
 			ts: Date.now(),
 			turnIndex: currentTurn,
 			input: maybeNum(usage?.input),
@@ -142,6 +161,14 @@ export default function usageTracker(pi: ExtensionAPI) {
 			routedModel,
 			routedProvider,
 			status: turnMeta?.responseStatus,
+			cacheRead: maybeOptionalNum((usage as any)?.cacheRead),
+			cacheWrite: maybeOptionalNum((usage as any)?.cacheWrite),
+			context: contextRecord ? {
+				activeToolFingerprint: contextRecord.activeToolFingerprint,
+				categories: contextRecord.categories,
+				totalChars: contextRecord.totalChars,
+				transforms: contextRecord.transforms,
+			} : undefined,
 		};
 
 		records.push(rec);

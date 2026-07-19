@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import projectPlannerExtension from "../extensions/project-planner";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 import { clearContextProviders, composeTurnContext } from "../extensions/shared/turn-context";
+import { bindRepositoryState, resolveRepositoryIdentity } from "../extensions/shared/repository-identity";
 
 function registeredProjectPlanner() {
   const tools: Record<string, any> = {};
@@ -52,7 +53,9 @@ describe("project planner tools", () => {
       open_questions: ["Which bypasses matter most?"],
     }, undefined, undefined, { cwd });
 
-    const plan = JSON.parse(await readFile(join(cwd, ".pi", "project.json"), "utf8"));
+    const envelope = JSON.parse(await readFile(join(cwd, ".pi", "project.json"), "utf8"));
+    const plan = envelope.payload;
+    expect(envelope.repository.marker).toMatch(/^[a-f0-9]{64}$/);
     expect(plan.description).toBe("Updated description");
     expect(plan.features[0]).toMatchObject({ name: "Safety classifier", tddStatus: "red", notes: "tests/safety-policy.test.ts fails first" });
     expect(plan.features[0].acceptanceCriteria).toEqual(["new criterion"]);
@@ -85,7 +88,9 @@ describe("project planner tools", () => {
       alternatives_considered: ["Duplicate regexes everywhere"],
     }, undefined, undefined, { cwd });
 
-    const plan = JSON.parse(await readFile(join(cwd, ".pi", "project.json"), "utf8"));
+    const envelope = JSON.parse(await readFile(join(cwd, ".pi", "project.json"), "utf8"));
+    const plan = envelope.payload;
+    expect(envelope.repository.marker).toMatch(/^[a-f0-9]{64}$/);
     expect(decision.details.index).toBe(1);
     expect(plan.questions[0]).toMatchObject({ status: "answered", answer: "Prioritize shell/runtime bypasses." });
     expect(plan.decisions[0]).toMatchObject({ index: 1, topic: "Use shared classifier", status: "accepted" });
@@ -107,5 +112,45 @@ describe("project planner tools", () => {
     expect(composed.messages[0].content).toContain("Project: Keylime Test Project");
     expect(composed.messages[0].content).toContain("Safety classifier [green]");
     clearContextProviders();
+  });
+
+  test("quarantines legacy and foreign project state from turn context", async () => {
+    clearContextProviders();
+    const cwd = await mkdtemp(join(tmpdir(), "project-quarantine-"));
+    const foreign = await mkdtemp(join(tmpdir(), "project-foreign-"));
+    await mkdir(join(cwd, ".pi"), { recursive: true });
+    const legacy = {
+      ...basePlan,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      decisions: [],
+      questions: [],
+      features: [],
+    };
+    await writeFile(join(cwd, ".pi", "project.json"), JSON.stringify(legacy), "utf8");
+    const { commands } = registeredProjectPlanner();
+    setCurrentRoute(classifyIntent("plan project tdd feature"));
+
+    const legacyContext = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue planning" }]);
+    expect(legacyContext.providerIds).not.toContain("project-planner");
+
+    await commands["adopt-project-state"].handler("", {
+      cwd,
+      hasUI: true,
+      ui: { confirm: async () => true, notify: () => {} },
+    });
+    const adoptedContext = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue planning" }]);
+    expect(adoptedContext.providerIds).toContain("project-planner");
+
+    clearContextProviders();
+    const foreignIdentity = await resolveRepositoryIdentity(foreign);
+    await writeFile(
+      join(cwd, ".pi", "project.json"),
+      JSON.stringify(bindRepositoryState(foreignIdentity, legacy)),
+      "utf8",
+    );
+    registeredProjectPlanner();
+    const foreignContext = await composeTurnContext({ cwd } as any, [{ role: "user", content: "continue planning" }]);
+    expect(foreignContext.providerIds).not.toContain("project-planner");
   });
 });

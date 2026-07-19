@@ -32,6 +32,38 @@ describe("policy tools extension", () => {
     expect(help.details.policy.group).toBe("coding");
   });
 
+  test("tool_search additively loads bounded available matches without locked built-ins", async () => {
+    const tools: Record<string, any> = {};
+    let active = ["tool_search", "code_search"];
+    const available = ["tool_search", "code_search", "compare_files", "inspect_lines", "web_search", "write", "edit"];
+    policyToolsExtension({
+      registerTool: (tool: any) => { tools[tool.name] = tool; },
+      getActiveTools: () => active.map(name => ({ name })),
+      getAllTools: () => available.map(name => ({ name })),
+      setActiveTools: (names: string[]) => { active = names; },
+    } as any);
+
+    const loaded = await tools.tool_search.execute("id", { query: "compare files", limit: 3 });
+    expect(active).toContain("tool_search");
+    expect(active).toContain("code_search");
+    expect(active).toContain("compare_files");
+    expect(loaded.details.loaded).toEqual(["compare_files"]);
+
+    await tools.tool_search.execute("id", { query: "write edit", limit: 5 });
+    expect(active).not.toContain("write");
+    expect(active).not.toContain("edit");
+
+    const previousDisable = process.env.KEYLIME_DISABLE_RESEARCH;
+    process.env.KEYLIME_DISABLE_RESEARCH = "1";
+    try {
+      await tools.tool_search.execute("id", { query: "web search", limit: 5 });
+      expect(active).not.toContain("web_search");
+    } finally {
+      if (previousDisable === undefined) delete process.env.KEYLIME_DISABLE_RESEARCH;
+      else process.env.KEYLIME_DISABLE_RESEARCH = previousDisable;
+    }
+  });
+
   test("retrieve_policy returns kind-filtered corpus evidence", async () => {
     const tools = register();
     const result = await tools.retrieve_policy.execute("id", { query: "python -c runtime eval", kind: "mutation", top_k: 1 });
