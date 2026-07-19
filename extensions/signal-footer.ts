@@ -4,6 +4,51 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 type SignalPick = { key: string; value: string } | undefined;
 
+function plain(text: string): string {
+	return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trim();
+}
+
+function findSignal(statuses: ReadonlyMap<string, string>, aliases: string[]): SignalPick {
+	const alias = aliases.map((value) => value.toLowerCase());
+	for (const [key, value] of statuses.entries()) {
+		const cleanKey = key.toLowerCase();
+		const cleanValue = plain(value).toLowerCase();
+		if (alias.some((candidate) => cleanKey.includes(candidate) || cleanValue.includes(candidate))) return { key, value };
+	}
+	return undefined;
+}
+
+function contextSummary(signal: SignalPick): string {
+	if (!signal) return "ctx:—";
+	const value = plain(signal.value).replace(/^(?:ctx|context)\s*:\s*/i, "");
+	if (!value || value === "—" || value === "-") return "ctx:—";
+	const pct = value.match(/(\d+(?:\.\d+)?)%/);
+	const tokens = value.match(/([\d.]+[kmg]?)\s*\/\s*([\d.]+[kmg]?)/i);
+	if (!pct) return `ctx:${value}`;
+	return `ctx:${pct[1]}% pressure${tokens ? ` (${tokens[1]}/${tokens[2]})` : ""}`;
+}
+
+function cacheSummary(signal: SignalPick): string {
+	if (!signal) return "cache:—";
+	const value = plain(signal.value).replace(/^cache\s*:\s*/i, "");
+	if (!value || value === "—" || value === "-") return "cache:—";
+	const pct = value.match(/(\d+(?:\.\d+)?)%/);
+	return pct ? `cache:${pct[1]}% reused` : `cache:${value}`;
+}
+
+export function buildSignalParts(statuses: ReadonlyMap<string, string>): string[] {
+	const context = findSignal(statuses, ["context-health", "context", "ctx"]);
+	const cache = findSignal(statuses, ["cache-guard", "cache", "cached", "hit-rate", "hit rate"]);
+	const memory = findSignal(statuses, ["memory", "mem"]);
+	const ace = findSignal(statuses, ["ace"]);
+	return [
+		contextSummary(context),
+		cacheSummary(cache),
+		memory ? `mem:${plain(memory.value).replace(/^mem(?:ory)?\s*:\s*/i, "")}` : undefined,
+		ace ? `ace:${plain(ace.value).replace(/^ace\s*:\s*/i, "")}` : undefined,
+	].filter(Boolean) as string[];
+}
+
 export default function signalFooter(pi: ExtensionAPI) {
 	let enabled = true;
 
@@ -22,18 +67,6 @@ export default function signalFooter(pi: ExtensionAPI) {
 		return { input, output };
 	}
 
-	function findSignal(statuses: ReadonlyMap<string, string>, aliases: string[]): SignalPick {
-		const alias = aliases.map((a) => a.toLowerCase());
-		for (const [key, value] of statuses.entries()) {
-			const k = key.toLowerCase();
-			const v = value.toLowerCase();
-			if (alias.some((a) => k.includes(a) || v.includes(a))) {
-				return { key, value };
-			}
-		}
-		return undefined;
-	}
-
 	function apply(ctx: any) {
 		if (!ctx.hasUI) return;
 		if (!enabled) {
@@ -49,15 +82,7 @@ export default function signalFooter(pi: ExtensionAPI) {
 				invalidate() {},
 				render(width: number): string[] {
 					const statuses = footerData.getExtensionStatuses() as ReadonlyMap<string, string>;
-					const memory = findSignal(statuses, ["memory", "mem"]);
-					const ace = findSignal(statuses, ["ace"]);
-					const cache = findSignal(statuses, ["cache", "cached", "hit-rate", "hit rate"]);
-
-					const sigParts = [
-						memory ? `mem:${memory.value}` : undefined,
-						ace ? `ace:${ace.value}` : undefined,
-						cache ? `cache:${cache.value}` : undefined,
-					].filter(Boolean) as string[];
+					const sigParts = buildSignalParts(statuses);
 
 					const t = totals(ctx);
 					const leftText = `${sigParts.length ? sigParts.join(" • ") : "signals:-"} • tok ↑${fmt(t.input)} ↓${fmt(t.output)}`;
@@ -77,7 +102,7 @@ export default function signalFooter(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("status-hud", {
-		description: "Toggle compact high-signal global footer (mem/ace/cache/tokens)",
+		description: "Toggle compact high-signal global footer (context pressure/cache reuse/memory/tokens)",
 		handler: async (_args, ctx) => {
 			enabled = !enabled;
 			apply(ctx);

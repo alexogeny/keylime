@@ -8,7 +8,7 @@ This roadmap is split into independently testable slices. Each slice starts with
 
 ## Implementation status
 
-All six slices are implemented as of 2026-07-19. The context-specific gate passes 52 tests, the deterministic category report passes every quality and safety category, and the final repository gate passes 505 tests with zero failures. Ongoing changes to context reduction should run `bun run test:context`, review `bun run bench:context`, and finish with `bun run check`.
+All six slices are implemented as of 2026-07-19. The context-specific gate passes 52 tests, the deterministic category report passes every quality and safety category, and the final repository gate passes 507 tests with zero failures. Ongoing changes to context reduction should run `bun run test:context`, review `bun run bench:context`, and finish with `bun run check`.
 
 The measured fixture report is intentionally category-specific: tool-schema reduction is not used as a substitute for exact failure recovery, compaction continuation, repository recall, stale-state quarantine, or blocked-operation evidence.
 

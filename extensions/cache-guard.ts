@@ -76,7 +76,7 @@ export default function cacheGuardExtension(pi: ExtensionAPI) {
     ctx.ui.setStatus(
       STATUS_KEY,
       ctx.ui.theme.fg(colour,
-        `cache:${hitPct}% (${fmtK(sessionCacheRead)}↩/${fmtK(sessionInputTotal)}in)`
+        `cache:${hitPct}% reused`
       )
     );
   });
