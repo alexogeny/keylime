@@ -119,3 +119,22 @@ test("provider prompt extraction strips existing system reminders", async () => 
 
   expect(seenPrompt).toBe("hello\n\n ");
 });
+
+test("reports stable provider fingerprints and contribution sizes", async () => {
+  registerContextProvider({ id: "stable", priority: 10, maxChars: 100, stability: "session", build: () => "stable context" });
+
+  const first = await composeTurnContext(ctx(), messages("hello"));
+  const second = await composeTurnContext(ctx(), messages("hello again"));
+  const firstDiagnostic = first.diagnostics.providers[0];
+  const secondDiagnostic = second.diagnostics.providers[0];
+
+  expect(firstDiagnostic).toMatchObject({
+    id: "stable",
+    stability: "session",
+    rawChars: 14,
+    finalChars: 14,
+    included: true,
+  });
+  expect(firstDiagnostic.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+  expect(secondDiagnostic.fingerprint).toBe(firstDiagnostic.fingerprint);
+});

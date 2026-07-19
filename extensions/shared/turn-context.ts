@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCurrentRoute, type IntentRoute } from "./intent";
 import { promptFromMessages } from "./message-content";
 import { truncateWithMarker } from "./output-preview";
+import { contextFingerprint } from "./context-ledger";
 
 export type ContextProviderArgs = {
   ctx: ExtensionContext;
@@ -32,6 +33,7 @@ export type ContextProviderDiagnostic = {
   finalChars: number;
   trimmed: boolean;
   included: boolean;
+  fingerprint?: string;
   skippedReason?: "not_applicable" | "empty" | "duplicate" | "budget";
 };
 
@@ -154,7 +156,17 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
     const trimmed = text !== raw.trim();
     sections.push(text);
     providerIds.push(provider.id);
-    diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget, rawChars: raw.trim().length, finalChars: text.length, trimmed, included: true });
+    diagnostics.push({
+      id: provider.id,
+      priority: provider.priority,
+      stability,
+      budget,
+      rawChars: raw.trim().length,
+      finalChars: text.length,
+      trimmed,
+      included: true,
+      fingerprint: contextFingerprint([text]),
+    });
     remaining -= text.length + 2;
   }
 
