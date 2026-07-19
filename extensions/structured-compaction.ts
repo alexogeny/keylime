@@ -14,6 +14,7 @@ type CompactionGenerationInput = {
   previousSummary?: string;
   reason: string;
   willRetry: boolean;
+  validationError?: string;
 };
 
 type StructuredCompactionOptions = {
@@ -83,15 +84,27 @@ export function createStructuredCompactionHandler(options: StructuredCompactionO
         willRetry: Boolean(event.willRetry),
       };
       let generated: unknown;
+      let retryUsed = false;
       try {
         generated = await options.generateCheckpoint(generationInput, signal, ctx, 0);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (!/empty checkpoint response/i.test(message) || signal?.aborted) throw error;
+        retryUsed = true;
         generated = await options.generateCheckpoint(generationInput, signal, ctx, 1);
       }
       if (signal?.aborted) return;
-      const checkpoint = validateCompactionCheckpoint(generated);
+      let checkpoint: CompactionCheckpoint;
+      try {
+        checkpoint = validateCompactionCheckpoint(generated);
+      } catch (error) {
+        if (signal?.aborted) return;
+        if (retryUsed) throw error;
+        const validationError = error instanceof Error ? error.message : String(error);
+        generated = await options.generateCheckpoint({ ...generationInput, validationError }, signal, ctx, 1);
+        if (signal?.aborted) return;
+        checkpoint = validateCompactionCheckpoint(generated);
+      }
       const objectIds = checkpointObjectIds(checkpoint);
       if (options.objectExists) {
         for (const id of objectIds) {
@@ -130,8 +143,9 @@ async function generateWithActiveModel(input: CompactionGenerationInput, signal:
 version, goal, constraints, acceptanceCriteria, decisions, activeFiles, changes, verification, failures, blockers, pendingActions, safetyState, objectIds.
 
 Each claim is {"text": string, "sourceEntryIds"?: string[], "objectIds"?: string[], "status"?: "active"|"resolved"|"superseded"}.
+Each activeFiles item is {"path": string, "relevance": string, "contentHash"?: string, "locators"?: [{"path"?: string, "lines"?: {"start": number, "end": number}, "section"?: string, "resultId"?: string}]}. Never use a bare path string in activeFiles.
 Preserve exact user constraints, paths, line ranges, hashes, errors, blockers, pending work, safety state, and existing object ids. Use empty arrays rather than omitting keys. Return JSON only.
-${input.previousSummary ? `\nPrevious checkpoint:\n${input.previousSummary}\n` : ""}
+${input.previousSummary ? `\nPrevious checkpoint:\n${input.previousSummary}\n` : ""}${input.validationError ? `\nCorrection required: the previous JSON was rejected because ${input.validationError}. Regenerate the entire checkpoint with the exact schema.\n` : ""}
 <conversation>
 ${attempt > 0 && input.conversation.length > 60_000 ? `[earlier conversation omitted on retry]\n${input.conversation.slice(-60_000)}` : input.conversation}
 </conversation>`;

@@ -130,6 +130,24 @@ describe("structured compaction checkpoint", () => {
     expect(result?.compaction.summary).toContain("Goal: Implement verified context compaction");
   });
 
+  test("retries a schema-invalid checkpoint before defaulting", async () => {
+    const attempts: number[] = [];
+    const handler = createStructuredCompactionHandler({
+      generateCheckpoint: async (_event, _signal, _ctx, attempt = 0) => {
+        attempts.push(attempt);
+        if (attempt === 0) return { ...checkpoint, activeFiles: ["extensions/structured-compaction.ts"] };
+        return checkpoint;
+      },
+    });
+    const result = await handler({
+      preparation: { firstKeptEntryId: "kept", tokensBefore: 100, messagesToSummarize: [], turnPrefixMessages: [] },
+      branchEntries: [], reason: "manual", willRetry: false, signal: new AbortController().signal,
+    } as any, { cwd: "/tmp/repo", ui: { notify: () => {} } } as any);
+
+    expect(attempts).toEqual([0, 1]);
+    expect(result?.compaction.summary).toContain("Goal: Implement verified context compaction");
+  });
+
   test("renders exact paths locators hashes and evidence ids", () => {
     const text = renderCompactionCheckpoint(checkpoint);
     expect(text).toContain("Goal: Implement verified context compaction");
