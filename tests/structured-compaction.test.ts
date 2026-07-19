@@ -93,7 +93,7 @@ describe("structured compaction checkpoint", () => {
     expect(notices.some(text => text.includes("default compaction"))).toBe(true);
   });
 
-  test("records one deterministic readiness snapshot per source fingerprint above medium pressure", async () => {
+  test("records one deterministic readiness snapshot per pressure band rather than per entry", async () => {
     const handlers: Record<string, any> = {};
     const entries = [{ id: "entry-1", type: "message" }];
     const appended: any[] = [];
@@ -111,7 +111,7 @@ describe("structured compaction checkpoint", () => {
     entries.push({ id: "entry-2", type: "message" });
     await handlers.turn_end({}, ctx);
 
-    expect(appended).toHaveLength(2);
+    expect(appended).toHaveLength(1);
     expect(appended[0].type).toBe("compaction-readiness-v1");
     expect(appended[0].data).toMatchObject({ version: 1, contextPercent: 70, entryCount: 1, lastEntryId: "entry-1" });
     expect(appended[0].data.fingerprint).toMatch(/^[a-f0-9]{16}$/);

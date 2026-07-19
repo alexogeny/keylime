@@ -37,11 +37,36 @@ function fmtTokens(n: number): string {
   return formatCompactNumber(n);
 }
 
+export function normalizeContextPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+export function createContextPressureWarningPolicy() {
+  let highestBand = 0;
+  const bandFor = (percent: number): number => percent >= 97 ? 97 : percent >= 92 ? 92 : percent >= 85 ? 85 : 0;
+  return {
+    observe(value: number): string | undefined {
+      const rawPercent = Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+      const percent = normalizeContextPercent(rawPercent);
+      if (rawPercent < 80) { highestBand = 0; return; }
+      const band = bandFor(rawPercent);
+      if (!band || band <= highestBand) return;
+      highestBand = band;
+      return band >= 92
+        ? `⚠️  Context at ${percent}% — run /compact now to avoid auto-compaction mid-task.`
+        : `⚠️  Context at ${percent}% — consider /compact before the next major step.`;
+    },
+    reset(): void { highestBand = 0; },
+  };
+}
+
 // ─── Extension ───────────────────────────────────────────────────────────────
 
 export default function contextHealthExtension(pi: ExtensionAPI) {
   let sessionCost    = 0;
   let hasCostData    = false;
+  const pressureWarnings = createContextPressureWarningPolicy();
 
   // ── Reset on new / resumed session ─────────────────────────────────────────
 
@@ -50,6 +75,7 @@ export default function contextHealthExtension(pi: ExtensionAPI) {
     if (event.reason === "new" || event.reason === "startup") {
       sessionCost = 0;
       hasCostData = false;
+      pressureWarnings.reset();
     }
 
     // Restore accumulated cost from session entries (survives /reload)
@@ -92,7 +118,7 @@ export default function contextHealthExtension(pi: ExtensionAPI) {
       ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "ctx: —"));
       return;
     }
-    const pct   = Math.min(100, usage.percent ?? Math.round((usage.tokens / usage.contextWindow) * 100));
+    const pct   = normalizeContextPercent(usage.percent ?? (usage.tokens / usage.contextWindow) * 100);
     const bar   = makeBar(pct);
     const used  = fmtTokens(usage.tokens);
     const total = fmtTokens(usage.contextWindow);
@@ -117,13 +143,9 @@ export default function contextHealthExtension(pi: ExtensionAPI) {
   pi.on("turn_end", async (_event, ctx) => {
     const usage = ctx.getContextUsage();
     if (!usage || usage.tokens === null) return;
-    const pct = usage.percent ?? Math.round((usage.tokens / usage.contextWindow) * 100);
-    if (pct >= 85) {
-      ctx.ui.notify(
-        `⚠️  Context at ${pct}% — consider /compact to avoid auto-compaction mid-task.`,
-        "warning"
-      );
-    }
+    const pct = usage.percent ?? (usage.tokens / usage.contextWindow) * 100;
+    const warning = pressureWarnings.observe(pct);
+    if (warning) ctx.ui.notify(warning, "warning");
   });
 
   // ── Command: /ctx-stats — verbose breakdown ────────────────────────────────
@@ -135,7 +157,7 @@ export default function contextHealthExtension(pi: ExtensionAPI) {
       const lines: string[] = [];
 
       if (usage && usage.tokens !== null) {
-        const pct   = Math.min(100, usage.percent ?? Math.round((usage.tokens / usage.contextWindow) * 100));
+        const pct   = normalizeContextPercent(usage.percent ?? (usage.tokens / usage.contextWindow) * 100);
         const bar   = makeBar(pct);
         lines.push(`Context: [${bar}] ${pct}%`);
         lines.push(`Tokens:  ${fmtTokens(usage.tokens)} / ${fmtTokens(usage.contextWindow)}`);

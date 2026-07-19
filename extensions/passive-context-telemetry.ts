@@ -44,10 +44,14 @@ type CompactionTelemetrySample = {
   activeControlsAfter?: number;
   relinkingDetected?: boolean;
   prohibitedBackendActions?: number;
+  attempts?: number;
+  localTimeouts?: number;
+  outputTruncations?: number;
 };
 type CompactionQualityAggregate = {
   attempts: number; valid: number; fallbacks: number; activeControlsBefore: number; activeControlsAfter: number;
   relinkingDetected: number; prohibitedBackendActions: number; fallbackRate: number; schemaValidityRate: number;
+  generationAttempts: number; localTimeouts: number; outputTruncations: number;
 };
 type CompactionLatencyAggregate = { count: number; sumMs: number; maxMs: number; p95Ms: number; buckets: Record<string, number> };
 
@@ -78,7 +82,7 @@ function blank(day: string, now: Date): DailyAggregate {
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, costUsd: 0,
     context: { samples: 0, percentSum: 0, maxPercent: 0, maxTokens: 0, contextWindow: 0, pressure: { low: 0, medium: 0, high: 0 } },
     runtime: { maskedObservations: 0, retrievalSamples: 0, retrievalUtilizationSum: 0, folds: 0 }, compactions: 0,
-    compactionQuality: { attempts: 0, valid: 0, fallbacks: 0, activeControlsBefore: 0, activeControlsAfter: 0, relinkingDetected: 0, prohibitedBackendActions: 0, fallbackRate: 0, schemaValidityRate: 0 },
+    compactionQuality: { attempts: 0, valid: 0, fallbacks: 0, activeControlsBefore: 0, activeControlsAfter: 0, relinkingDetected: 0, prohibitedBackendActions: 0, fallbackRate: 0, schemaValidityRate: 0, generationAttempts: 0, localTimeouts: 0, outputTruncations: 0 },
     compactionLatency: { count: 0, sumMs: 0, maxMs: 0, p95Ms: 0, buckets: {} },
     models: {},
   };
@@ -89,7 +93,10 @@ async function safeRead(path: string, fallback: DailyAggregate): Promise<DailyAg
     const parsed = JSON.parse(await readFile(path, "utf8"));
     if (parsed?.version !== 1) throw new Error("Unsupported telemetry aggregate version");
     parsed.models ??= {};
-    parsed.compactionQuality ??= { attempts: parsed.compactions ?? 0, valid: 0, fallbacks: 0, activeControlsBefore: 0, activeControlsAfter: 0, relinkingDetected: 0, prohibitedBackendActions: 0, fallbackRate: 0, schemaValidityRate: 0 };
+    parsed.compactionQuality ??= { attempts: parsed.compactions ?? 0, valid: 0, fallbacks: 0, activeControlsBefore: 0, activeControlsAfter: 0, relinkingDetected: 0, prohibitedBackendActions: 0, fallbackRate: 0, schemaValidityRate: 0, generationAttempts: 0, localTimeouts: 0, outputTruncations: 0 };
+    parsed.compactionQuality.generationAttempts ??= 0;
+    parsed.compactionQuality.localTimeouts ??= 0;
+    parsed.compactionQuality.outputTruncations ??= 0;
     parsed.compactionLatency ??= { count: 0, sumMs: 0, maxMs: 0, p95Ms: 0, buckets: {} };
     return parsed as DailyAggregate;
   } catch (error: any) {
@@ -249,6 +256,9 @@ export function createPassiveTelemetryStore(options: StoreOptions = {}) {
           quality.activeControlsAfter += Math.max(0, Math.floor(sample.activeControlsAfter ?? 0));
           if (sample.relinkingDetected) quality.relinkingDetected++;
           quality.prohibitedBackendActions += Math.max(0, Math.floor(sample.prohibitedBackendActions ?? 0));
+          quality.generationAttempts += Math.min(2, Math.max(0, Math.floor(sample.attempts ?? 0)));
+          quality.localTimeouts += Math.min(2, Math.max(0, Math.floor(sample.localTimeouts ?? 0)));
+          quality.outputTruncations += Math.min(2, Math.max(0, Math.floor(sample.outputTruncations ?? 0)));
           quality.fallbackRate = quality.fallbacks / quality.attempts;
           quality.schemaValidityRate = quality.valid / quality.attempts;
           const durationMs = Math.max(0, Math.round(sample.durationMs ?? 0));

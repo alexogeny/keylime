@@ -7,6 +7,9 @@ export type CompactionMetric = {
   activeControlsAfter?: number;
   relinkingDetected?: boolean;
   prohibitedBackendActions?: number;
+  attempts?: number;
+  localTimeouts?: number;
+  outputTruncations?: number;
 };
 
 type CompactionMetricStore = { recordCompaction(metric: CompactionMetric): Promise<void> };
@@ -23,6 +26,9 @@ function sanitize(input: CompactionMetric): CompactionMetric {
     activeControlsAfter: Number.isFinite(input.activeControlsAfter) ? Math.max(0, Math.floor(Number(input.activeControlsAfter))) : undefined,
     relinkingDetected: Boolean(input.relinkingDetected),
     prohibitedBackendActions: Number.isFinite(input.prohibitedBackendActions) ? Math.max(0, Math.floor(Number(input.prohibitedBackendActions))) : undefined,
+    attempts: Number.isFinite(input.attempts) ? Math.min(2, Math.max(0, Math.floor(Number(input.attempts)))) : undefined,
+    localTimeouts: Number.isFinite(input.localTimeouts) ? Math.min(2, Math.max(0, Math.floor(Number(input.localTimeouts)))) : undefined,
+    outputTruncations: Number.isFinite(input.outputTruncations) ? Math.min(2, Math.max(0, Math.floor(Number(input.outputTruncations)))) : undefined,
   };
 }
 

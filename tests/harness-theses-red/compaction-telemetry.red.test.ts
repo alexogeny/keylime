@@ -18,6 +18,9 @@ describe("RED: privacy-preserving telemetry measures compaction quality", () => 
         activeControlsAfter: 4,
         relinkingDetected: false,
         prohibitedBackendActions: 0,
+        attempts: 2,
+        localTimeouts: 1,
+        outputTruncations: 1,
       });
 
       const aggregate = (await store.aggregates())[0] as any;
@@ -29,6 +32,9 @@ describe("RED: privacy-preserving telemetry measures compaction quality", () => 
         activeControlsAfter: 4,
         relinkingDetected: 0,
         prohibitedBackendActions: 0,
+        generationAttempts: 2,
+        localTimeouts: 1,
+        outputTruncations: 1,
       }));
       expect(aggregate.compactionLatency.count).toBe(1);
       expect(aggregate.compactionLatency.maxMs).toBe(1_200);
