@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import contextRuntimeExtension, { createContextRuntimeCoordinator } from "../../extensions/context-runtime";
 import { mockPiFixture } from "../helpers/mock-pi";
+import { renderRuntimeFoldContext } from "../../extensions/structured-compaction";
 
 const toolMessage = (id: string, text: string, details: Record<string, unknown> = {}) => ({
   role: "toolResult", toolCallId: id, toolName: "inspect_lines", content: [{ type: "text", text }], details, isError: false, timestamp: 1,
@@ -86,6 +87,18 @@ describe("context runtime end-to-end wiring", () => {
     expect(result.fold?.objectIds).toContain("ctx-code");
     expect(result.contextBudget.maxChars).toBeGreaterThan(0);
     expect(result.retrievalBudget.maxPackets).toBeGreaterThan(0);
+  });
+
+  test("feeds bounded proactive folds into structured compaction input", () => {
+    const runtime = createContextRuntimeCoordinator();
+    runtime.recordTrajectory([{ id: "fold-evidence", subtask: "diagnose", type: "evidence", text: "cache key omits model id", objectIds: ["ctx-fold"] }]);
+    runtime.endTurn({ contextPercent: 40, boundary: "subtask_completed" });
+    runtime.snapshot();
+    const folded = renderRuntimeFoldContext();
+    expect(folded).toContain("[Verified runtime trajectory fold]");
+    expect(folded).toContain("cache key omits model id");
+    expect(folded).toContain("ctx-fold");
+    expect(folded.length).toBeLessThanOrEqual(2_500);
   });
 
   test("coordinates provider-native compaction without replacing Pi compaction", () => {

@@ -20,7 +20,7 @@ async function fold(level: "granular" | "deep", input = events, options: Record<
   return fn(input, { level, completedSubtasks: ["investigate"], activeSubtask: "implement", ...options });
 }
 
-describe("RED thesis: proactive hierarchical context folding", () => {
+describe("Context thesis: proactive hierarchical context folding", () => {
   test("granular folds retain exact fine-grained evidence", async () => {
     const result = await fold("granular", events.slice(0, 3));
     expect(result.facts).toContain("prefix is keyed without model id");

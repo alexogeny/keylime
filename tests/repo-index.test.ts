@@ -77,6 +77,8 @@ describe("code_search file_glob handling", () => {
     expect(result.details.metrics.returnedChars).toBeLessThanOrEqual(1000);
     expect(result.details.metrics.returnedFiles).toBeLessThanOrEqual(1);
     expect(result.details.regions[0]).toMatchObject({ path: "extensions/repo-index/index.ts" });
+    expect(result.details.intentAware).toBe(true);
+    expect(result.details.packets[0]).toMatchObject({ path: "extensions/repo-index/index.ts", objectId: expect.stringContaining("region:") });
   });
 
   test("hidden file_glob auto-enables hidden search", async () => {

@@ -8,6 +8,7 @@ import { allocateContextBudget } from "./shared/context-value-allocator";
 import { assignRetrievalCredit, adaptRetrievalBudget, type RetrievalCredit, type RetrievalInjection, type RetrievalUsage } from "./shared/retrieval-credit";
 import { retrieveRepositoryExperiences, type ExperienceMatch, type ExperienceQuery, type RepositoryExperience } from "./shared/experience-memory";
 import { chooseCompactionStrategy, type CompactionStrategyDecision, type ProviderContextCapabilities, type ProviderContextState } from "./shared/provider-compaction-policy";
+import { publishContextRuntimeTelemetry, readContextRuntimeTelemetry, resetContextRuntimeTelemetry } from "./shared/context-runtime-bus";
 
 const STATUS_KEY = "context-runtime";
 
@@ -29,8 +30,7 @@ export type RuntimeSnapshot = {
   compaction?: CompactionStrategyDecision;
 };
 
-let lastContextRuntimeSnapshot: RuntimeSnapshot | undefined;
-export function getLastContextRuntimeSnapshot(): RuntimeSnapshot | undefined { return lastContextRuntimeSnapshot; }
+export function getLastContextRuntimeSnapshot(): RuntimeSnapshot | undefined { return readContextRuntimeTelemetry(); }
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -70,6 +70,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
     reset(): void {
       turn = 0; observations = new Map(); trajectory = []; retrievals = []; retrievalUsage = {}; retrievalHistory = [];
       retrievalBudget = { maxPackets: 6, maxChars: 3_000 }; experiences = []; lastFold = undefined; lastCompaction = undefined; cacheFingerprint = ""; maskedObservations = 0;
+      resetContextRuntimeTelemetry();
     },
 
     recordToolResult(result: RecordedToolResult): void {
@@ -167,7 +168,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
 
     snapshot(): RuntimeSnapshot {
       const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction };
-      lastContextRuntimeSnapshot = snapshot;
+      publishContextRuntimeTelemetry(snapshot);
       return snapshot;
     },
   };
@@ -182,19 +183,20 @@ export default function contextRuntimeExtension(pi: ExtensionAPI) {
       opaqueCompaction: process.env.PI_CONTEXT_OPAQUE_COMPACTION === "1",
     },
   });
+  let runtimeEventSequence = 0;
   const status = (ctx: any) => {
     const snapshot = runtime.snapshot();
     ctx.ui?.setStatus?.(STATUS_KEY, ctx.ui.theme?.fg?.("dim", `ctxrt:${snapshot.maskedObservations}/${snapshot.observations}`) ?? `ctxrt:${snapshot.maskedObservations}/${snapshot.observations}`);
   };
 
-  pi.on("session_start", async (event, ctx) => { if (event.reason === "new" || event.reason === "startup") runtime.reset(); status(ctx); });
+  pi.on("session_start", async (event, ctx) => { if (event.reason === "new" || event.reason === "startup") { runtime.reset(); runtimeEventSequence = 0; } status(ctx); });
   pi.on("tool_result", async (event: any) => {
     const toolName = String(event.toolName ?? "tool");
     const text = textFromContent(event.content);
     const objectId = event.details?.contextObjectId ?? event.details?.resultId;
     runtime.recordToolResult({ toolCallId: String(event.toolCallId ?? ""), toolName, text, objectId, isError: Boolean(event.isError) });
     runtime.recordTrajectory([{
-      id: String(event.toolCallId ?? `${toolName}-${Date.now()}`), subtask: "active", type: event.isError ? "failure" : "evidence", text,
+      id: String(event.toolCallId ?? `${toolName}-${++runtimeEventSequence}`), subtask: "active", type: event.isError ? "failure" : "evidence", text,
       objectIds: objectId ? [String(objectId)] : undefined,
     }]);
     if (toolName === "code_search" && objectId) {

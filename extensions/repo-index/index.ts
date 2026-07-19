@@ -35,6 +35,7 @@ import { repoRelativePath } from "../shared/path-policy";
 import { writePathsForToolResult } from "../shared/safety-policy";
 import { matchesGlob } from "../shared/code-primitives";
 import { parseRipgrepCodeRegions, rankCodeRegions } from "../shared/repo-regions";
+import { selectEvidencePackets } from "../shared/evidence-packets";
 
 const execFileAsync = promisify(execFile);
 
@@ -620,13 +621,37 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
           maxChars: params.max_chars ?? SEARCH_MAX_CHARS,
           maxFiles: params.max_files ?? maxResults,
         });
-        const rendered = ranked.regions.map(region => [
+        const evidenceCandidates = ranked.regions.map(region => ({
+          id: `${region.path}:${region.startLine}-${region.endLine}`,
+          path: region.path,
+          startLine: region.startLine,
+          endLine: region.endLine,
+          text: region.lines.join("\n"),
+          lexical: Math.max(0, Math.min(1, region.score)),
+          semantic: region.reasons.includes("declaration_match") ? .8 : .5,
+          graph: region.reasons.includes("import_neighbor") ? .8 : .2,
+          recency: .5,
+          symbols: region.lines.join("\n").includes(String(params.query)) ? [String(params.query)] : [],
+          objectId: `region:${region.path}:${region.startLine}-${region.endLine}`,
+        }));
+        const packets = selectEvidencePackets(
+          { objective: String(params.query), symbols: [String(params.query)], paths: params.file_glob && !String(params.file_glob).includes("*") ? [String(params.file_glob)] : [] },
+          evidenceCandidates,
+          { maxTokens: Math.max(1, Math.floor((params.max_chars ?? SEARCH_MAX_CHARS) / 4)), maxPackets: maxResults, maxFiles: params.max_files ?? maxResults },
+        );
+        const packetIds = new Set(packets.map(packet => packet.id));
+        const selectedRegions = ranked.regions.filter(region => packetIds.has(`${region.path}:${region.startLine}-${region.endLine}`));
+        const regions = selectedRegions.length > 0 ? selectedRegions : ranked.regions.slice(0, 1);
+        const returnedLines = regions.reduce((sum, region) => sum + region.lines.length, 0);
+        const returnedChars = regions.reduce((sum, region) => sum + region.estimatedChars, 0);
+        const metrics = { ...ranked.metrics, returnedRegions: regions.length, returnedLines, returnedChars, returnedFiles: new Set(regions.map(region => region.path)).size, omittedCandidates: ranked.metrics.mergedCandidates - regions.length };
+        const rendered = regions.map(region => [
           `${region.path}:${region.startLine}-${region.endLine} score=${region.score.toFixed(3)} reasons=${region.reasons.join(",") || "none"}`,
           ...region.lines.map((line, index) => `${region.startLine + index} | ${line}`),
         ].join("\n")).join("\n\n");
         return {
-          content: [{ type: "text", text: `code_search "${params.query}" (${usedMode}) — ${ranked.metrics.returnedRegions} regions\n\n${rendered}` }],
-          details: { query: params.query, mode: usedMode, engine, regions: ranked.regions, metrics: ranked.metrics },
+          content: [{ type: "text", text: `code_search "${params.query}" (${usedMode}) — ${metrics.returnedRegions} regions\n\n${rendered}` }],
+          details: { query: params.query, mode: usedMode, engine, regions, packets, intentAware: true, metrics },
         };
       }
 

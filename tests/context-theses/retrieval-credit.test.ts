@@ -17,7 +17,7 @@ async function credit(usage: Usage): Promise<Credit> {
   return fn(injections, usage);
 }
 
-describe("RED thesis: retrieval credit assignment and adaptive budgets", () => {
+describe("Context thesis: retrieval credit assignment and adaptive budgets", () => {
   test("credits evidence mentioned by id", async () => {
     expect((await credit({ mentionedIds: ["cache"] })).byId.cache).toBeGreaterThan(0);
   });

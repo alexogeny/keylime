@@ -11,7 +11,7 @@ async function decide(provider: Capabilities, state: State): Promise<Decision> {
   return fn(provider, state);
 }
 
-describe("RED thesis: provider-native compaction coordination", () => {
+describe("Context thesis: provider-native compaction coordination", () => {
   const state: State = { contextPercent: 88, hasValidatedCheckpoint: true, hasObjectManifest: true, unresolvedFailures: 1 };
 
   test("uses deterministic masking before opaque compaction", async () => {

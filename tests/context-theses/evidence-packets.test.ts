@@ -22,7 +22,7 @@ async function select(intent: Intent, input = candidates, budget = { maxTokens: 
   return fn(intent, input, budget);
 }
 
-describe("RED thesis: intention-aware evidence packets", () => {
+describe("Context thesis: intention-aware evidence packets", () => {
   const intent: Intent = { objective: "fix cache prefix invalidation", symbols: ["invalidatePrefix"], paths: ["src/cache.ts"], failure: "stale prefix reused", pendingStep: "inspect implementation and caller" };
 
   test("ranks direct objective and symbol evidence first", async () => {

@@ -13,7 +13,7 @@ async function evaluate(runs: Run[], options: Record<string, unknown> = {}): Pro
   return fn(runs, { minFactRecall: 1, requireSafety: true, requireResolution: true, ...options });
 }
 
-describe("RED thesis: end-to-end efficiency/effectiveness frontier", () => {
+describe("Context thesis: end-to-end efficiency/effectiveness frontier", () => {
   test("accepts a strategy that preserves quality and halves input tokens", async () => {
     const result = await evaluate([baseline, optimized]);
     expect(result.accepted.map(run => run.strategy)).toContain("hybrid");

@@ -60,5 +60,8 @@ describe("passive context telemetry", () => {
     const aggregate = JSON.parse(await readFile(join(dir, "2026-07-19.json"), "utf8"));
     expect(aggregate.turns).toBe(1);
     expect(aggregate.tokens.cacheRead).toBe(300);
+    await harness.commands["context-telemetry"].handler("", harness.ctx);
+    expect(harness.notifications.join("\n")).toContain("cache hit");
+    expect(harness.notifications.join("\n")).toContain("1 turn");
   });
 });

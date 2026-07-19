@@ -27,7 +27,7 @@ async function compact(observations: Observation[], options: Record<string, unkn
   return fn(observations, { currentTurn: 20, hotTurns: 2, warmTurns: 8, ...options });
 }
 
-describe("RED thesis: trajectory-aware observation lifecycle", () => {
+describe("Context thesis: trajectory-aware observation lifecycle", () => {
   test("keeps the newest observation exact and hot", async () => {
     const result = await compact([base({ id: "latest", turn: 20, text: "exact latest evidence" })]);
     expect(result.observations[0]).toMatchObject({ tier: "hot", rendered: "exact latest evidence" });

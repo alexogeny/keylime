@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { getLastContextRuntimeSnapshot } from "./context-runtime";
+import { readContextRuntimeTelemetry } from "./shared/context-runtime-bus";
 
 export const DEFAULT_CONTEXT_TELEMETRY_DIR = join(homedir(), ".pi", "data", "keylime-context-telemetry");
 const DEFAULT_RETENTION_DAYS = 14;
@@ -141,13 +141,32 @@ export function createPassiveTelemetryStore(options: StoreOptions = {}) {
     },
     prune(): Promise<void> { return enqueue(pruneNow); },
     clear(): Promise<void> { return enqueue(async () => { await rm(dir, { recursive: true, force: true }); cache.clear(); }); },
-    async summary(): Promise<{ dir: string; files: number; bytes: number }> {
+    async summary() {
       await queued;
+      const empty = { dir, files: 0, bytes: 0, turns: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0, averageContextPercent: 0, maxContextPercent: 0, maskedObservations: 0, retrievalUtilization: 0, folds: 0, compactions: 0 };
       try {
         const names = (await readdir(dir)).filter(name => name.endsWith(".json"));
         const sizes = await Promise.all(names.map(async name => (await stat(join(dir, name))).size));
-        return { dir, files: names.length, bytes: sizes.reduce((sum, size) => sum + size, 0) };
-      } catch { return { dir, files: 0, bytes: 0 }; }
+        const aggregates = (await Promise.all(names.map(async name => {
+          try { return JSON.parse(await readFile(join(dir, name), "utf8")) as DailyAggregate; } catch { return undefined; }
+        }))).filter((value): value is DailyAggregate => Boolean(value?.version === 1));
+        const turns = aggregates.reduce((sum, value) => sum + value.turns, 0);
+        const contextSamples = aggregates.reduce((sum, value) => sum + value.context.samples, 0);
+        const retrievalSamples = aggregates.reduce((sum, value) => sum + value.runtime.retrievalSamples, 0);
+        return {
+          dir, files: names.length, bytes: sizes.reduce((sum, size) => sum + size, 0), turns,
+          inputTokens: aggregates.reduce((sum, value) => sum + value.tokens.input, 0),
+          outputTokens: aggregates.reduce((sum, value) => sum + value.tokens.output, 0),
+          cacheReadTokens: aggregates.reduce((sum, value) => sum + value.tokens.cacheRead, 0),
+          costUsd: aggregates.reduce((sum, value) => sum + value.costUsd, 0),
+          averageContextPercent: contextSamples ? aggregates.reduce((sum, value) => sum + value.context.percentSum, 0) / contextSamples : 0,
+          maxContextPercent: Math.max(0, ...aggregates.map(value => value.context.maxPercent)),
+          maskedObservations: aggregates.reduce((sum, value) => sum + value.runtime.maskedObservations, 0),
+          retrievalUtilization: retrievalSamples ? aggregates.reduce((sum, value) => sum + value.runtime.retrievalUtilizationSum, 0) / retrievalSamples : 0,
+          folds: aggregates.reduce((sum, value) => sum + value.runtime.folds, 0),
+          compactions: aggregates.reduce((sum, value) => sum + value.compactions, 0),
+        };
+      } catch { return empty; }
     },
   };
 }
@@ -170,7 +189,7 @@ export default function passiveContextTelemetryExtension(pi: ExtensionAPI, optio
     if (event.message?.role !== "assistant") return;
     const usage = event.message.usage ?? {};
     const context = ctx.getContextUsage?.();
-    const runtime = getLastContextRuntimeSnapshot();
+    const runtime = readContextRuntimeTelemetry();
     const folded = Boolean(runtime?.lastFold?.id && runtime.lastFold.id !== lastFoldId);
     if (runtime?.lastFold?.id) lastFoldId = runtime.lastFold.id;
     await store.record({
@@ -193,7 +212,15 @@ export default function passiveContextTelemetryExtension(pi: ExtensionAPI, optio
     handler: async (args, ctx) => {
       if (String(args ?? "").trim() === "clear") { await store.clear(); ctx.ui.notify("Context telemetry cleared.", "info"); return; }
       const summary = await store.summary();
-      ctx.ui.notify(`Context telemetry: ${summary.files} daily file(s), ${summary.bytes} bytes\n${summary.dir}\nRetention: ${configured.retentionDays} days; hard cap: ${configured.maxBytes} bytes`, "info");
+      const cacheHit = summary.inputTokens > 0 ? summary.cacheReadTokens / summary.inputTokens : 0;
+      ctx.ui.notify([
+        `Context telemetry: ${summary.files} daily file(s), ${summary.bytes} bytes`,
+        `${summary.turns} turn(s) · cache hit ${(cacheHit * 100).toFixed(1)}% · input ${summary.inputTokens} · output ${summary.outputTokens}`,
+        `context avg ${summary.averageContextPercent.toFixed(1)}% max ${summary.maxContextPercent.toFixed(1)}% · masked ${summary.maskedObservations}`,
+        `retrieval use ${(summary.retrievalUtilization * 100).toFixed(1)}% · folds ${summary.folds} · compactions ${summary.compactions} · cost ${summary.costUsd.toFixed(4)}`,
+        summary.dir,
+        `Retention: ${configured.retentionDays} days; hard cap: ${configured.maxBytes} bytes`,
+      ].join("\n"), "info");
     },
   });
 }

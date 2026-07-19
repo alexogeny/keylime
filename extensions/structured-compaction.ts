@@ -7,6 +7,7 @@ import {
   type CompactionCheckpoint,
 } from "./shared/compaction-schema";
 import { pinContextObjects, readStoredContextObject } from "./context-object-store";
+import { readContextRuntimeTelemetry } from "./shared/context-runtime-bus";
 
 type CompactionGenerationInput = {
   conversation: string;
@@ -49,12 +50,32 @@ function checkpointObjectIds(checkpoint: CompactionCheckpoint): string[] {
   return [...ids].sort();
 }
 
+export function renderRuntimeFoldContext(): string {
+  const fold = readContextRuntimeTelemetry()?.lastFold;
+  if (!fold) return "";
+  const bounded = (values: string[], max = 6) => values.slice(0, max).map(value => value.slice(0, 300));
+  return [
+    "[Verified runtime trajectory fold]",
+    `Level: ${fold.level}`,
+    `Subtask: ${fold.subtask}`,
+    `Goal: ${fold.goal.slice(0, 300)}`,
+    `Outcome: ${fold.outcome.slice(0, 500)}`,
+    ...bounded(fold.facts).map(value => `Fact: ${value}`),
+    ...bounded(fold.failures).map(value => `Failure: ${value}`),
+    ...bounded(fold.pending).map(value => `Pending: ${value}`),
+    `Context objects: ${fold.objectIds.slice(0, 20).join(", ") || "none"}`,
+    `Source events: ${fold.sourceEventIds.slice(0, 30).join(", ") || "none"}`,
+  ].join("\n").slice(0, 2_500);
+}
+
 export function createStructuredCompactionHandler(options: StructuredCompactionOptions) {
   return async (event: any, ctx: any): Promise<any | undefined> => {
     try {
       const { preparation, signal } = event;
       const allMessages = [...(preparation.messagesToSummarize ?? []), ...(preparation.turnPrefixMessages ?? [])];
-      const conversation = serializeCompactionMessages(allMessages);
+      const serialized = serializeCompactionMessages(allMessages);
+      const runtimeFold = renderRuntimeFoldContext();
+      const conversation = runtimeFold ? `${serialized}\n\n${runtimeFold}` : serialized;
       const generated = await options.generateCheckpoint({
         conversation,
         previousSummary: preparation.previousSummary,

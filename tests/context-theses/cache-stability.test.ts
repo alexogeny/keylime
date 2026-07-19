@@ -17,7 +17,7 @@ async function assemble(input = segments, options: Record<string, unknown> = {})
   return fn(input, options);
 }
 
-describe("RED thesis: cache-stable prompt assembly", () => {
+describe("Context thesis: cache-stable prompt assembly", () => {
   test("orders static then session then turn context", async () => {
     expect((await assemble()).orderedSegmentIds).toEqual(["base", "tools", "session", "turn-evidence"]);
   });

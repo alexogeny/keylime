@@ -12,7 +12,7 @@ async function allocate(items: Item[], budget = 600, options: Record<string, unk
   return fn(items, { maxChars: budget, ...options });
 }
 
-describe("RED thesis: utility-per-token context allocation", () => {
+describe("Context thesis: utility-per-token context allocation", () => {
   test("never exceeds the hard context budget", async () => {
     const result = await allocate(Array.from({ length: 10 }, (_, id) => item({ id: String(id), chars: 180 })));
     expect(result.totalChars).toBeLessThanOrEqual(600);

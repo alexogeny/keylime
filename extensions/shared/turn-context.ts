@@ -3,6 +3,7 @@ import { getCurrentRoute, type IntentRoute } from "./intent";
 import { promptFromMessages } from "./message-content";
 import { truncateWithMarker } from "./output-preview";
 import { contextFingerprint } from "./context-ledger";
+import { allocateContextBudget } from "./context-value-allocator";
 
 export type ContextProviderArgs = {
   ctx: ExtensionContext;
@@ -35,7 +36,7 @@ export type ContextProviderDiagnostic = {
   trimmed: boolean;
   included: boolean;
   fingerprint?: string;
-  skippedReason?: "not_applicable" | "empty" | "duplicate" | "budget";
+  skippedReason?: "not_applicable" | "empty" | "duplicate" | "budget" | "utility_budget";
 };
 
 export type TurnContextDiagnostics = {
@@ -129,9 +130,29 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
   const seen = new Set<string>();
   const fullBudget = totalBudget(pressure);
   let remaining = fullBudget;
+  const providers = listContextProviders();
+  const baseShare = Math.max(80, Math.floor(fullBudget / Math.max(1, providers.length)));
+  const providerAllocation = allocateContextBudget(providers.map(provider => ({
+    id: provider.id,
+    category: provider.stability ?? "turn",
+    chars: Math.min(provider.maxChars, Math.max(80, Math.round(baseShare * (.5 + provider.priority / 100)))),
+    relevance: Math.max(0, Math.min(1, provider.priority / 100)),
+    impact: provider.priority >= 90 ? 1 : .6,
+    freshness: provider.stability === "turn" || !provider.stability ? 1 : .7,
+    confidence: .9,
+    lossRisk: provider.priority >= 90 ? 1 : .5,
+    recoverable: provider.stability === "static",
+    mandatory: provider.priority >= 90,
+  })), { maxChars: fullBudget });
+  const plannedBudgets = new Map(providerAllocation.selected.map(item => [item.id, item.chars]));
 
-  for (const provider of listContextProviders()) {
+  for (const provider of providers) {
     const stability = provider.stability ?? "turn";
+    const plannedBudget = plannedBudgets.get(provider.id);
+    if (!plannedBudget) {
+      diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "utility_budget" });
+      continue;
+    }
     if (remaining <= 80) {
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "budget" });
       break;

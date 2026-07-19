@@ -20,7 +20,7 @@ async function retrieve(query: Query, input = experiences): Promise<Match[]> {
 
 const query: Query = { repository: "acme/app", revision: "main", problemSignature: "model switch leaves stale cache prefix", symbols: ["cacheKey", "invalidatePrefix"], now: 100 };
 
-describe("RED thesis: typed cross-task experience memory", () => {
+describe("Context thesis: typed cross-task experience memory", () => {
   test("ranks repository-compatible successful experience first", async () => {
     expect((await retrieve(query))[0].id).toBe("exact");
   });
