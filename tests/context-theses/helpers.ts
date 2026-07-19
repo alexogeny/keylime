@@ -4,7 +4,7 @@ export type UnknownApi = Record<string, unknown>;
 
 export async function loadThesisModule(moduleName: string): Promise<UnknownApi> {
   try {
-    const path = `../../../extensions/shared/${moduleName}.ts`;
+    const path = `../../extensions/shared/${moduleName}.ts`;
     return await import(path) as UnknownApi;
   } catch (error) {
     if ((error as Error).message.includes("Cannot find module")) return {};

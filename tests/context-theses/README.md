@@ -1,6 +1,6 @@
 # Context-reduction thesis tests (RED)
 
-These tests specify the researched context/token-reduction architecture before implementation. They are intentionally red until the corresponding production modules exist under `extensions/shared/`.
+These tests specify the researched context/token-reduction architecture. They began as the RED contract; the corresponding pure policy modules now live under `extensions/shared/`. Runtime integration into Pi's event pipeline remains a separate step.
 
 ## Run
 
