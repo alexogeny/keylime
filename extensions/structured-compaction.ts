@@ -9,6 +9,20 @@ import {
 import { pinContextObjects, readStoredContextObject } from "./context-object-store";
 import { readContextRuntimeTelemetry } from "./shared/context-runtime-bus";
 
+export const COMPACTION_MAX_CONVERSATION_CHARS = 120_000;
+export const COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS = 30_000;
+export const COMPACTION_MAX_OUTPUT_TOKENS = 4096;
+const COMPACTION_MAX_MESSAGE_CHARS = 24_000;
+export const COMPACTION_REQUEST_TIMEOUT_MS = 60_000;
+
+function boundCompactionText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const marker = "\n\n[older middle context omitted for compaction latency]\n\n";
+  const headChars = Math.min(24_000, Math.floor((maxChars - marker.length) * .2));
+  const tailChars = maxChars - marker.length - headChars;
+  return `${text.slice(0, headChars)}${marker}${text.slice(-tailChars)}`;
+}
+
 type CompactionGenerationInput = {
   conversation: string;
   previousSummary?: string;
@@ -24,13 +38,18 @@ type StructuredCompactionOptions = {
 };
 
 function serializeCompactionMessages(messages: any[]): string {
-  return messages.map((message, index) => {
+  let rendered = "";
+  for (const [index, message] of messages.entries()) {
+    let chunk: string;
     try {
-      return `[${index + 1}:${message?.role ?? "entry"}] ${JSON.stringify(message?.content ?? message)}`;
+      chunk = `[${index + 1}:${message?.role ?? "entry"}] ${JSON.stringify(message?.content ?? message)}`;
     } catch {
-      return `[${index + 1}:${message?.role ?? "entry"}] [unserializable entry]`;
+      chunk = `[${index + 1}:${message?.role ?? "entry"}] [unserializable entry]`;
     }
-  }).join("\n\n");
+    chunk = boundCompactionText(chunk, COMPACTION_MAX_MESSAGE_CHARS);
+    rendered = boundCompactionText(rendered ? `${rendered}\n\n${chunk}` : chunk, COMPACTION_MAX_CONVERSATION_CHARS);
+  }
+  return rendered;
 }
 
 function checkpointObjectIds(checkpoint: CompactionCheckpoint): string[] {
@@ -72,11 +91,13 @@ export function renderRuntimeFoldContext(): string {
 export function createStructuredCompactionHandler(options: StructuredCompactionOptions) {
   return async (event: any, ctx: any): Promise<any | undefined> => {
     try {
-      const { preparation, signal } = event;
+      const { preparation } = event;
+      const sourceSignal: AbortSignal = event.signal ?? new AbortController().signal;
+      const signal = AbortSignal.any([sourceSignal, AbortSignal.timeout(COMPACTION_REQUEST_TIMEOUT_MS)]);
       const allMessages = [...(preparation.messagesToSummarize ?? []), ...(preparation.turnPrefixMessages ?? [])];
       const serialized = serializeCompactionMessages(allMessages);
       const runtimeFold = renderRuntimeFoldContext();
-      const conversation = runtimeFold ? `${serialized}\n\n${runtimeFold}` : serialized;
+      const conversation = boundCompactionText(runtimeFold ? `${serialized}\n\n${runtimeFold}` : serialized, COMPACTION_MAX_CONVERSATION_CHARS);
       const generationInput = {
         conversation,
         previousSummary: preparation.previousSummary,
@@ -106,10 +127,10 @@ export function createStructuredCompactionHandler(options: StructuredCompactionO
         checkpoint = validateCompactionCheckpoint(generated);
       }
       const objectIds = checkpointObjectIds(checkpoint);
-      if (options.objectExists) {
-        for (const id of objectIds) {
-          if (!(await options.objectExists(ctx.cwd, id))) throw new Error(`Missing context object evidence: ${id}`);
-        }
+      if (options.objectExists && objectIds.length > 0) {
+        const existence = await Promise.all(objectIds.map(async id => ({ id, exists: await options.objectExists!(ctx.cwd, id) })));
+        const missing = existence.find(item => !item.exists);
+        if (missing) throw new Error(`Missing context object evidence: ${missing.id}`);
       }
       if (options.pinObjects && objectIds.length > 0) await options.pinObjects(ctx.cwd, objectIds);
       return {
@@ -145,19 +166,21 @@ version, goal, constraints, acceptanceCriteria, decisions, activeFiles, changes,
 Each claim is {"text": string, "sourceEntryIds"?: string[], "objectIds"?: string[], "status"?: "active"|"resolved"|"superseded"}.
 Each activeFiles item is {"path": string, "relevance": string, "contentHash"?: string, "locators"?: [{"path"?: string, "lines"?: {"start": number, "end": number}, "section"?: string, "resultId"?: string}]}. Never use a bare path string in activeFiles.
 Preserve exact user constraints, paths, line ranges, hashes, errors, blockers, pending work, safety state, and existing object ids. Use empty arrays rather than omitting keys. Return JSON only.
-${input.previousSummary ? `\nPrevious checkpoint:\n${input.previousSummary}\n` : ""}${input.validationError ? `\nCorrection required: the previous JSON was rejected because ${input.validationError}. Regenerate the entire checkpoint with the exact schema.\n` : ""}
+${input.previousSummary ? `\nPrevious checkpoint:\n${boundCompactionText(input.previousSummary, COMPACTION_MAX_PREVIOUS_SUMMARY_CHARS)}\n` : ""}${input.validationError ? `\nCorrection required: the previous JSON was rejected because ${input.validationError}. Regenerate the entire checkpoint with the exact schema.\n` : ""}
 <conversation>
 ${attempt > 0 && input.conversation.length > 60_000 ? `[earlier conversation omitted on retry]\n${input.conversation.slice(-60_000)}` : input.conversation}
 </conversation>`;
+  const timeoutSignal = AbortSignal.timeout(COMPACTION_REQUEST_TIMEOUT_MS);
+  const requestSignal = AbortSignal.any([signal, timeoutSignal]);
   const response = await complete(model, {
     messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
   }, {
     apiKey: auth.apiKey,
     headers: auth.headers,
     env: auth.env,
-    maxTokens: 8192,
-    reasoning: attempt > 0 ? "off" : "low",
-    signal,
+    maxTokens: COMPACTION_MAX_OUTPUT_TOKENS,
+    reasoning: "off",
+    signal: requestSignal,
   });
   const text = response.content
     .filter((part): part is { type: "text"; text: string } => part.type === "text")

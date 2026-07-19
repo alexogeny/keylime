@@ -5,7 +5,11 @@ import {
   validateCompactionCheckpoint,
   type CompactionCheckpoint,
 } from "../extensions/shared/compaction-schema";
-import structuredCompactionExtension, { createStructuredCompactionHandler } from "../extensions/structured-compaction";
+import structuredCompactionExtension, {
+  COMPACTION_MAX_CONVERSATION_CHARS,
+  COMPACTION_MAX_OUTPUT_TOKENS,
+  createStructuredCompactionHandler,
+} from "../extensions/structured-compaction";
 
 const checkpoint: CompactionCheckpoint = {
   version: 1,
@@ -112,7 +116,32 @@ describe("structured compaction checkpoint", () => {
     expect(appended[0].data.fingerprint).toMatch(/^[a-f0-9]{16}$/);
   });
 
-  test("retries an empty checkpoint response at reduced reasoning before defaulting", async () => {
+  test("bounds model input and output while preserving oldest goals and newest state", async () => {
+    let receivedConversation = "";
+    const handler = createStructuredCompactionHandler({
+      generateCheckpoint: async input => { receivedConversation = input.conversation; return checkpoint; },
+    });
+    const huge = "x".repeat(80_000);
+    await handler({
+      preparation: {
+        firstKeptEntryId: "kept", tokensBefore: 100,
+        messagesToSummarize: [
+          { role: "user", content: `EARLIEST-GOAL ${huge}` },
+          { role: "assistant", content: huge },
+          { role: "user", content: `${huge} NEWEST-STATE` },
+        ],
+        turnPrefixMessages: [],
+      },
+      branchEntries: [], reason: "manual", willRetry: false, signal: new AbortController().signal,
+    } as any, { cwd: "/tmp/repo", ui: { notify: () => {} } } as any);
+
+    expect(receivedConversation.length).toBeLessThanOrEqual(COMPACTION_MAX_CONVERSATION_CHARS);
+    expect(receivedConversation).toContain("EARLIEST-GOAL");
+    expect(receivedConversation).toContain("NEWEST-STATE");
+    expect(COMPACTION_MAX_OUTPUT_TOKENS).toBeLessThanOrEqual(4096);
+  });
+
+  test("retries an empty checkpoint response before defaulting", async () => {
     const attempts: number[] = [];
     const handler = createStructuredCompactionHandler({
       generateCheckpoint: async (_event, _signal, _ctx, attempt = 0) => {
