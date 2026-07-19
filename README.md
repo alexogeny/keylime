@@ -67,7 +67,7 @@ Examples:
 - `linux-*.ts` — capability-gated Linux operations for discovery, packages, systemd, config files, hardware, logs, networking, filesystems, users, processes, health checks, and advanced diagnostics; mutations use approval and expiring plan tokens.
 - `test-runner.ts` — safe test/typecheck/lint runner.
 - `turn-context-composer.ts` — one bounded reminder per turn.
-- `tool-result-compactor.ts` — stores oversized tool results under `.pi/tool-results` and returns compact summaries/previews.
+- `tool-result-compactor.ts`, `context-object-store.ts` — typed reduction, verified sidecars, exact partial recovery, duplicate folding, and legacy `.pi/tool-results` compatibility.
 - `policy-tools.ts`, `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts` — reusable BM25/TF-IDF/JMLM hybrid retrieval plus policy/codemod/check-recipe tools.
 - `user-memory/` — durable memory and entity recall.
 - `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, and locally persisted web knowledge.

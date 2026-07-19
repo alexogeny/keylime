@@ -31,7 +31,7 @@ describe("shared tool policy", () => {
   });
 
   test("policy/codemod/check helpers are known but routed instead of always-on", () => {
-    for (const name of ["retrieve_policy", "suggest_checks", "codemod_plan", "inspect_tool_result"]) {
+    for (const name of ["retrieve_policy", "suggest_checks", "codemod_plan", "inspect_tool_result", "inspect_context_object"]) {
       expect(knownToolNames()).toContain(name);
       expect(toolPolicyFor(name)).toMatchObject({ alwaysOn: false, risk: "safe" });
       expect(capabilityToolMap().safety).toContain(name);

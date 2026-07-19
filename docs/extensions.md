@@ -34,9 +34,11 @@ Commands:
 
 Collect registered context providers into one bounded `<system-reminder>` per turn. This avoids multiple extensions independently injecting prompt text and helps preserve prompt-cache stability.
 
-### `tool-result-compactor.ts`
+### `tool-result-compactor.ts`, `context-object-store.ts`, and `shared/context-objects.ts`
 
-Compacts oversized successful tool outputs before they enter the conversation history. Full payloads are stored under `.pi/tool-results/YYYY-MM-DD/`, while the model receives a short summary, preview, `result_id`, and the `inspect_tool_result` retrieval tool for explicit follow-up. The bounded manifest and daily result directory are cached per process to avoid repeated index reads and directory-creation syscalls.
+Oversized successful outputs are classified and reduced with tool-specific reducers before entering conversation history. Verified payloads are stored as typed context objects under `.pi/context-objects/` with SHA-256 hashes, named sections, exact line selectors, duplicate folding, retention classes, and pinned-aware cleanup. `inspect_context_object` selects first and caps afterward. Errors, safety/recovery results, and mutation evidence bypass generic reduction. Legacy `.pi/tool-results` and `inspect_tool_result` remain available during migration.
+
+`cache-guard.ts` now reports prompt-cache efficiency only; it no longer rewrites trajectory history or applies a second generic truncation layer.
 
 ### `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts`, and `policy-tools.ts`
 

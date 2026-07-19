@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import toolResultCompactorExtension, { compactToolResultContent } from "../extensions/tool-result-compactor";
+import { readStoredContextObject } from "../extensions/context-object-store";
 
 describe("tool result compaction", () => {
   test("leaves small outputs unchanged", () => {
@@ -62,12 +63,18 @@ describe("tool result compaction", () => {
 
     expect(patch.details.compacted).toBe(true);
     expect(patch.details.resultId).toBeString();
+    expect(patch.details.contextObjectId).toBe(patch.details.resultId);
     expect(patch.content[0].text).toContain("Tool result compacted for run_checks");
+    expect(patch.content[0].text).toContain("inspect_context_object");
     expect(existsSync(join(cwd, patch.details.resultPath))).toBe(true);
 
     const oldCwd = process.cwd();
     process.chdir(cwd);
     try {
+      const contextObject = await readStoredContextObject(cwd, patch.details.contextObjectId);
+      expect(contextObject.content).toBe(huge);
+      expect(contextObject.object.kind).toBe("test_run");
+
       const full = await tools.inspect_tool_result.execute("id", { result_id: patch.details.resultId, max_chars: 50000 });
       expect(full.content[0].text).toContain("Error: final failure");
       expect(full.content[0].text).toContain("call-1");
@@ -81,7 +88,7 @@ describe("tool result compaction", () => {
     }
   });
 
-  test("tool_result middleware compacts large errors but skips small outputs and inspect_tool_result recursion", async () => {
+  test("tool_result middleware preserves errors and skips small outputs and recovery recursion", async () => {
     const handlers: Record<string, any> = {};
     toolResultCompactorExtension({
       on: (name: string, handler: any) => { handlers[name] = handler; },
@@ -89,10 +96,32 @@ describe("tool result compaction", () => {
     } as any);
 
     await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "small" }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
-    const errorPatch = await handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "x".repeat(8000) }], isError: true }, { cwd: process.cwd() });
-    expect(errorPatch.details.compacted).toBe(true);
-    expect(errorPatch.isError).toBe(true);
+    await expect(handlers.tool_result({ toolName: "bash", content: [{ type: "text", text: "x".repeat(8000) }], isError: true }, { cwd: process.cwd() })).resolves.toBeUndefined();
     await expect(handlers.tool_result({ toolName: "inspect_tool_result", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
+    await expect(handlers.tool_result({ toolName: "inspect_context_object", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
+    await expect(handlers.tool_result({ toolName: "apply_code_replacements", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
+  });
+
+  test("folds repeated small file reads through verified context objects", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tool-result-dedupe-"));
+    const handlers: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: () => {},
+    } as any);
+    try {
+      const event = {
+        toolName: "inspect_lines",
+        content: [{ type: "text", text: "1 | same file content" }],
+        isError: false,
+      };
+      await expect(handlers.tool_result(event, { cwd })).resolves.toBeUndefined();
+      const folded = await handlers.tool_result(event, { cwd });
+      expect(folded.content[0].text).toContain("duplicate file read folded");
+      expect(folded.details.contextObjectId).toBeString();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   test("tool result tools use execution cwd instead of process cwd", async () => {
@@ -207,6 +236,21 @@ describe("tool result compaction", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   });
+  test("does not recompact exact context-object recovery", async () => {
+    const handlers: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: () => {},
+    } as any);
+
+    const patch = await handlers.tool_result({
+      toolName: "inspect_context_object",
+      content: [{ type: "text", text: "x".repeat(8_000) }],
+      isError: false,
+    }, { cwd: process.cwd() });
+    expect(patch).toBeUndefined();
+  });
+
   test("default threshold compacts medium-large outputs lazily", () => {
     const text = "x".repeat(3600);
     const result = compactToolResultContent([{ type: "text", text }]);

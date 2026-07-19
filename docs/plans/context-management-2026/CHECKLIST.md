@@ -31,19 +31,19 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 
 ## Slice 3 — typed context-object lifecycle
 
-- [~] Write red tests for storage, selectors, tamper detection, reducers, and lifecycle operations.
+- [x] Write red tests for storage, selectors, tamper detection, reducers, and lifecycle operations.
 - [x] Add shared context-object contracts.
-- [ ] Implement atomic context-object store and bounded recovery tool.
-- [ ] Add typed reducers for tests, searches, reads, mutations, research, and fallback output.
-- [ ] Exempt failures, safety denials, and mutation evidence from generic reduction.
-- [ ] Move duplicate-read folding out of cache guard.
-- [ ] Remove overlapping generic cache-guard truncation.
-- [ ] Add pinned/reference-aware cleanup and legacy result compatibility.
-- [ ] Verify lifecycle, compactor, cache, and security tests.
+- [x] Implement atomic context-object store and bounded recovery tool.
+- [x] Add typed reducers for tests, searches, reads, mutations, research, and fallback output.
+- [x] Exempt failures, safety denials, and mutation evidence from generic reduction.
+- [x] Move duplicate-read folding out of cache guard.
+- [x] Remove overlapping generic cache-guard truncation.
+- [x] Add pinned/reference-aware cleanup and legacy result compatibility.
+- [x] Verify lifecycle, compactor, cache, and security tests.
 
 ## Slice 4 — structured compaction and unified working memory
 
-- [ ] Write red tests for checkpoint schema, evidence validation, fallback, retention, and memory deltas.
+- [~] Write red tests for checkpoint schema, evidence validation, fallback, retention, and memory deltas.
 - [ ] Add TypeBox compaction checkpoint schema.
 - [ ] Implement `session_before_compact` extension with deterministic fallback.
 - [ ] Pin context objects referenced by checkpoints.
@@ -86,3 +86,6 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - 2026-07-19: Slice 2 complete: six-tool bootstrap, shared retrieval-backed catalog, mode/research gates, per-turn discovery continuity/reset, stable-provider memoization contract, schema budget, docs, and full 454-test suite pass.
 - 2026-07-19: Began slice 3 red-test planning for typed context objects and exact recovery selectors.
 - 2026-07-19: Added typed context-object contracts with SHA-256 verification, named/line selectors, original line numbers, and selector validation; 3 focused tests and typecheck pass.
+- 2026-07-19: Slice 3 complete: atomic verified store, exact bounded recovery, typed test/search reducers, protected errors/mutations, duplicate folding, transitive pinned cleanup, legacy result compatibility, cache-guard separation, docs, and full 468-test suite pass.
+- 2026-07-19: Began slice 4 red-test planning for validated structured compaction checkpoints.
+- 2026-07-19: Added the first structured-checkpoint RED tests; they currently fail because `shared/compaction-schema.ts` does not yet exist.

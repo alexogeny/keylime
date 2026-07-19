@@ -6,6 +6,8 @@ import { headTail } from "./shared/output-preview";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { bypassGenericToolResultReduction, contextObjectKindForTool, reduceToolResultText } from "./shared/tool-result-reducers";
+import { storeContextObject } from "./context-object-store";
 
 export interface CompactToolResultOptions {
   thresholdChars?: number;
@@ -170,7 +172,7 @@ export async function storeResultForTest(cwd: string, text: string): Promise<{ i
   return storeResult(cwd, { toolName: "test", content: [{ type: "text", text }], originalChars: text.length }, []);
 }
 
-function compactedContentText(toolName: string, stored: { id: string; path: string }, compacted: CompactToolResult): string {
+function compactedContentText(toolName: string, stored: { id: string; path: string }, compacted: CompactToolResult, contextObjectId = stored.id): string {
   return [
     `Tool result compacted for ${toolName}.`,
     `result_id: ${stored.id}`,
@@ -183,32 +185,76 @@ function compactedContentText(toolName: string, stored: { id: string; path: stri
     "Preview:",
     compacted.compactedText,
     "",
-    `Use inspect_tool_result(result_id="${stored.id}") to retrieve the full stored result if needed.`,
+    `Use inspect_context_object(object_id="${contextObjectId}") for verified bounded recovery, or inspect_tool_result(result_id="${stored.id}") for legacy full-result compatibility.`,
   ].join("\n");
 }
 
 export default function toolResultCompactor(pi: ExtensionAPI) {
   pi.on("tool_result", async (event, ctx) => {
-    if ((event as any).toolName === "inspect_tool_result") return;
+    if (bypassGenericToolResultReduction({
+      toolName: (event as any).toolName,
+      isError: Boolean((event as any).isError),
+    })) return;
+    const cwd = ctx.cwd ?? process.cwd();
+    const toolName = (event as any).toolName;
+    const originalText = textFromContent((event as any).content);
+    const kind = contextObjectKindForTool(toolName);
+    const reduced = reduceToolResultText(toolName, originalText, { maxChars: DEFAULT_PREVIEW });
+    let contextStored: Awaited<ReturnType<typeof storeContextObject>> | undefined;
+    if (kind === "file_read") {
+      contextStored = await storeContextObject(cwd, {
+        id: randomUUID(),
+        kind,
+        sourceTool: toolName,
+        toolCallId: (event as any).toolCallId,
+        content: originalText,
+        summary: reduced.summary,
+        retention: "foldable",
+        sections: reduced.sections,
+      });
+      if (contextStored.deduplicated) {
+        return {
+          content: [{ type: "text", text: `[context-object: duplicate file read folded — inspect_context_object(object_id="${contextStored.object.id}") for verified recovery]` }],
+          details: { ...(event as any).details, folded: true, contextObjectId: contextStored.object.id, originalChars: originalText.length },
+          isError: false,
+        };
+      }
+    }
     const compacted = compactToolResultContent((event as any).content);
     if (!compacted.shouldCompact) return;
 
-    const stored = await storeResult(ctx.cwd ?? process.cwd(), {
-      toolName: (event as any).toolName,
+    const typedCompacted: CompactToolResult = {
+      ...compacted,
+      compactedText: reduced.activeText,
+      summary: [reduced.summary],
+    };
+    const stored = await storeResult(cwd, {
+      toolName,
       toolCallId: (event as any).toolCallId,
       input: (event as any).input,
       content: (event as any).content,
       details: (event as any).details,
       originalChars: compacted.originalChars,
       createdAt: new Date().toISOString(),
-    }, compacted.summary);
+    }, typedCompacted.summary);
+    contextStored ??= await storeContextObject(cwd, {
+      id: stored.id,
+      kind,
+      sourceTool: toolName,
+      toolCallId: (event as any).toolCallId,
+      content: originalText,
+      summary: reduced.summary,
+      retention: "foldable",
+      sections: reduced.sections,
+    });
 
     return {
-      content: [{ type: "text", text: compactedContentText((event as any).toolName, stored, compacted) }],
+      content: [{ type: "text", text: compactedContentText(toolName, stored, typedCompacted, contextStored.object.id) }],
       details: {
         ...(event as any).details,
         compacted: true,
         resultId: stored.id,
+        contextObjectId: contextStored.object.id,
         resultPath: stored.path,
         originalChars: compacted.originalChars,
       },
