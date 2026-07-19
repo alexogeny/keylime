@@ -1,6 +1,7 @@
 import type { TrajectoryFold } from "./hierarchical-folding";
 import type { RetrievalCredit } from "./retrieval-credit";
 import type { CompactionStrategyDecision } from "./provider-compaction-policy";
+import type { explainContextSelection } from "./context-debugger";
 
 export type ContextRuntimeTelemetrySnapshot = {
   turn: number;
@@ -11,6 +12,7 @@ export type ContextRuntimeTelemetrySnapshot = {
   retrievalBudget: { maxPackets: number; maxChars: number };
   lastFold?: TrajectoryFold;
   compaction?: CompactionStrategyDecision;
+  contextSelection?: ReturnType<typeof explainContextSelection>;
   controlState: {
     constraints: Array<{ sourceEventId: string; text: string }>;
     plans: Array<{ sourceEventId: string; text: string }>;

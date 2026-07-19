@@ -10,6 +10,7 @@ import { resolveSafeExistingPath } from "./shared/path-policy";
 import { researchEnabled } from "./shared/research-config";
 import { recordDiscoveredToolsForTurn, searchToolCatalog, toolPolicyLoadAllowed } from "./shared/tool-catalog";
 import { getCurrentOperationalMode } from "./operational-modes";
+import { readHarnessGovernanceRuntime } from "./shared/harness-governance-bus";
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -150,9 +151,15 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
       paths: Type.Optional(Type.Array(Type.String(), { description: "Changed or relevant paths" })),
       top_k: Type.Optional(Type.Number({ minimum: 1, maximum: 5, description: "Maximum recipes" })),
     }),
-    async execute(_id, params) {
+    async execute(_id, params, _signal, _onUpdate, ctx) {
       const suggestions = suggestChecks(params.query, params.paths ?? [], params.top_k ?? 3);
-      return { content: [{ type: "text", text: formatJson({ suggestions }) }], details: { suggestions } };
+      const governance = ctx?.cwd ? readHarnessGovernanceRuntime(ctx.cwd) : undefined;
+      const impact = governance && params.paths?.length ? await governance.buildImpact(params.paths) : undefined;
+      const impactSummary = impact ? {
+        affectedFiles: impact.affectedFiles?.slice(0, 500) ?? [], selectedTests: impact.selectedTests?.slice(0, 200) ?? [],
+        verificationCommands: impact.verificationCommands?.slice(0, 20) ?? [], risk: impact.risk, repositoryFingerprint: impact.repositoryFingerprint,
+      } : undefined;
+      return { content: [{ type: "text", text: formatJson({ suggestions, impact: impactSummary }) }], details: { suggestions, impact: impactSummary } };
     },
   });
 

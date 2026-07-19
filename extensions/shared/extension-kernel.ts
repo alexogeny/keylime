@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
+import { auditHarnessSnapshot } from "./extension-auditor";
 
 const sha = (value: string | Buffer): string => createHash("sha256").update(value).digest("hex");
 const slash = (value: string): string => value.split(sep).join("/");
@@ -72,22 +73,19 @@ export async function createExtensionKernel(options: { cwd: string; maxFiles?: n
   const maxEventHistory = Math.max(1, Math.min(10_000, Math.floor(options.maxEventHistory ?? 500)));
   const snapshot = await scanRepository(root, maxFiles, maxMetadataChars);
   const fileMap = new Map(snapshot.files.map(file => [file.path, file]));
-  const graphEdges = imports(snapshot.files);
-  const hashComputationsByPath = Object.fromEntries(snapshot.files.map(file => [file.path, 1]));
+  let graphEdges = imports(snapshot.files);
+  const hashComputationsByPath: Record<string, number> = Object.fromEntries(snapshot.files.map(file => [file.path, 1]));
   const lifecycleEvents: any[] = [];
-  let eventsNormalized = 0, featureDeliveries = 0;
+  let eventsNormalized = 0, featureDeliveries = 0, incrementalFileReads = 0;
   const metrics = createStructuralMetrics();
   const capabilityPolicy = Object.freeze({ repositoryFingerprint, version: 1, defaultDecision: "deny" });
 
-  const auditExtensions = async () => {
-    const resources = snapshot.files.filter(file => file.path.startsWith("extensions/")).map(({ source: _source, ...file }) => file);
-    const body = { repositoryFingerprint, packages: [], resources, findings: [], hookTopology: [], collisions: { tools: [], commands: [], hooks: [] }, stats: { filesRead: snapshot.files.length, retainedSourceChars: 0 } };
-    return { ...body, fingerprint: sha(stable(body)) };
-  };
+  const auditExtensions = async () => auditHarnessSnapshot(root, snapshot.files, 100_000);
   const buildImpactPlan = async ({ changedPaths }: { changedPaths: string[] }) => {
     const changed = changedPaths.map(path => slash(path)); const affectedFiles = reverseClosure(changed, graphEdges);
     const selectedTests = affectedFiles.filter(path => /(?:^|\/)tests?\/|\.(?:test|spec)\./.test(path));
-    return { repositoryFingerprint, changedPaths: changed, affectedFiles, selectedTests, edges: graphEdges, stats: { repositoryScans: 1, filesParsed: snapshot.files.filter(file => file.source).length, duplicateFileReads: 0, lspProcessesSpawned: 0 } };
+    const verificationCommands = selectedTests.length ? [`bun test ${selectedTests.join(" ")}`] : ["bun run typecheck"];
+    return { repositoryFingerprint, changedPaths: changed, affectedFiles, selectedTests, verificationCommands, scope: "targeted", risk: { level: affectedFiles.length > 20 ? "medium" : "low", reasons: [] }, edges: graphEdges, stats: { repositoryScans: 1, filesParsed: snapshot.files.filter(file => file.source).length, duplicateFileReads: 0, lspProcessesSpawned: 0 } };
   };
   const buildEvidenceGraph = async ({ claims }: { claims: Array<{ id: string; filePaths?: string[] }> }) => {
     const nodes: any[] = [], edges: any[] = [];
@@ -103,6 +101,26 @@ export async function createExtensionKernel(options: { cwd: string; maxFiles?: n
     delegation: { capabilityPolicy }, replay: { capabilityPolicy, metrics }, toolGuard: { capabilityPolicy },
     contextDebugger: { metrics }, canaries: { metrics },
     auditExtensions, buildImpactPlan, buildEvidenceGraph,
+    async refreshPaths(paths: string[]) {
+      for (const rawPath of [...new Set(paths.map(path => slash(path.replace(/^\.\//, ""))))].slice(0, 1_000)) {
+        if (!rawPath || rawPath === ".." || rawPath.startsWith("../")) continue;
+        const absolute = resolve(root, rawPath);
+        const rel = relative(root, absolute);
+        if (rel === ".." || rel.startsWith(`..${sep}`)) continue;
+        const existing = fileMap.get(rawPath);
+        try {
+          const raw = await readFile(absolute); incrementalFileReads++;
+          const source = /\.(?:ts|tsx|js|jsx|mts|cts|mjs|cjs|json)$/.test(rawPath) && raw.length <= 200_000 ? raw.toString("utf8") : undefined;
+          const updated = { path: rawPath, contentHash: sha(raw), bytes: raw.length, source };
+          if (existing) Object.assign(existing, updated);
+          else { snapshot.files.push(updated); fileMap.set(rawPath, updated); }
+          hashComputationsByPath[rawPath] = (hashComputationsByPath[rawPath] ?? 0) + 1;
+        } catch {
+          if (existing) { snapshot.files.splice(snapshot.files.indexOf(existing), 1); fileMap.delete(rawPath); }
+        }
+      }
+      graphEdges = imports(snapshot.files);
+    },
     ingestPiEvent(type: string, payload: any) {
       const serialized = JSON.stringify(payload ?? {});
       const normalized = { type: String(type).slice(0, 100), toolName: payload?.toolName ? String(payload.toolName).slice(0, 100) : undefined, toolCallId: payload?.toolCallId ? String(payload.toolCallId).slice(0, 200) : undefined, payloadChars: serialized.length };
@@ -110,7 +128,7 @@ export async function createExtensionKernel(options: { cwd: string; maxFiles?: n
       eventsNormalized++; featureDeliveries += 4;
     },
     snapshot() { return { repositoryFingerprint, events: lifecycleEvents.map(event => ({ ...event })) }; },
-    performanceStats() { return { repositoryScans: 1, duplicateFileReads: 0, hashComputationsByPath: { ...hashComputationsByPath }, eventsNormalized, featureDeliveries, retainedMetadataChars: snapshot.retainedMetadataChars }; },
+    performanceStats() { return { repositoryScans: 1, duplicateFileReads: 0, incrementalFileReads, hashComputationsByPath: { ...hashComputationsByPath }, eventsNormalized, featureDeliveries, retainedMetadataChars: snapshot.retainedMetadataChars }; },
   };
   return kernel;
 }

@@ -9,7 +9,7 @@ export type ExtensionAuditOptions = {
   maxSourceCharsPerFile?: number;
 };
 
-type ResourceAudit = { package: string; path: string; contentHash: string; bytes: number };
+type ResourceAudit = { package: string; scope?: "global" | "project" | "harness"; path: string; contentHash: string; bytes: number };
 type PackageAudit = {
   name: string; version: string; scope: "global" | "project"; license?: string;
   resources: string[]; resourceHashes: string[]; capabilities: string[];
@@ -27,6 +27,7 @@ export type ExtensionAudit = {
   collisions: { tools: Array<{ name: string; packages: string[] }>; commands: Array<{ name: string; packages: string[] }>; hooks: Array<{ event: string; packages: string[] }> };
   hookTopology: Array<{ event: string; packages: string[]; resources: string[] }>;
   stats: { filesRead: number; filesVisited: number; retainedSourceChars: 0; truncatedFiles: number };
+  runtimeSurface?: { fingerprint: string; tools: Array<{ name: string; originScope: string; originHash: string }>; activeTools: string[]; commands: Array<{ name: string; source: string; scope: string; originScope: string; originHash: string }>; collisions: { tools: string[]; commands: string[] } };
 };
 
 const sha = (value: string | Buffer): string => createHash("sha256").update(value).digest("hex");
@@ -135,7 +136,7 @@ export async function auditPiExtensionLandscape(options: ExtensionAuditOptions):
           const raw = await readFile(canonical);
           const contentHash = sha(raw);
           const relativePath = slash(relative(root, canonical));
-          resources.push({ package: name, path: relativePath, contentHash, bytes: raw.length });
+          resources.push({ package: name, scope, path: relativePath, contentHash, bytes: raw.length });
           packageResources.push(relativePath); resourceHashes.push(contentHash);
           if (raw.length > maxSourceChars) truncatedFiles++;
           const inspected = inspectSource(raw.toString("utf8", 0, Math.min(raw.length, maxSourceChars)));
@@ -161,7 +162,7 @@ export async function auditPiExtensionLandscape(options: ExtensionAuditOptions):
   for (const item of candidates.sort((a, b) => (a.scope === b.scope ? a.name.localeCompare(b.name) : a.scope === "global" ? -1 : 1))) selected.set(item.name, item);
   const packages = [...selected.values()].sort((a, b) => a.name.localeCompare(b.name));
   const selectedNames = new Set(packages.map(item => item.name));
-  const selectedResources = resources.filter(item => selectedNames.has(item.package) && packages.find(pkg => pkg.name === item.package)?.resourceHashes.includes(item.contentHash))
+  const selectedResources = resources.filter(item => selectedNames.has(item.package) && packages.some(pkg => pkg.name === item.package && pkg.scope === item.scope && pkg.resourceHashes.includes(item.contentHash)))
     .sort((a, b) => a.path.localeCompare(b.path));
   const events = new Map<string, { packages: Set<string>; resources: Set<string> }>();
   for (const item of packages) for (const event of item.hooks) {
@@ -194,15 +195,30 @@ export function diffExtensionAudits(before: ExtensionAudit, after: ExtensionAudi
   };
 }
 
+export function auditHarnessSnapshot(root: string, files: Array<{ path: string; contentHash: string; bytes: number; source?: string }>, maxSourceCharsPerFile = 100_000) {
+  const maxChars = Math.max(1_000, Math.min(1_000_000, maxSourceCharsPerFile));
+  const topology = new Map<string, Set<string>>();
+  let truncatedFiles = 0;
+  const resources: ResourceAudit[] = [];
+  for (const file of files.filter(item => item.path.startsWith("extensions/") && /\.(?:ts|js|mjs|cjs)$/.test(item.path)).sort((a, b) => a.path.localeCompare(b.path))) {
+    resources.push({ package: "keylime", scope: "harness", path: file.path, contentHash: file.contentHash, bytes: file.bytes });
+    if (file.bytes > maxChars) truncatedFiles++;
+    for (const event of inspectSource(String(file.source ?? "").slice(0, maxChars)).hooks) {
+      const paths = topology.get(event) ?? new Set<string>(); paths.add(file.path); topology.set(event, paths);
+    }
+  }
+  const hookTopology = [...topology.entries()].map(([event, paths]) => ({ event, packages: ["keylime"], resources: [...paths].sort() })).sort((a, b) => a.event.localeCompare(b.event));
+  const base = { packages: [], resources, findings: [], collisions: { tools: [], commands: [], hooks: [] }, hookTopology, stats: { filesRead: resources.length, filesVisited: resources.length, retainedSourceChars: 0 as const, truncatedFiles } };
+  return { ...base, repositoryFingerprint: sha(root), fingerprint: sha(stable(base)) };
+}
+
 export async function auditCurrentHarness(cwd: string, options: { maxFiles?: number; maxSourceCharsPerFile?: number } = {}) {
   const maxFiles = Math.max(1, Math.min(10_000, options.maxFiles ?? 2_000));
   const maxChars = Math.max(1_000, Math.min(1_000_000, options.maxSourceCharsPerFile ?? 100_000));
   const root = await realpath(cwd);
   const queue = [join(root, "extensions")];
-  const resources: ResourceAudit[] = [];
-  const topology = new Map<string, Set<string>>();
-  let filesRead = 0, truncatedFiles = 0;
-  while (queue.length && filesRead < maxFiles) {
+  const files: Array<{ path: string; contentHash: string; bytes: number; source: string }> = [];
+  while (queue.length && files.length < maxFiles) {
     const directory = queue.shift()!;
     let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
     try { entries = await readdir(directory, { withFileTypes: true }); } catch { continue; }
@@ -211,20 +227,13 @@ export async function auditCurrentHarness(cwd: string, options: { maxFiles?: num
       const absolute = join(directory, entry.name);
       if (entry.isDirectory()) queue.push(absolute);
       else if (entry.isFile() && /\.(?:ts|js|mjs|cjs)$/.test(entry.name)) {
-        const raw = await readFile(absolute); filesRead++;
-        if (raw.length > maxChars) truncatedFiles++;
-        const path = slash(relative(root, absolute));
-        resources.push({ package: "keylime", path, contentHash: sha(raw), bytes: raw.length });
-        for (const event of inspectSource(raw.toString("utf8", 0, Math.min(raw.length, maxChars))).hooks) {
-          const paths = topology.get(event) ?? new Set<string>(); paths.add(path); topology.set(event, paths);
-        }
+        const raw = await readFile(absolute);
+        files.push({ path: slash(relative(root, absolute)), contentHash: sha(raw), bytes: raw.length, source: raw.toString("utf8", 0, Math.min(raw.length, maxChars)) });
       }
-      if (filesRead >= maxFiles) break;
+      if (files.length >= maxFiles) break;
     }
   }
-  const hookTopology = [...topology.entries()].map(([event, paths]) => ({ event, packages: ["keylime"], resources: [...paths].sort() })).sort((a, b) => a.event.localeCompare(b.event));
-  const base = { packages: [], resources: resources.sort((a, b) => a.path.localeCompare(b.path)), findings: [], collisions: { tools: [], commands: [], hooks: [] }, hookTopology, stats: { filesRead, filesVisited: filesRead, retainedSourceChars: 0 as const, truncatedFiles } };
-  return { ...base, repositoryFingerprint: sha(root), fingerprint: sha(stable(base)) };
+  return auditHarnessSnapshot(root, files, maxChars);
 }
 
 export function renderExtensionAuditReport(audit: ExtensionAudit): string {

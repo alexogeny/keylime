@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { createExtensionKernel } from "./extension-kernel";
 import { createCapabilityLeaseManager, type CapabilityLeaseRequest } from "./capability-leases";
 import { auditCurrentHarness, type ExtensionAudit } from "./extension-auditor";
@@ -8,13 +10,14 @@ import { createReplayBundle, replayHarnessTrace, compareReplayResults, branchRep
 import { createDelegationContract, deriveDelegationContract, validateDelegationResult, normalizeDelegationResult } from "./delegation-contracts";
 import { createCanaryRegistry, evaluateRuntimeCanary, createCanaryFixture } from "./runtime-canaries";
 import { createEcosystemAdapters } from "./ecosystem-adapters";
+import { readContextRuntimeTelemetry } from "./context-runtime-bus";
 
 export const HARNESS_GOVERNANCE_COMMANDS = [
   "extension-audit", "extension-diff", "extension-trust", "hook-topology", "evidence", "why-context",
-  "change-impact", "harness-replay", "canary-status", "governance-status",
+  "change-impact", "harness-replay", "canary-status", "governance-status", "capability-lease", "capability-leases",
 ] as const;
 export const HARNESS_GOVERNANCE_HOOKS = [
-  "session_start", "tool_call", "tool_result", "context", "session_before_compact", "session_shutdown",
+  "session_start", "resources_discover", "tool_call", "tool_result", "context", "session_before_compact", "session_compact", "session_shutdown",
 ] as const;
 
 type RuntimeOptions = {
@@ -30,10 +33,17 @@ export async function createHarnessGovernanceRuntime(options: RuntimeOptions) {
   const adapters = createEcosystemAdapters({ cwd: options.cwd, lspOwnership: "external" });
   const canaryRegistry = createCanaryRegistry({ maxFixtures: 1_000, maxResults: 10_000, maxVersions: 100 });
   const events: any[] = [];
+  const evidenceObjectIds = new Set<string>();
+  const modifiedPaths = new Set<string>();
   let lastAudit: ExtensionAudit | undefined;
+  let runtimeSurface: any = { fingerprint: "", tools: [], activeTools: [], commands: [], collisions: { tools: [], commands: [] }, stats: { originHashComputations: 0 } };
+  const originHashCache = new Map<string, Promise<string>>();
+  let originHashComputations = 0;
 
-  const auditHarness = async () => {
-    lastAudit = await auditCurrentHarness(options.cwd, { maxFiles: options.maxFiles, maxSourceCharsPerFile: 100_000 }) as ExtensionAudit;
+  const auditHarness = async (fresh = false) => {
+    const codeAudit = (fresh ? await auditCurrentHarness(options.cwd, { maxFiles: options.maxFiles, maxSourceCharsPerFile: 100_000 }) : await kernel.auditExtensions()) as ExtensionAudit;
+    const fingerprint = createHash("sha256").update(`${codeAudit.fingerprint}:${runtimeSurface.fingerprint}`).digest("hex");
+    lastAudit = { ...codeAudit, fingerprint, runtimeSurface: { fingerprint: runtimeSurface.fingerprint, tools: runtimeSurface.tools, activeTools: runtimeSurface.activeTools, commands: runtimeSurface.commands, collisions: runtimeSurface.collisions } };
     return lastAudit;
   };
   const ingestEvent = (type: string, payload: any = {}) => {
@@ -54,10 +64,39 @@ export async function createHarnessGovernanceRuntime(options: RuntimeOptions) {
   const runtime: any = {
     kernel, repositoryFingerprint: kernel.repositoryFingerprint, capabilityPolicy: kernel.capabilityPolicy, metrics: kernel.metrics,
     adapters, canaryRegistry, trustStore,
+    async captureRuntimeSurface(input: { tools?: any[]; activeTools?: string[]; commands?: any[] }) {
+      const mapBounded = async <T, R>(values: T[], mapper: (value: T) => Promise<R>): Promise<R[]> => {
+        const results = new Array<R>(values.length); let next = 0;
+        await Promise.all(Array.from({ length: Math.min(16, values.length) }, async () => { while (true) { const index = next++; if (index >= values.length) return; results[index] = await mapper(values[index]); } }));
+        return results;
+      };
+      const origin = async (item: any) => {
+        const path = typeof item.sourceInfo?.path === "string" ? item.sourceInfo.path : undefined;
+        const metadata = path ? await stat(path).then(value => `${value.size}:${value.mtimeMs}`).catch(() => "missing") : "virtual";
+        const key = `${path ?? String(item.source ?? "unknown")}:${metadata}`;
+        let originHashPromise = originHashCache.get(key);
+        if (!originHashPromise) {
+          originHashPromise = path ? readFile(path).then(content => createHash("sha256").update(content).digest("hex")).catch(() => createHash("sha256").update(path).digest("hex")) : Promise.resolve(createHash("sha256").update(String(item.source ?? "unknown")).digest("hex"));
+          originHashCache.set(key, originHashPromise); originHashComputations++;
+          while (originHashCache.size > 10_000) originHashCache.delete(originHashCache.keys().next().value!);
+        }
+        const rawScope = String(item.sourceInfo?.scope ?? item.source ?? "unknown");
+        const originScope = /^[a-zA-Z0-9_-]{1,80}$/.test(rawScope) ? rawScope : "external";
+        return { originScope, originHash: await originHashPromise };
+      };
+      const tools = await mapBounded((input.tools ?? []).slice(0, 5_000), async (tool: any) => ({ name: String(tool.name ?? "").slice(0, 200), ...await origin(tool) }));
+      tools.sort((a: any, b: any) => a.name.localeCompare(b.name) || a.originHash.localeCompare(b.originHash));
+      const commands = await mapBounded((input.commands ?? []).slice(0, 5_000), async (command: any) => ({ name: String(command.name ?? "").slice(0, 200), source: /^[a-zA-Z0-9_-]{1,80}$/.test(String(command.source ?? "")) ? String(command.source) : "unknown", scope: /^[a-zA-Z0-9_-]{1,80}$/.test(String(command.sourceInfo?.scope ?? "")) ? String(command.sourceInfo.scope) : "unknown", ...await origin(command) }));
+      commands.sort((a: any, b: any) => a.name.localeCompare(b.name) || a.originHash.localeCompare(b.originHash));
+      const duplicateNames = (values: Array<{ name: string }>) => [...new Set(values.map(value => value.name).filter((name, index, all) => name && all.indexOf(name) !== index))].sort();
+      const body = { tools, activeTools: [...new Set((input.activeTools ?? []).map(String))].sort().slice(0, 5_000), commands, collisions: { tools: duplicateNames(tools), commands: duplicateNames(commands) }, stats: { originHashComputations } };
+      runtimeSurface = { ...body, fingerprint: createHash("sha256").update(JSON.stringify(body)).digest("hex") };
+      return runtimeSurface;
+    },
     auditExtensions: kernel.auditExtensions,
     auditHarness,
-    async trustCurrentAudit(reason?: string) { return trustStore.trust(await auditHarness(), reason); },
-    async extensionDrift() { return trustStore.compare(await auditHarness()); },
+    async trustCurrentAudit(reason?: string) { return trustStore.trust(await auditHarness(true), reason); },
+    async extensionDrift() { return trustStore.compare(await auditHarness(true)); },
     buildImpact(changedPaths: string[]) { return kernel.buildImpactPlan({ changedPaths }); },
     async buildEvidence(input: any) { const graph = await buildEvidenceGraph({ cwd: options.cwd, ...input }); return { ...graph, repositoryFingerprint: kernel.repositoryFingerprint }; },
     explainContextSelection,
@@ -71,6 +110,19 @@ export async function createHarnessGovernanceRuntime(options: RuntimeOptions) {
     deriveLease(id: string, request: CapabilityLeaseRequest) { return leases.derive(id, request); },
     handleBoundary(boundary: string) { leases.handleBoundary(boundary); ingestEvent(boundary, {}); },
     ingestEvent,
+    async recordToolOutcome(input: { toolName: string; toolCallId?: string; isError?: boolean; objectId?: string; changedPaths?: string[]; verificationPassed?: boolean }) {
+      ingestEvent("tool_result", { toolName: input.toolName, toolCallId: input.toolCallId, isError: Boolean(input.isError), objectId: input.objectId });
+      if (input.objectId) { evidenceObjectIds.add(String(input.objectId)); while (evidenceObjectIds.size > 1_000) evidenceObjectIds.delete(evidenceObjectIds.values().next().value!); }
+      const changed = (input.changedPaths ?? []).map(String).slice(0, 1_000);
+      if (!input.isError && changed.length) {
+        changed.forEach(path => modifiedPaths.add(path)); while (modifiedPaths.size > 1_000) modifiedPaths.delete(modifiedPaths.values().next().value!);
+        await kernel.refreshPaths(changed);
+      }
+    },
+    recordCompactionOutcome(metric: any) {
+      canaryRegistry.recordResult({ fixtureId: `compaction-${events.length}`, passed: Boolean(metric?.schemaValid) && !metric?.fallbackUsed });
+      ingestEvent("compaction_outcome", { isError: !metric?.schemaValid, fallbackUsed: Boolean(metric?.fallbackUsed), durationMs: Number(metric?.durationMs ?? 0) });
+    },
     async createReplayBundle(objectIds: string[] = []) { return createReplayBundle({ cwd: options.cwd, trace: { sessionId: options.sessionId, steps: events }, objectIds, maxEvents }); },
     replay(bundle: any) { return replayHarnessTrace(bundle, { cwd: options.cwd }); },
     compareReplayResults,
@@ -85,11 +137,19 @@ export async function createHarnessGovernanceRuntime(options: RuntimeOptions) {
     createCanaryFixture,
     performanceStats() { return kernel.performanceStats(); },
     snapshot() {
+      const context = readContextRuntimeTelemetry();
+      const contextRuntime = context ? {
+        turn: context.turn, observations: context.observations, maskedObservations: context.maskedObservations,
+        cacheFingerprint: context.cacheFingerprint, retrieval: context.retrieval, retrievalBudget: context.retrievalBudget,
+        contextSelection: context.contextSelection ? { selectedIds: context.contextSelection.selectedIds, candidates: context.contextSelection.candidates, stats: context.contextSelection.stats } : undefined,
+        memoryStats: context.memoryStats,
+      } : undefined;
       return {
-        version: 1, repositoryFingerprint: kernel.repositoryFingerprint, sessionIdHash: options.sessionId.length,
+        version: 1, repositoryFingerprint: kernel.repositoryFingerprint, sessionIdHash: createHash("sha256").update(options.sessionId).digest("hex"),
         events: events.map(event => ({ ...event })), performance: kernel.performanceStats(),
         leases: leases.memoryStats(), canaries: canaryRegistry.memoryStats(), adapters: adapters.stats(),
-        lastAuditFingerprint: lastAudit?.fingerprint,
+        evidenceObjectIds: [...evidenceObjectIds].sort(), modifiedPaths: [...modifiedPaths].sort(),
+        runtimeSurface, contextRuntime, lastAuditFingerprint: lastAudit?.fingerprint,
       };
     },
   };

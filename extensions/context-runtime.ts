@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { applyObservationLifecycle, type Observation } from "./shared/observation-lifecycle";
-import { selectEvidencePackets, type EvidenceCandidate, type EvidenceIntent, type EvidencePacket, type EvidencePacketBudget } from "./shared/evidence-packets";
+import { selectEvidencePacketsWithStats, type EvidenceCandidate, type EvidenceIntent, type EvidencePacket, type EvidencePacketBudget } from "./shared/evidence-packets";
+import { explainContextSelection } from "./shared/context-debugger";
 import { assembleCacheStableContext } from "./shared/cache-stable-context";
 import { foldTrajectory, shouldFoldTrajectory, type TrajectoryEvent, type TrajectoryFold } from "./shared/hierarchical-folding";
 import { allocateContextBudget } from "./shared/context-value-allocator";
@@ -44,6 +45,7 @@ export type RuntimeSnapshot = {
   lastFold?: TrajectoryFold;
   compaction?: CompactionStrategyDecision;
   controlState: RuntimeControlState;
+  contextSelection?: ReturnType<typeof explainContextSelection>;
   memoryStats: RuntimeMemoryStats;
 };
 
@@ -82,6 +84,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
   let lastCompaction: CompactionStrategyDecision | undefined;
   let cacheFingerprint = "";
   let maskedObservations = 0;
+  let lastContextSelection: ReturnType<typeof explainContextSelection> | undefined;
   const provider = options.provider ?? { serverCompaction: false, selectiveToolClearing: false, promptCaching: false, opaqueCompaction: false };
   const maxObservationEntries = Math.max(1, options.maxObservationEntries ?? 200);
   const maxObservationChars = Math.max(100, options.maxObservationChars ?? 250_000);
@@ -178,11 +181,12 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
     },
 
     selectEvidence(intent: EvidenceIntent, candidates: EvidenceCandidate[], budget: EvidencePacketBudget): EvidencePacket[] {
-      const packets = selectEvidencePackets(intent, candidates, budget);
+      const selection = selectEvidencePacketsWithStats(intent, candidates, budget);
       const byId = new Map(candidates.map(candidate => [candidate.id, candidate]));
-      retrievals = packets.map(packet => ({ id: packet.id, objectId: packet.objectId, path: packet.path, chars: byId.get(packet.id)?.text.length ?? packet.estimatedTokens * 4 }));
+      retrievals = selection.packets.map(packet => ({ id: packet.id, objectId: packet.objectId, path: packet.path, chars: byId.get(packet.id)?.text.length ?? packet.estimatedTokens * 4 }));
       retrievalUsage = {};
-      return packets;
+      lastContextSelection = explainContextSelection({ intent, candidates, budget, ...selection });
+      return selection.packets;
     },
     recordRetrieval(items: RetrievalInjection[]): void { retrievals = [...items]; retrievalUsage = {}; },
     recordUsage(usage: RetrievalUsage): void {
@@ -271,7 +275,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
         controlChars: [...durableConstraints.values(), ...durablePlans.values(), ...durableFailures.values()].reduce((sum, event) => sum + event.text.length, 0),
         experienceEntries: experiences.length,
       };
-      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction, controlState, memoryStats };
+      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction, controlState, contextSelection: lastContextSelection, memoryStats };
       publishContextRuntimeTelemetry(snapshot);
       return snapshot;
     },

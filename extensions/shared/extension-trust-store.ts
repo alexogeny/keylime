@@ -1,6 +1,6 @@
-import { chmod, realpath } from "node:fs/promises";
+import { chmod, mkdir, open, realpath, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./json-store";
 
 const queues = new Map<string, Promise<unknown>>();
@@ -34,9 +34,25 @@ export async function createExtensionTrustStore(options: { cwd: string; maxEntri
     if (state.version !== 1 || state.repositoryFingerprint !== repositoryFingerprint || checksum(body) !== state.checksum) throw new Error("Invalid extension trust state checksum or repository identity");
     return state;
   };
+  const withLock = async <T>(work: () => Promise<T>): Promise<T> => {
+    const lockPath = `${path}.lock`; const deadline = Date.now() + 10_000;
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    while (true) {
+      try {
+        const handle = await open(lockPath, "wx", 0o600);
+        try { return await work(); } finally { await handle.close(); await rm(lockPath, { force: true }); }
+      } catch (error: any) {
+        if (error?.code !== "EEXIST") throw error;
+        const age = Date.now() - (await stat(lockPath).then(value => value.mtimeMs).catch(() => Date.now()));
+        if (age > 30_000) { await rm(lockPath, { force: true }); continue; }
+        if (Date.now() >= deadline) throw new Error("Timed out acquiring extension trust lock");
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+  };
   const enqueue = <T>(work: () => Promise<T>): Promise<T> => {
     const previous = queues.get(path) ?? Promise.resolve();
-    const task = previous.catch(() => undefined).then(work);
+    const task = previous.catch(() => undefined).then(() => withLock(work));
     queues.set(path, task);
     return task.finally(() => { if (queues.get(path) === task) queues.delete(path); });
   };

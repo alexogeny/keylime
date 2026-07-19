@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { storeContextObject } from "../extensions/context-object-store";
 import { stabilizeCompactionControlPlane } from "../extensions/structured-compaction";
 import { selectEvidencePacketsWithStats } from "../extensions/shared/evidence-packets";
+import { createContextRuntimeCoordinator } from "../extensions/context-runtime";
 import { createHarnessGovernanceRuntime, HARNESS_GOVERNANCE_COMMANDS, HARNESS_GOVERNANCE_HOOKS } from "../extensions/shared/harness-governance-runtime";
 import { createExtensionTrustStore } from "../extensions/shared/extension-trust-store";
 
@@ -64,6 +65,25 @@ describe("holistic harness governance integration", () => {
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
 
+  test("captures the live Pi tool and command surface without retaining schemas or prompts", async () => {
+    const cwd = await fixture("governance-surface");
+    try {
+      const runtime = await createHarnessGovernanceRuntime({ cwd, sessionId: "session-1" });
+      const surface = await runtime.captureRuntimeSurface({
+        tools: [{ name: "code_search", description: "PRIVATE DESCRIPTION", parameters: { secret: "PRIVATE SCHEMA" }, sourceInfo: { path: `${cwd}/extensions/sample.ts` } }, { name: "code_search", sourceInfo: { path: `${cwd}/extensions/sample.ts` } }],
+        activeTools: ["code_search"], commands: [{ name: "extension-audit", source: "extension", sourceInfo: { scope: "project", path: `${cwd}/extensions/sample.ts` } }],
+      });
+      expect(surface.collisions.tools).toEqual(["code_search"]);
+      expect(surface.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+      expect(surface.stats.originHashComputations).toBe(1);
+      expect(JSON.stringify(surface)).not.toContain("PRIVATE");
+      expect(JSON.stringify(surface)).not.toContain(cwd);
+      await runtime.trustCurrentAudit("surface reviewed");
+      await runtime.captureRuntimeSurface({ tools: [{ name: "different_tool" }], activeTools: ["different_tool"], commands: [] });
+      expect((await runtime.extensionDrift()).status).toBe("drifted");
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
   test("fans lifecycle events into bounded trace, metrics, and replay without payload retention", async () => {
     const cwd = await fixture("governance-trace");
     try {
@@ -87,12 +107,27 @@ describe("holistic harness governance integration", () => {
       const runtime = await createHarnessGovernanceRuntime({ cwd, sessionId: "session-1" });
       const impact = await runtime.buildImpact(["src/a.ts"]);
       expect(impact.affectedFiles).toEqual(expect.arrayContaining(["src/b.ts", "tests/b.test.ts"]));
+      expect(impact.verificationCommands[0]).toContain("tests/b.test.ts");
       const graph = await runtime.buildEvidence({ checkpoint: checkpoint(stored.object.id), claims: [{ id: "verified", text: "Change is verified", filePaths: ["src/a.ts"], objectIds: [stored.object.id] }] });
       expect(graph.repositoryFingerprint).toBe(runtime.repositoryFingerprint);
       expect(graph.edges).toEqual(expect.arrayContaining([
         expect.objectContaining({ to: "file:src/a.ts", kind: "located_in" }),
         expect.objectContaining({ to: `object:${stored.object.id}`, kind: "verified_by" }),
       ]));
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
+  test("incrementally refreshes the shared dependency graph after real mutation outcomes", async () => {
+    const cwd = await fixture("governance-refresh");
+    try {
+      const runtime = await createHarnessGovernanceRuntime({ cwd, sessionId: "session-1" });
+      expect((await runtime.buildImpact(["src/a.ts"])).affectedFiles).toContain("src/b.ts");
+      await writeFile(join(cwd, "src/b.ts"), "export const b = 2;\n", "utf8");
+      await runtime.recordToolOutcome({ toolName: "apply_code_replacements", toolCallId: "mutation-1", changedPaths: ["src/b.ts"], isError: false });
+      expect((await runtime.buildImpact(["src/a.ts"])).affectedFiles).not.toContain("src/b.ts");
+      expect(runtime.performanceStats().repositoryScans).toBe(1);
+      expect(runtime.performanceStats().incrementalFileReads).toBe(1);
+      expect(runtime.snapshot().modifiedPaths).toEqual(["src/b.ts"]);
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
 
@@ -124,6 +159,12 @@ describe("holistic harness governance integration", () => {
       const explanation = runtime.explainContextSelection({ intent, candidates, budget, ...selected });
       expect(explanation.selectedIds).toEqual(["a"]);
       expect(explanation.candidates.find((item: any) => item.id === "noise").reason).toMatch(/relevance/i);
+      const contextRuntime = createContextRuntimeCoordinator();
+      contextRuntime.selectEvidence(intent, candidates, budget);
+      contextRuntime.snapshot();
+      const integrated = runtime.snapshot().contextRuntime.contextSelection;
+      expect(integrated.selectedIds).toEqual(["a"]);
+      expect(JSON.stringify(integrated)).not.toContain("export const a");
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
 
@@ -152,11 +193,13 @@ describe("holistic harness governance integration", () => {
       expect(state.entries).toHaveLength(10);
       expect(state.checksum).toMatch(/^[a-f0-9]{64}$/);
       expect(state.entries.at(-1)!.reason).toMatch(/^review-/);
+      await writeFile(store.path, JSON.stringify({ ...state, checksum: "corrupt" }), "utf8");
+      await expect(store.state()).rejects.toThrow(/checksum|identity/i);
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
 
   test("declares the full command and lifecycle integration surface", () => {
-    expect(HARNESS_GOVERNANCE_COMMANDS).toEqual(expect.arrayContaining(["extension-audit", "extension-diff", "extension-trust", "hook-topology", "evidence", "why-context", "change-impact", "harness-replay", "canary-status", "governance-status"]));
-    expect(HARNESS_GOVERNANCE_HOOKS).toEqual(expect.arrayContaining(["session_start", "tool_call", "tool_result", "context", "session_before_compact", "session_shutdown"]));
+    expect(HARNESS_GOVERNANCE_COMMANDS).toEqual(expect.arrayContaining(["extension-audit", "extension-diff", "extension-trust", "hook-topology", "evidence", "why-context", "change-impact", "harness-replay", "canary-status", "governance-status", "capability-lease", "capability-leases"]));
+    expect(HARNESS_GOVERNANCE_HOOKS).toEqual(expect.arrayContaining(["session_start", "resources_discover", "tool_call", "tool_result", "context", "session_before_compact", "session_compact", "session_shutdown"]));
   });
 });
