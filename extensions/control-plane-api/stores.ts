@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
+import { readStoredContextObject } from "../context-object-store";
 import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 import { loadSearchEntry, loadSearchIndex } from "../shared/web-search-store";
@@ -55,7 +56,9 @@ export async function findToolResultPath(cwd: string, id: string) {
 }
 
 export async function readToolResult(cwd: string, id: string) {
-  return JSON.parse(await readFile(await findToolResultPath(cwd, id), "utf8"));
+  const result = JSON.parse(await readFile(await findToolResultPath(cwd, id), "utf8"));
+  if (typeof result.contextObjectId === "string") result.content = (await readStoredContextObject(cwd, result.contextObjectId)).content;
+  return result;
 }
 
 export async function listWorkspaceFiles(cwd: string, limit = 300) {

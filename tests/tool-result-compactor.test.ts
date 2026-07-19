@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -249,6 +249,26 @@ describe("tool result compaction", () => {
       isError: false,
     }, { cwd: process.cwd() });
     expect(patch).toBeUndefined();
+  });
+
+  test("stores one canonical copy of a large tool result", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "canonical-tool-result-"));
+    const handlers: Record<string, any> = {};
+    toolResultCompactorExtension({ on: (name: string, handler: any) => { handlers[name] = handler; }, registerTool: () => {} } as any);
+    try {
+      const marker = `UNIQUE-${"x".repeat(8_000)}`;
+      const patch = await handlers.tool_result({ toolName: "code_search", toolCallId: "canonical-1", content: [{ type: "text", text: marker }], isError: false }, { cwd });
+      const legacy = await readFile(join(cwd, patch.details.resultPath), "utf8");
+      const canonical = await readStoredContextObject(cwd, patch.details.contextObjectId);
+      expect(Number(legacy.includes(marker)) + Number(canonical.content.includes(marker))).toBe(1);
+      expect(JSON.parse(legacy)).toMatchObject({ contextObjectId: patch.details.contextObjectId });
+    } finally { await rm(cwd, { recursive: true, force: true }); }
+  });
+
+  test("registers automatic bounded cleanup for stored results", () => {
+    const handlers: Record<string, any> = {};
+    toolResultCompactorExtension({ on: (name: string, handler: any) => { handlers[name] = handler; }, registerTool: () => {} } as any);
+    expect(handlers.session_start).toBeFunction();
   });
 
   test("default threshold compacts medium-large outputs lazily", () => {

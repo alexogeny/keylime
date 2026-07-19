@@ -1,7 +1,19 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
 import { customCheckCommand, defaultCheckCommands, detectProjectKind } from "../extensions/shared/test-runner";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 import { runChecksCommandBlockReason, summarizeCheckStream } from "../extensions/test-runner";
+
+describe("repository validation configuration", () => {
+  test("typechecks tests and runs the full safety suite in CI", () => {
+    expect(existsSync("tsconfig.tests.json")).toBe(true);
+    expect(existsSync(".github/workflows/check.yml")).toBe(true);
+    const workflow = readFileSync(".github/workflows/check.yml", "utf8");
+    expect(workflow).toContain("bun run typecheck:tests");
+    expect(workflow).toContain("bun test");
+    expect(workflow).toContain("bench:context");
+  });
+});
 
 describe("test runner defaults", () => {
   test("detects project kind", () => {

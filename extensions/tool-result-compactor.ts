@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { bypassGenericToolResultReduction, contextObjectKindForTool, reduceToolResultText } from "./shared/tool-result-reducers";
-import { storeContextObject } from "./context-object-store";
+import { cleanupContextObjects, readStoredContextObject, storeContextObject } from "./context-object-store";
 
 export interface CompactToolResultOptions {
   thresholdChars?: number;
@@ -151,7 +151,7 @@ async function cleanupToolResults(cwd: string, options: { maxAgeDays?: number; m
 
 async function storeResult(cwd: string, payload: Record<string, unknown>, summary: string[]): Promise<{ id: string; path: string }> {
   const date = new Date().toISOString().slice(0, 10);
-  const id = randomUUID();
+  const id = typeof payload.contextObjectId === "string" ? payload.contextObjectId : randomUUID();
   const relDir = join(".pi", "tool-results", date);
   const absDir = join(cwd, relDir);
   if (!ensuredResultDirs.has(absDir)) {
@@ -163,8 +163,10 @@ async function storeResult(cwd: string, payload: Record<string, unknown>, summar
   const createdAt = new Date().toISOString();
   await writeFile(join(cwd, relPath), JSON.stringify({ ...payload, id, createdAt }, null, 2), { encoding: "utf8", mode: 0o600 });
   const manifest = await readManifest(cwd);
-  manifest.unshift({ id, toolName: String(payload.toolName ?? "unknown"), createdAt, path: relPath, originalChars: Number(payload.originalChars ?? 0), summary });
-  await writeManifest(cwd, manifest.slice(0, 500));
+  const nextManifest = [{ id, toolName: String(payload.toolName ?? "unknown"), createdAt, path: relPath, originalChars: Number(payload.originalChars ?? 0), summary }, ...manifest.filter(entry => entry.id !== id)];
+  const kept = nextManifest.slice(0, 500);
+  for (const orphan of nextManifest.slice(500)) await rm(join(cwd, orphan.path), { force: true });
+  await writeManifest(cwd, kept);
   return { id, path: relPath };
 }
 
@@ -190,6 +192,11 @@ function compactedContentText(toolName: string, stored: { id: string; path: stri
 }
 
 export default function toolResultCompactor(pi: ExtensionAPI) {
+  pi.on("session_start", async (_event, ctx) => {
+    const cwd = ctx.cwd ?? process.cwd();
+    await cleanupToolResults(cwd).catch(() => undefined);
+    await cleanupContextObjects(cwd, { maxAgeDays: 30, maxEntries: 300 }).catch(() => undefined);
+  });
   pi.on("tool_result", async (event, ctx) => {
     if (bypassGenericToolResultReduction({
       toolName: (event as any).toolName,
@@ -228,17 +235,8 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       compactedText: reduced.activeText,
       summary: [reduced.summary],
     };
-    const stored = await storeResult(cwd, {
-      toolName,
-      toolCallId: (event as any).toolCallId,
-      input: (event as any).input,
-      content: (event as any).content,
-      details: (event as any).details,
-      originalChars: compacted.originalChars,
-      createdAt: new Date().toISOString(),
-    }, typedCompacted.summary);
     contextStored ??= await storeContextObject(cwd, {
-      id: stored.id,
+      id: randomUUID(),
       kind,
       sourceTool: toolName,
       toolCallId: (event as any).toolCallId,
@@ -247,6 +245,13 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       retention: "foldable",
       sections: reduced.sections,
     });
+    const stored = await storeResult(cwd, {
+      toolName,
+      toolCallId: (event as any).toolCallId,
+      contextObjectId: contextStored.object.id,
+      originalChars: compacted.originalChars,
+      createdAt: new Date().toISOString(),
+    }, typedCompacted.summary);
 
     return {
       content: [{ type: "text", text: compactedContentText(toolName, stored, typedCompacted, contextStored.object.id) }],
@@ -333,8 +338,10 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
         const candidate = join(base, date, `${params.result_id}.json`);
         if (!existsSync(candidate)) continue;
         const raw = await readFile(candidate, "utf8");
-        const text = raw.length > max ? `${raw.slice(0, max)}\n…\n[truncated ${raw.length - max} chars]` : raw;
-        return { content: [{ type: "text", text }], details: { resultId: params.result_id, chars: raw.length } };
+        const parsed = JSON.parse(raw);
+        const resolved = parsed.contextObjectId ? JSON.stringify({ ...parsed, content: (await readStoredContextObject(ctx?.cwd ?? process.cwd(), String(parsed.contextObjectId))).content }, null, 2) : raw;
+        const text = resolved.length > max ? `${resolved.slice(0, max)}\n…\n[truncated ${resolved.length - max} chars]` : resolved;
+        return { content: [{ type: "text", text }], details: { resultId: params.result_id, chars: resolved.length } };
       }
       throw new Error(`No compacted tool result found for id: ${params.result_id}`);
     },

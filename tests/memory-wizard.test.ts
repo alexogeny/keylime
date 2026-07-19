@@ -200,7 +200,7 @@ describe("structured profile facts", () => {
       "User's coffee sweetener is none.",
       "User's caffeine timing is before noon.",
     ]);
-    expect(drafts.every(draft => draft.tags.includes("profile"))).toBe(true);
+    expect(drafts.every(draft => draft.tags?.includes("profile"))).toBe(true);
   });
 
   test("supports unit conversion hints, unit selectors, cup size, and section completeness", () => {

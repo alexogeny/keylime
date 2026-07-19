@@ -118,6 +118,18 @@ describe("context runtime end-to-end wiring", () => {
     expect(matches.map(match => match.id)).toEqual(["local"]);
   });
 
+  test("tracks ordinary bounded code_search regions without requiring a context-object sidecar", async () => {
+    const harness = mockPiFixture();
+    contextRuntimeExtension(harness.pi);
+    const onToolResult = harness.handlers.tool_result[0];
+    await onToolResult({ toolCallId: "small-search", toolName: "code_search", input: { query: "cache" }, content: [{ type: "text", text: "src/cache.ts:10-20" }], details: { regions: [{ path: "src/cache.ts", startLine: 10, endLine: 20, estimatedChars: 220 }] }, isError: false }, harness.ctx);
+    await onToolResult({ toolCallId: "small-edit", toolName: "apply_code_replacements", input: { path: "src/cache.ts" }, content: [{ type: "text", text: "Applied" }], details: { changedPaths: ["src/cache.ts"] }, isError: false }, harness.ctx);
+    await onToolResult({ toolCallId: "small-verify", toolName: "run_checks", input: {}, content: [{ type: "text", text: "0 fail" }], details: { ok: true }, isError: false }, harness.ctx);
+    const status = await harness.tools.context_runtime_status.execute("status", {}, new AbortController().signal, undefined, harness.ctx);
+    expect(status.details.retrieval.injectedChars).toBe(220);
+    expect(status.details.retrieval.utilization).toBe(1);
+  });
+
   test("automatically records search retrieval, bounded inspection, edits, and verification from Pi tool events", async () => {
     const harness = mockPiFixture();
     contextRuntimeExtension(harness.pi);
@@ -129,6 +141,15 @@ describe("context runtime end-to-end wiring", () => {
     const status = await harness.tools.context_runtime_status.execute("status", {}, new AbortController().signal, undefined, harness.ctx);
     expect(status.details.retrieval.injectedChars).toBe(200);
     expect(status.details.retrieval.signals["ctx-search"]).toEqual(expect.arrayContaining(["reinspected", "verified_change"]));
+  });
+
+  test("bounds retained observation payloads by entry count and characters", () => {
+    const runtime = createContextRuntimeCoordinator({ maxObservationEntries: 3, maxObservationChars: 120 } as any);
+    for (let index = 0; index < 10; index++) runtime.recordToolResult({ toolCallId: `tool-${index}`, toolName: "code_search", text: `${index}:${"x".repeat(90)}`, isError: false, objectId: `object-${index}` });
+    const observations = runtime.retainedObservations();
+    expect(observations.length).toBeLessThanOrEqual(3);
+    expect(observations.reduce((sum, item) => sum + item.text.length, 0)).toBeLessThanOrEqual(120);
+    expect(observations.every(item => item.objectId)).toBe(true);
   });
 
   test("registers Pi context lifecycle telemetry compaction and status hooks", async () => {

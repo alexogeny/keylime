@@ -23,6 +23,22 @@ function score(intent: EvidenceIntent, candidate: EvidenceCandidate): number {
     + symbolMatch * .18 + pathMatch * .1 + Number(failureMatch) * .22 + intentMatch * .08;
 }
 
+export function evidenceCandidatesFromRegions(regions: Array<{ path: string; startLine: number; endLine: number; lines: string[]; score: number; reasons: string[] }>, query: string): EvidenceCandidate[] {
+  return regions.map(region => ({
+    id: `${region.path}:${region.startLine}-${region.endLine}`,
+    path: region.path,
+    startLine: region.startLine,
+    endLine: region.endLine,
+    text: region.lines.join("\n"),
+    lexical: Math.max(0, Math.min(1, region.score)),
+    semantic: region.reasons.includes("declaration_match") ? .8 : .5,
+    graph: region.reasons.includes("import_neighbor") ? .8 : .2,
+    recency: .5,
+    symbols: region.lines.join("\n").includes(query) ? [query] : [],
+    objectId: `region:${region.path}:${region.startLine}-${region.endLine}`,
+  }));
+}
+
 export function selectEvidencePackets(intent: EvidenceIntent, candidates: EvidenceCandidate[], budget: EvidencePacketBudget): EvidencePacket[] {
   const ranked = [...candidates].sort((a, b) => score(intent, b) - score(intent, a) || a.path.localeCompare(b.path) || a.startLine - b.startLine || a.id.localeCompare(b.id));
   const selected: EvidenceCandidate[] = [];

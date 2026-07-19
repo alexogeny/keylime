@@ -11,7 +11,7 @@ describe("policy corpus retrieval", () => {
 
   test("retrieves detailed safe primitive policy moved out of always-on prompts", () => {
     const results = retrievePolicy("safe source edits raw shell runtime commands", { kind: "mutation", topK: 3 });
-    const doc = results.find(result => result.document.id === "mutation.safe-source-primitives")?.document;
+    const doc = results.find(result => result.document?.id === "mutation.safe-source-primitives")?.document;
     expect(doc?.body).toContain("Inspect narrowly. Mutate only with guarded primitives. Verify only changed behavior.");
     expect(doc?.fields?.active_tools).toContain("apply_code_replacements");
   });

@@ -72,10 +72,11 @@ Examples:
 - `bounded-tool-pipeline.ts`, `shared/bounded-pipeline.ts` — allowlisted read-only aggregation over verified context-object rows with call, intermediate, output, cancellation, and wall-clock budgets; no arbitrary expressions or dynamic tool execution.
 - `repo-index/index.ts`, `shared/repo-regions.ts`, `shared/retrieval-utilization.ts` — optional overlap-aware code-region budgets, deterministic structural reasons, retrieval metrics, and repository/task-scoped identifier-only utilization telemetry.
 - `context-runtime.ts` — trajectory-aware observation masking, intent-aware packets, retrieval credit, cache fingerprints, proactive folds, adaptive budgets, and provider-compaction coordination.
-- `passive-context-telemetry.ts` — text-free daily aggregates in `~/.pi/data/keylime-context-telemetry`, retained for 14 days under a 256 KiB hard cap; inspect with `/context-telemetry` and erase with `/context-telemetry clear`.
+- `thinking-level-command.ts` — `/thinking-level` selector and direct `/thinking-level <level>` control using Pi's native thinking-level API.
+- `passive-context-telemetry.ts` — permanent, text-free canonical daily aggregates plus bounded provider/model/version/thinking-mode buckets in `~/.pi/data/keylime-context-telemetry`; each day remains compact, while optional retention/byte limits can be configured explicitly. Inspect with `/context-telemetry`, query model/thinking history with `/context-telemetry models`, and erase with `/context-telemetry clear`.
 - `policy-tools.ts`, `shared/retrieval/`, `shared/policy-corpus.ts`, `shared/policy-actions.ts` — reusable BM25/TF-IDF/JMLM hybrid retrieval plus policy/codemod/check-recipe tools.
 - `user-memory/` — durable memory and entity recall.
-- `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, compact claims/source/object references, and locally persisted web knowledge.
+- `web-search.ts`, `search-memory.ts`, `search-orchestrator.ts`, `fetch.ts`, `web-content.ts` — research, Firecrawl-backed extraction/crawling, compact claims/source/object references, locally persisted web knowledge, and `/web-content-stats` plus explicit `/web-content-cleanup <max-pages>` lifecycle controls.
 - `project-planner.ts` — project plan, TDD state, decisions, and questions.
 - `shoe-database/` — running shoe catalog and query tools.
 

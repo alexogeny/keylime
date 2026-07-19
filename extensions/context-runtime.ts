@@ -12,11 +12,15 @@ import { publishContextRuntimeTelemetry, readContextRuntimeTelemetry, resetConte
 
 const STATUS_KEY = "context-runtime";
 
-type RecordedToolResult = { toolCallId: string; toolName: string; text: string; objectId?: string; isError: boolean };
+export type RecordedToolResult = { toolCallId: string; toolName: string; text: string; objectId?: string; isError: boolean };
 type RuntimeOptions = {
   hotTurns?: number;
   warmTurns?: number;
   provider?: ProviderContextCapabilities;
+  maxObservationEntries?: number;
+  maxObservationChars?: number;
+  maxTrajectoryEvents?: number;
+  maxExperiences?: number;
 };
 type RuntimeTransform = { kind: "observation_mask"; toolCallId: string; beforeChars: number; afterChars: number; recoverable: boolean };
 export type RuntimeSnapshot = {
@@ -63,6 +67,30 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
   let cacheFingerprint = "";
   let maskedObservations = 0;
   const provider = options.provider ?? { serverCompaction: false, selectiveToolClearing: false, promptCaching: false, opaqueCompaction: false };
+  const maxObservationEntries = Math.max(1, options.maxObservationEntries ?? 200);
+  const maxObservationChars = Math.max(100, options.maxObservationChars ?? 250_000);
+  const maxTrajectoryEvents = Math.max(10, options.maxTrajectoryEvents ?? 500);
+  const maxExperiences = Math.max(10, options.maxExperiences ?? 500);
+  const boundObservations = (): void => {
+    while (observations.size > maxObservationEntries) observations.delete(observations.keys().next().value!);
+    let chars = [...observations.values()].reduce((sum, item) => sum + item.text.length, 0);
+    for (const [id, item] of observations) {
+      if (chars <= maxObservationChars) break;
+      if (item.objectId) {
+        const text = `[observation folded; recover object://${item.objectId}]`;
+        chars -= item.text.length - text.length;
+        observations.set(id, { ...item, text });
+      } else {
+        observations.delete(id);
+        chars -= item.text.length;
+      }
+    }
+    while (chars > maxObservationChars && observations.size > 0) {
+      const id = observations.keys().next().value!;
+      chars -= observations.get(id)!.text.length;
+      observations.delete(id);
+    }
+  };
 
   const retrievalCredit = (): RetrievalCredit => assignRetrievalCredit(retrievals, retrievalUsage);
 
@@ -74,6 +102,9 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
     },
 
     recordToolResult(result: RecordedToolResult): void {
+      const supersedes = !result.isError && /(?:run_checks|test|typecheck|lint)/i.test(result.toolName)
+        ? [...observations.values()].filter(item => item.kind === "failure").map(item => item.id)
+        : undefined;
       observations.set(result.toolCallId, {
         id: result.toolCallId,
         toolName: result.toolName,
@@ -81,8 +112,11 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
         turn,
         kind: result.isError ? "failure" : "success",
         objectId: result.objectId,
+        supersedes,
       });
+      boundObservations();
     },
+    retainedObservations(): Observation[] { return [...observations.values()].map(item => ({ ...item })); },
 
     transformContext(messages: any[]): { messages: any[]; transforms: RuntimeTransform[]; cacheFingerprint: string } {
       for (const message of messages) {
@@ -138,8 +172,8 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
         supersededIds: [...new Set([...(retrievalUsage.supersededIds ?? []), ...(usage.supersededIds ?? [])])],
       };
     },
-    recordTrajectory(events: TrajectoryEvent[]): void { trajectory.push(...events); },
-    recordExperiences(items: RepositoryExperience[]): void { experiences.push(...items); },
+    recordTrajectory(events: TrajectoryEvent[]): void { trajectory.push(...events); if (trajectory.length > maxTrajectoryEvents) trajectory = trajectory.slice(-maxTrajectoryEvents); },
+    recordExperiences(items: RepositoryExperience[]): void { experiences.push(...items); if (experiences.length > maxExperiences) experiences = experiences.slice(-maxExperiences); },
     retrieveExperiences(query: ExperienceQuery): ExperienceMatch[] { return retrieveRepositoryExperiences(query, experiences, { maxResults: 5, minConfidence: .5 }); },
 
     endTurn(input: { contextPercent: number; boundary?: string }): { fold?: TrajectoryFold; contextBudget: { maxChars: number }; retrievalBudget: { maxPackets: number; maxChars: number } } {
@@ -199,13 +233,17 @@ export default function contextRuntimeExtension(pi: ExtensionAPI) {
       id: String(event.toolCallId ?? `${toolName}-${++runtimeEventSequence}`), subtask: "active", type: event.isError ? "failure" : "evidence", text,
       objectIds: objectId ? [String(objectId)] : undefined,
     }]);
-    if (toolName === "code_search" && objectId) {
+    if (toolName === "code_search") {
       const regions = Array.isArray(event.details?.regions) ? event.details.regions : [];
-      const first = regions[0];
-      runtime.recordRetrieval([{
-        id: String(objectId), objectId: String(objectId), path: String(first?.path ?? "repository"),
-        chars: Number(first?.estimatedChars ?? text.length),
-      }]);
+      const fallbackId = String(objectId ?? event.toolCallId ?? `code-search-${++runtimeEventSequence}`);
+      const injections = regions.length > 0
+        ? regions.map((region: any, index: number) => {
+            const regionId = `${String(region.path ?? "repository")}:${Number(region.startLine ?? 0)}-${Number(region.endLine ?? 0)}`;
+            const id = objectId ? (index === 0 ? String(objectId) : `${String(objectId)}:${index}`) : `region:${regionId}`;
+            return { id, objectId: String(objectId ?? id), path: String(region.path ?? "repository"), chars: Number(region.estimatedChars ?? 0) || text.length };
+          })
+        : [{ id: fallbackId, objectId: fallbackId, path: "repository", chars: text.length }];
+      runtime.recordRetrieval(injections);
     }
     if (toolName === "inspect_context_object" && event.input?.object_id) runtime.recordUsage({ inspectedObjectIds: [String(event.input.object_id)] });
     const changedPaths = Array.isArray(event.details?.changedPaths) ? event.details.changedPaths : event.input?.path ? [event.input.path] : [];

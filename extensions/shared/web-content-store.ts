@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { readJsonDir, readJsonFile, writeJsonFile } from "./json-store";
 import type { StoreWebPageInput, WebContentPage, WebCrawlManifest } from "./web-content-types";
 
@@ -128,4 +128,46 @@ export async function loadCrawlManifest(id: string, dataDir = webContentDataDir(
 
 export async function loadAllCrawlManifests(dataDir = webContentDataDir()): Promise<WebCrawlManifest[]> {
   return readJsonDir<WebCrawlManifest>(webContentPaths(dataDir).crawlsDir);
+}
+
+async function directoryBytes(path: string): Promise<number> {
+  try {
+    const names = await readdir(path);
+    const sizes = await Promise.all(names.map(async name => (await stat(join(path, name))).size));
+    return sizes.reduce((sum, size) => sum + size, 0);
+  } catch { return 0; }
+}
+
+export async function webContentStats(dataDir = webContentDataDir()): Promise<{ pages: number; crawls: number; blobs: number; bytes: number }> {
+  const paths = webContentPaths(dataDir);
+  const [pages, crawls, blobNames, pageBytes, crawlBytes, blobBytes] = await Promise.all([
+    loadAllWebPages(dataDir), loadAllCrawlManifests(dataDir), readdir(paths.blobsDir).catch(() => []),
+    directoryBytes(paths.pagesDir), directoryBytes(paths.crawlsDir), directoryBytes(paths.blobsDir),
+  ]);
+  return { pages: pages.length, crawls: crawls.length, blobs: blobNames.length, bytes: pageBytes + crawlBytes + blobBytes };
+}
+
+export async function cleanupWebContent(dataDir = webContentDataDir(), options: { maxEntries?: number; maxBytes?: number } = {}): Promise<{ deletedPages: number; deletedBlobs: number; stats: Awaited<ReturnType<typeof webContentStats>> }> {
+  const paths = webContentPaths(dataDir);
+  const pages = (await loadAllWebPages(dataDir)).sort((a, b) => b.fetchedAt - a.fetchedAt || b.id.localeCompare(a.id));
+  const keepEntries = Math.max(0, Math.floor(options.maxEntries ?? pages.length));
+  const removePages = pages.slice(keepEntries);
+  for (const page of removePages) await rm(join(paths.pagesDir, `${page.id}.json`), { force: true });
+  let kept = pages.slice(0, keepEntries);
+  if (options.maxBytes !== undefined) {
+    let bytes = kept.reduce((sum, page) => sum + page.contentLength, 0);
+    while (kept.length && bytes > Math.max(0, options.maxBytes)) {
+      const page = kept.pop()!;
+      bytes -= page.contentLength;
+      removePages.push(page);
+      await rm(join(paths.pagesDir, `${page.id}.json`), { force: true });
+    }
+  }
+  const liveHashes = new Set(kept.map(page => page.contentHash));
+  const blobs = await readdir(paths.blobsDir).catch(() => []);
+  let deletedBlobs = 0;
+  for (const name of blobs) {
+    if (name.endsWith(".md") && !liveHashes.has(name.slice(0, -3))) { await rm(join(paths.blobsDir, name), { force: true }); deletedBlobs++; }
+  }
+  return { deletedPages: new Set(removePages.map(page => page.id)).size, deletedBlobs, stats: await webContentStats(dataDir) };
 }

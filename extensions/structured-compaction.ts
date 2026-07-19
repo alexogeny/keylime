@@ -17,7 +17,7 @@ type CompactionGenerationInput = {
 };
 
 type StructuredCompactionOptions = {
-  generateCheckpoint: (input: CompactionGenerationInput, signal: AbortSignal, ctx: any) => Promise<unknown>;
+  generateCheckpoint: (input: CompactionGenerationInput, signal: AbortSignal, ctx: any, attempt?: number) => Promise<unknown>;
   objectExists?: (cwd: string, id: string) => Promise<boolean>;
   pinObjects?: (cwd: string, ids: string[]) => Promise<void>;
 };
@@ -76,12 +76,20 @@ export function createStructuredCompactionHandler(options: StructuredCompactionO
       const serialized = serializeCompactionMessages(allMessages);
       const runtimeFold = renderRuntimeFoldContext();
       const conversation = runtimeFold ? `${serialized}\n\n${runtimeFold}` : serialized;
-      const generated = await options.generateCheckpoint({
+      const generationInput = {
         conversation,
         previousSummary: preparation.previousSummary,
         reason: event.reason,
         willRetry: Boolean(event.willRetry),
-      }, signal, ctx);
+      };
+      let generated: unknown;
+      try {
+        generated = await options.generateCheckpoint(generationInput, signal, ctx, 0);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/empty checkpoint response/i.test(message) || signal?.aborted) throw error;
+        generated = await options.generateCheckpoint(generationInput, signal, ctx, 1);
+      }
       if (signal?.aborted) return;
       const checkpoint = validateCompactionCheckpoint(generated);
       const objectIds = checkpointObjectIds(checkpoint);
@@ -113,7 +121,7 @@ function parseCheckpointText(text: string): unknown {
   return JSON.parse(trimmed);
 }
 
-async function generateWithActiveModel(input: CompactionGenerationInput, signal: AbortSignal, ctx: any): Promise<unknown> {
+async function generateWithActiveModel(input: CompactionGenerationInput, signal: AbortSignal, ctx: any, attempt = 0): Promise<unknown> {
   const model = ctx.model;
   if (!model) throw new Error("No active model available");
   const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
@@ -125,7 +133,7 @@ Each claim is {"text": string, "sourceEntryIds"?: string[], "objectIds"?: string
 Preserve exact user constraints, paths, line ranges, hashes, errors, blockers, pending work, safety state, and existing object ids. Use empty arrays rather than omitting keys. Return JSON only.
 ${input.previousSummary ? `\nPrevious checkpoint:\n${input.previousSummary}\n` : ""}
 <conversation>
-${input.conversation}
+${attempt > 0 && input.conversation.length > 60_000 ? `[earlier conversation omitted on retry]\n${input.conversation.slice(-60_000)}` : input.conversation}
 </conversation>`;
   const response = await complete(model, {
     messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
@@ -134,13 +142,17 @@ ${input.conversation}
     headers: auth.headers,
     env: auth.env,
     maxTokens: 8192,
+    reasoning: attempt > 0 ? "off" : "low",
     signal,
   });
   const text = response.content
     .filter((part): part is { type: "text"; text: string } => part.type === "text")
     .map(part => part.text)
     .join("\n");
-  if (!text.trim()) throw new Error("Empty checkpoint response");
+  if (!text.trim()) {
+    const thinkingChars = response.content.filter(part => part.type === "thinking").reduce((sum, part: any) => sum + String(part.thinking ?? "").length, 0);
+    throw new Error(`Empty checkpoint response (stop=${response.stopReason ?? "unknown"}, thinkingChars=${thinkingChars}, attempt=${attempt + 1})`);
+  }
   return parseCheckpointText(text);
 }
 

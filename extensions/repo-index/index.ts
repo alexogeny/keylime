@@ -35,7 +35,7 @@ import { repoRelativePath } from "../shared/path-policy";
 import { writePathsForToolResult } from "../shared/safety-policy";
 import { matchesGlob } from "../shared/code-primitives";
 import { parseRipgrepCodeRegions, rankCodeRegions } from "../shared/repo-regions";
-import { selectEvidencePackets } from "../shared/evidence-packets";
+import { evidenceCandidatesFromRegions, selectEvidencePackets } from "../shared/evidence-packets";
 
 const execFileAsync = promisify(execFile);
 
@@ -621,19 +621,7 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
           maxChars: params.max_chars ?? SEARCH_MAX_CHARS,
           maxFiles: params.max_files ?? maxResults,
         });
-        const evidenceCandidates = ranked.regions.map(region => ({
-          id: `${region.path}:${region.startLine}-${region.endLine}`,
-          path: region.path,
-          startLine: region.startLine,
-          endLine: region.endLine,
-          text: region.lines.join("\n"),
-          lexical: Math.max(0, Math.min(1, region.score)),
-          semantic: region.reasons.includes("declaration_match") ? .8 : .5,
-          graph: region.reasons.includes("import_neighbor") ? .8 : .2,
-          recency: .5,
-          symbols: region.lines.join("\n").includes(String(params.query)) ? [String(params.query)] : [],
-          objectId: `region:${region.path}:${region.startLine}-${region.endLine}`,
-        }));
+        const evidenceCandidates = evidenceCandidatesFromRegions(ranked.regions, String(params.query));
         const packets = selectEvidencePackets(
           { objective: String(params.query), symbols: [String(params.query)], paths: params.file_glob && !String(params.file_glob).includes("*") ? [String(params.file_glob)] : [] },
           evidenceCandidates,

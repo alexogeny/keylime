@@ -139,6 +139,14 @@ test("reports stable provider fingerprints and contribution sizes", async () => 
   expect(secondDiagnostic.fingerprint).toBe(firstDiagnostic.fingerprint);
 });
 
+test("refills utility allocation when higher-ranked providers produce no context", async () => {
+  for (let index = 0; index < 30; index++) registerContextProvider({ id: `empty-${index}`, priority: 100 - index, maxChars: 100, stability: "turn", build: () => "" });
+  registerContextProvider({ id: "useful-tail", priority: 1, maxChars: 100, stability: "turn", build: () => "useful recovered context" });
+  const result = await composeTurnContext(ctx(), messages("hello"));
+  expect(result.messages[0].content).toContain("useful recovered context");
+  expect(result.diagnostics.providers.find(provider => provider.id === "useful-tail")).toMatchObject({ included: true });
+});
+
 test("memoizes declared-stable providers until their dependency fingerprint changes", async () => {
   let dependency = "v1";
   let builds = 0;

@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { getFirecrawlCrawl, startFirecrawlCrawl } from "./shared/firecrawl-client";
 import {
+  cleanupWebContent,
   findLatestWebPage,
   loadAllCrawlManifests,
   loadAllWebPages,
@@ -11,6 +12,7 @@ import {
   saveCrawlManifest,
   saveWebPage,
   webContentDataDir,
+  webContentStats,
 } from "./shared/web-content-store";
 import type { WebContentPage, WebCrawlManifest } from "./shared/web-content-types";
 import { boundedTopK } from "./shared/retrieval/bounded-top-k";
@@ -142,6 +144,22 @@ async function syncCrawl(manifest: WebCrawlManifest, signal: AbortSignal | undef
 }
 
 export default function webContentExtension(pi: ExtensionAPI) {
+  pi.registerCommand("web-content-stats", {
+    description: "Show stored web page, crawl, blob, and byte totals",
+    handler: async (_args, ctx) => {
+      const stats = await webContentStats(webContentDataDir());
+      ctx.ui.notify(`Web content: ${stats.pages} page(s), ${stats.crawls} crawl(s), ${stats.blobs} blob(s), ${stats.bytes} bytes`, "info");
+    },
+  });
+  pi.registerCommand("web-content-cleanup", {
+    description: "Keep only the newest N stored web pages and remove orphaned blobs",
+    handler: async (args, ctx) => {
+      const maxEntries = Number(String(args ?? "").trim());
+      if (!Number.isInteger(maxEntries) || maxEntries < 0) { ctx.ui.notify("Usage: /web-content-cleanup <max-pages>", "warning"); return; }
+      const result = await cleanupWebContent(webContentDataDir(), { maxEntries });
+      ctx.ui.notify(`Web content cleanup: deleted ${result.deletedPages} page(s) and ${result.deletedBlobs} blob(s); ${result.stats.pages} page(s) remain`, "info");
+    },
+  });
   pi.registerTool({
     name: "crawl_site",
     label: "Crawl Site",

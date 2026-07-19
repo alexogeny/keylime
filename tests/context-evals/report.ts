@@ -4,6 +4,7 @@ import { bootstrapToolNames, TOOL_POLICIES } from "../../extensions/shared/tool-
 import { reduceToolResultText } from "../../extensions/shared/tool-result-reducers";
 import { renderCompactionCheckpoint, validateCompactionCheckpoint, type CompactionCheckpoint } from "../../extensions/shared/compaction-schema";
 import { rankCodeRegions, type CodeRegionBudget, type CodeRegionCandidate } from "../../extensions/shared/repo-regions";
+import { evidenceCandidatesFromRegions, selectEvidencePackets } from "../../extensions/shared/evidence-packets";
 import { bindRepositoryState, loadBoundRepositoryState, type RepositoryIdentity } from "../../extensions/shared/repository-identity";
 import { codingModeBlockReasonForToolCall } from "../../extensions/danger-guard";
 
@@ -66,13 +67,23 @@ export function buildContextEvalReport(): { version: 1; categories: ContextEvalR
     && checkpoint.pendingActions[0]?.text === compaction.expectedNextAction;
 
   const retrieval = fixture<{
-    budget: CodeRegionBudget; candidates: CodeRegionCandidate[]; requiredRegionIds: string[]; minimumRecall: number; minimumPrecision: number;
+    issue: string; budget: CodeRegionBudget; candidates: CodeRegionCandidate[]; requiredRegionIds: string[]; minimumRecall: number; minimumPrecision: number;
   }>("repository-retrieval/gold-regions.json");
   const ranked = rankCodeRegions(retrieval.candidates, retrieval.budget);
   const returnedIds = new Set(ranked.regions.map(region => `${region.path}:${region.startLine}-${region.endLine}`));
   const requiredReturned = retrieval.requiredRegionIds.filter(id => returnedIds.has(id)).length;
   const recall = requiredReturned / retrieval.requiredRegionIds.length;
   const precision = requiredReturned / ranked.regions.length;
+  const evidenceCandidates = evidenceCandidatesFromRegions(ranked.regions, "verifyToken");
+  const packets = selectEvidencePackets({ objective: retrieval.issue, symbols: ["verifyToken"], paths: [] }, evidenceCandidates, {
+    maxTokens: Math.max(1, Math.floor(retrieval.budget.maxChars / 4)), maxPackets: ranked.regions.length, maxFiles: retrieval.budget.maxFiles,
+  });
+  const packetIds = new Set(packets.map(packet => packet.id));
+  const liveRegions = ranked.regions.filter(region => packetIds.has(`${region.path}:${region.startLine}-${region.endLine}`));
+  const liveIds = new Set((liveRegions.length ? liveRegions : ranked.regions.slice(0, 1)).map(region => `${region.path}:${region.startLine}-${region.endLine}`));
+  const liveRequired = retrieval.requiredRegionIds.filter(id => liveIds.has(id)).length;
+  const liveRecall = liveRequired / retrieval.requiredRegionIds.length;
+  const livePrecision = liveRequired / liveIds.size;
 
   const state = fixture<{
     expectedRepository: RepositoryIdentity; foreignRepository: RepositoryIdentity; foreignPayload: Record<string, unknown>;
@@ -89,8 +100,8 @@ export function buildContextEvalReport(): { version: 1; categories: ContextEvalR
       row("tool-results", toolResult.content, reduced.activeText, { recoverableRemovedChars: toolResultRemoved, qualityPass: toolResultQuality }),
       row("compaction", JSON.stringify(checkpoint), rendered, { qualityPass: compactionQuality, safetyPass: rendered.includes("Default Pi compaction remains fallback") }),
       row("repository-retrieval", JSON.stringify(retrieval.candidates), JSON.stringify(ranked.regions), {
-        qualityPass: recall >= retrieval.minimumRecall && precision >= retrieval.minimumPrecision,
-        metrics: { recall, precision, returnedLines: ranked.metrics.returnedLines, returnedChars: ranked.metrics.returnedChars },
+        qualityPass: recall >= retrieval.minimumRecall && precision >= retrieval.minimumPrecision && liveRecall >= retrieval.minimumRecall && livePrecision >= retrieval.minimumPrecision,
+        metrics: { recall, precision, liveRecall, livePrecision, livePackets: liveIds.size, returnedLines: ranked.metrics.returnedLines, returnedChars: ranked.metrics.returnedChars },
       }),
       row("stale-state", JSON.stringify(envelope), loaded.status, { qualityPass: loaded.status === "mismatch" }),
       row("safety", JSON.stringify(state.blockedTool), denial, { safetyPass: denial.includes(state.requiredDenial) }),

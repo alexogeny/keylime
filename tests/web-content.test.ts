@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { __testables as firecrawlHelpers } from "../extensions/shared/firecrawl-client";
+import * as webContentStore from "../extensions/shared/web-content-store";
 import {
   canonicalizeWebUrl,
   findLatestWebPage,
@@ -68,6 +69,17 @@ describe("web content store", () => {
     expect(await loadWebPageContent(second)).toContain("Persistent content");
     expect(await loadAllWebPages(dir)).toHaveLength(1);
     expect((await findLatestWebPage("https://example.com/docs?b=2&a=1", dir))?.id).toBe(first.id);
+  });
+
+  test("reports storage usage and removes old unreferenced content under an explicit quota", async () => {
+    const dir = await temporaryDir();
+    for (let index = 0; index < 3; index++) await saveWebPage({ url: `https://example.com/${index}`, provider: "firecrawl", content: `page-${index}-${"x".repeat(100)}` }, dir);
+    const stats = await (webContentStore as any).webContentStats(dir);
+    expect(stats.pages).toBe(3);
+    expect(stats.bytes).toBeGreaterThan(300);
+    const cleanup = await (webContentStore as any).cleanupWebContent(dir, { maxEntries: 1 });
+    expect(cleanup.deletedPages).toBe(2);
+    expect(await loadAllWebPages(dir)).toHaveLength(1);
   });
 
   test("canonicalizes URLs and hashes content stably", () => {

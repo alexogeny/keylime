@@ -130,6 +130,7 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
   const seen = new Set<string>();
   const fullBudget = totalBudget(pressure);
   let remaining = fullBudget;
+  let refillBudget = 0;
   const providers = listContextProviders();
   const baseShare = Math.max(80, Math.floor(fullBudget / Math.max(1, providers.length)));
   const providerAllocation = allocateContextBudget(providers.map(provider => ({
@@ -149,7 +150,7 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
   for (const provider of providers) {
     const stability = provider.stability ?? "turn";
     const plannedBudget = plannedBudgets.get(provider.id);
-    if (!plannedBudget) {
+    if (!plannedBudget && refillBudget <= 80) {
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "utility_budget" });
       continue;
     }
@@ -159,6 +160,7 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
     }
     const args: ContextProviderArgs = { ...baseArgs, remainingBudget: remaining };
     if (provider.applies && !(await provider.applies(args))) {
+      if (plannedBudget) refillBudget += plannedBudget;
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: 0, finalChars: 0, trimmed: false, included: false, skippedReason: "not_applicable" });
       continue;
     }
@@ -176,18 +178,20 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
       raw = await provider.build(args);
     }
     if (!raw?.trim()) {
+      if (plannedBudget) refillBudget += plannedBudget;
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: raw?.length ?? 0, finalChars: 0, trimmed: false, included: false, skippedReason: "empty" });
       continue;
     }
 
     const normalized = normalizeForDedupe(raw);
     if (seen.has(normalized)) {
+      if (plannedBudget) refillBudget += plannedBudget;
       diagnostics.push({ id: provider.id, priority: provider.priority, stability, budget: 0, rawChars: raw.trim().length, finalChars: 0, trimmed: false, included: false, skippedReason: "duplicate" });
       continue;
     }
     seen.add(normalized);
 
-    const budget = Math.min(provider.maxChars, remaining);
+    const budget = Math.min(provider.maxChars, remaining, plannedBudget ? remaining : refillBudget);
     const text = trimTo(raw.trim(), budget);
     const trimmed = text !== raw.trim();
     sections.push(text);
@@ -204,6 +208,7 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
       fingerprint: contextFingerprint([text]),
     });
     remaining -= text.length + 2;
+    if (!plannedBudget) refillBudget = Math.max(0, refillBudget - text.length - 2);
   }
 
   const resultDiagnostics = { pressure, totalBudget: fullBudget, providers: diagnostics };
