@@ -6,6 +6,12 @@ Evolve Keylime from transcript-oriented context trimming into a measured, cache-
 
 This roadmap is split into independently testable slices. Each slice starts with red tests that prove its thesis before production behavior changes.
 
+## Implementation status
+
+All six slices are implemented as of 2026-07-19. The context-specific gate passes 52 tests, the deterministic category report passes every quality and safety category, and the final repository gate passes 505 tests with zero failures. Ongoing changes to context reduction should run `bun run test:context`, review `bun run bench:context`, and finish with `bun run check`.
+
+The measured fixture report is intentionally category-specific: tool-schema reduction is not used as a substitute for exact failure recovery, compaction continuation, repository recall, stale-state quarantine, or blocked-operation evidence.
+
 ## Repo conventions / constraints
 
 - Extend the existing Pi extensions and shared retrieval primitives; add no dependency unless a later implementation proves the native TypeScript approach inadequate.

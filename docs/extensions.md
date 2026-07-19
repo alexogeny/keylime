@@ -48,6 +48,8 @@ Oversized successful outputs are classified and reduced with tool-specific reduc
 
 Web search now stores exact raw results as recoverable research context objects while returning compact deterministic claims, source URLs, fetch dates, and object IDs. The research orchestrator preserves these references and asks for exact recovery only when a claim requires verification.
 
+Context release gates live under `tests/context-evals/`. `bun run test:context` enforces tool-discovery, exact-recovery, compaction-continuation, repository-recall, stale-state, and safety fixtures. `bun run bench:context` prints deterministic category-level character, quality, recoverability, and safety measurements without writing tracked fixtures.
+
 ### `structured-compaction.ts` and `shared/compaction-schema.ts`
 
 Intercepts Pi's `session_before_compact` hook and asks the active authenticated model for a strict JSON checkpoint. The checkpoint preserves goal, constraints, acceptance criteria, decisions, active files and locators, changes, verification, failures, blockers, pending actions, safety state, and context-object evidence. Keylime validates and renders the checkpoint, verifies and pins every referenced context object, and passes Pi's `firstKeptEntryId` and `tokensBefore` through unchanged. Invalid output, missing evidence, cancellation, authentication failure, or model failure returns `undefined` so Pi's default compaction remains authoritative.

@@ -142,18 +142,33 @@ Expected next actions should focus on high-signal behavior:
 
 Avoid brittle prose matching.
 
+## Implemented fixture budgets
+
+Budgets are category-specific and intentionally do not collapse into one global reduction target:
+
+| Fixture category | Size/reduction budget | Quality gate | Safety/recovery gate |
+|---|---|---|---|
+| Tool selection | Bootstrap schema reduction at least 75% versus the synthetic registered catalog | Every required tool appears within one top-5 loader query | Built-in `write`, `edit`, and guarded `bash` remain outside the safe loader set |
+| Failing tool result | Active diagnostics at most 180 characters for the fixture | 100% of required failure lines retained | All removed characters are exactly recoverable from the typed context object; errors bypass generic reduction |
+| Compaction continuation | Rendered checkpoint at most 5,000 characters; no reduction floor | 100% required facts and exact next action retained | Evidence object IDs and default-fallback safety state retained |
+| Repository retrieval | At most 5 lines, 500 source characters, and 2 files | Recall 1.0 and precision at least 0.5 for the gold region | Overlaps merge before budgets and reasons remain deterministic |
+| Stale state | No reduction floor | Foreign repository envelope resolves to `mismatch`, never model-visible `value` | Foreign payload remains quarantined |
+| Blocked operation | No reduction floor; denial may be larger than the attempted command | Required denial text retained exactly | Safety invariant pass 100%; blocked/error result bypasses generic reduction |
+
+A budget change requires an explicit fixture edit and review. `bench:context` reports measured values but does not weaken these test gates.
+
 ## Verification commands
 
 Add package scripts only after the tests exist:
 
 ```json
 {
-  "test:context": "bun test tests/context-evals tests/context-ledger.test.ts tests/tool-search.test.ts tests/context-object-store.test.ts tests/structured-compaction.test.ts",
+  "test:context": "bun test tests/context-evals tests/context-ledger.test.ts tests/policy-tools.test.ts tests/context-object-store.test.ts tests/structured-compaction.test.ts tests/repo-retrieval-budget.test.ts tests/retrieval-utilization.test.ts tests/bounded-tool-pipeline.test.ts tests/bounded-tool-pipeline-extension.test.ts",
   "bench:context": "bun tests/context-evals/report.ts"
 }
 ```
 
-`bench:context` may write a local report under `.pi/` but normal tests must not mutate tracked fixtures.
+`bench:context` prints a deterministic local report to stdout; normal tests do not mutate tracked fixtures.
 
 ## Release gates
 

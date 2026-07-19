@@ -77,6 +77,8 @@ Examples:
 - `project-planner.ts` — project plan, TDD state, decisions, and questions.
 - `shoe-database/` — running shoe catalog and query tools.
 
+Context-specific release checks are available as `bun run test:context`; `bun run bench:context` prints the deterministic category report used to review schema, trajectory, recall, recoverability, and safety budgets.
+
 See [docs/extensions.md](docs/extensions.md) for the full extension map.
 
 ## Skill slices

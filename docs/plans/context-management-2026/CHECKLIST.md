@@ -68,12 +68,12 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - [x] Add synthetic trajectory fixture contract and helpers.
 - [x] Add tool-selection thesis fixtures.
 - [x] Add typed-reducer and exact-recovery fixtures.
-- [ ] Add compaction continuation and constraint-retention fixtures.
-- [ ] Add repository retrieval quality fixtures.
-- [ ] Add stale-state and end-to-end safety fixtures.
-- [ ] Add `test:context` and local `bench:context` scripts.
-- [ ] Document per-fixture quality and reduction budgets.
-- [ ] Run full release gates and update roadmap documentation.
+- [x] Add compaction continuation and constraint-retention fixtures.
+- [x] Add repository retrieval quality fixtures.
+- [x] Add stale-state and end-to-end safety fixtures.
+- [x] Add `test:context` and local `bench:context` scripts.
+- [x] Document per-fixture quality and reduction budgets.
+- [x] Run full release gates and update roadmap documentation.
 
 ## Current work log
 
@@ -95,3 +95,5 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - 2026-07-19: Added the fixed-operation `bounded_tool_pipeline` over verified context-object JSON rows with deterministic filter/sort/select/aggregate operators, preflight safety checks, cancellation/wall-clock/call/intermediate/output budgets, recoverable oversized sidecars, and structured partial failures. Web research now returns compact claims, source URLs, fetch timestamps, and exact object IDs while preserving raw results in the verified store.
 - 2026-07-19: Slice 5 complete: region ranking and metrics, identifier-only utilization, bounded aggregation, compact research references, docs, typecheck, and full 494-test suite pass.
 - 2026-07-19: Began Slice 6 with deterministic trajectory/metrics/release-gate helpers, category-specific failure checks for over-aggressive and over-budget output, tool-selection discovery/schema fixtures, and typed failing-test reduction with exact verified section recovery; focused tests and typecheck pass.
+- 2026-07-19: Added compaction continuation, gold-region retrieval, foreign-state quarantine, and blocked-operation fixtures; added deterministic category reporting, `test:context`, `bench:context`, and documented category-specific budgets. Context gate passes 52 tests and the report passes every quality/safety category.
+- 2026-07-19: Roadmap complete. Final `bun run check` passes 505 tests across 57 files with 0 failures; all Slice 6 release gates and documentation are complete.
