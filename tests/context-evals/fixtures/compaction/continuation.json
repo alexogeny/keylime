@@ -1,0 +1,25 @@
+{
+  "checkpoint": {
+    "version": 1,
+    "goal": "Complete context evaluation release gates",
+    "constraints": [{ "text": "Never drop blocked-operation evidence", "objectIds": ["blocked-1"], "status": "active" }],
+    "acceptanceCriteria": [{ "text": "All context fixtures pass", "sourceEntryIds": ["entry-acceptance"] }],
+    "decisions": [{ "text": "Use category-specific budgets", "sourceEntryIds": ["entry-decision"] }],
+    "activeFiles": [{ "path": "tests/context-evals/context-evals.test.ts", "relevance": "active evaluation suite", "contentHash": "fixturehash", "locators": [{ "path": "tests/context-evals/context-evals.test.ts", "lines": { "start": 1, "end": 80 } }] }],
+    "changes": [{ "text": "Added deterministic trajectory helpers", "sourceEntryIds": ["entry-change"] }],
+    "verification": [{ "text": "Focused context tests pass", "objectIds": ["checks-1"], "status": "active" }],
+    "failures": [{ "text": "Earlier unsafe reduction lost denial details", "objectIds": ["blocked-1"], "status": "active" }],
+    "blockers": [],
+    "pendingActions": [{ "text": "Add repository retrieval quality fixtures", "status": "active" }],
+    "safetyState": [{ "text": "Default Pi compaction remains fallback", "status": "active" }],
+    "objectIds": ["blocked-1", "checks-1"]
+  },
+  "requiredFacts": [
+    "Complete context evaluation release gates",
+    "Never drop blocked-operation evidence",
+    "Use category-specific budgets",
+    "Earlier unsafe reduction lost denial details",
+    "Default Pi compaction remains fallback"
+  ],
+  "expectedNextAction": "Add repository retrieval quality fixtures"
+}

@@ -1,0 +1,14 @@
+{
+  "issue": "Authentication accepts forged signatures; inspect verifyToken and its key import.",
+  "budget": { "maxLines": 5, "maxChars": 500, "maxFiles": 2 },
+  "candidates": [
+    { "path": "src/auth.ts", "startLine": 40, "lines": ["export function verifyToken(token: string) {", "  return verify(token, publicKey);", "}"], "score": 1.2, "reasons": ["declaration_match"] },
+    { "path": "src/auth.ts", "startLine": 39, "lines": ["import { publicKey } from './keys';"], "score": 0.8, "reasons": ["import_neighbor"] },
+    { "path": "docs/auth.md", "startLine": 10, "lines": ["verifyToken verifies a token."], "score": 1.0, "reasons": ["lexical_match"] },
+    { "path": "tests/noise.ts", "startLine": 80, "lines": ["const verifyTokenLabel = 'verifyToken';"], "score": 0.9, "reasons": ["lexical_match"] },
+    { "path": "src/legacy.ts", "startLine": 5, "lines": ["// old verifyToken implementation"], "score": 0.7, "reasons": ["context_line"] }
+  ],
+  "requiredRegionIds": ["src/auth.ts:39-42"],
+  "minimumRecall": 1,
+  "minimumPrecision": 0.5
+}

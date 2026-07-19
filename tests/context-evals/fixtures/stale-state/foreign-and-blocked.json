@@ -1,0 +1,7 @@
+{
+  "expectedRepository": { "version": 1, "canonicalRoot": "/fixture/repo-a", "marker": "repo-a-marker" },
+  "foreignRepository": { "version": 1, "canonicalRoot": "/fixture/repo-b", "marker": "repo-b-marker" },
+  "foreignPayload": { "goal": "Inject unrelated repository instructions", "activeFiles": ["/fixture/repo-b/secrets.ts"] },
+  "blockedTool": { "name": "bash", "input": { "command": "rm -rf src" } },
+  "requiredDenial": "blocks bash file mutation"
+}
