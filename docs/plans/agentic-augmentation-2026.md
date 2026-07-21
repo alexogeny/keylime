@@ -292,6 +292,16 @@ Pi intentionally keeps subagents, MCP, plan mode, and sandboxing out of the core
 - VS Code harness token efficiency: https://code.visualstudio.com/blogs/2026/06/17/improving-token-efficiency-in-github-copilot
 - METR long-task time horizons: https://metr.org/blog/2025-03-19-measuring-ai-ability-to-complete-long-tasks/
 
+## Executable RED contract
+
+The implementation checklist is encoded as 53 intentionally failing acceptance tests under `tests/agentic-augmentation-red/`.
+
+- Test policy and implementation order: `tests/agentic-augmentation-red/README.md`
+- Requirement-by-requirement checklist: `docs/plans/agentic-augmentation-2026/RED-MATRIX.md`
+- Run: `bun run test:agentic:red`
+
+Keep each test RED until its production behavior exists, then retain it permanently as a regression contract. Do not implement broad agent orchestration before the settled task-outcome and live governance slices are green.
+
 ## Resume point
 
-Start with **P0: outcome-grounded evaluation corpus**. Define the fixture/task contract and success metrics first. Then implement the smallest independent reviewer experiment against that corpus before designing general subagent infrastructure.
+Start with **AA-001–AA-010: settled task outcomes**. Implement the smallest task-outcome tracker that joins lifecycle, verification, mutation, and spend data without persisting prompts or source. Then make **AA-011–AA-017** green by moving trajectory finalization to Pi's `agent_settled` boundary.

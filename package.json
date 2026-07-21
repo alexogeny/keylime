@@ -18,6 +18,7 @@
     "test:context:theses": "bun test tests/context-theses",
     "test:context:e2e": "bun test tests/context-theses/runtime-integration.e2e.test.ts",
     "test:token-efficiency:red": "bun test tests/token-efficiency-red",
+    "test:agentic:red": "bun test tests/agentic-augmentation-red",
     "bench:context": "bun tests/context-evals/report.ts"
   },
   "dependencies": {
