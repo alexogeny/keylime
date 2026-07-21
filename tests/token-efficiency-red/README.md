@@ -26,6 +26,7 @@ This directory is the intentionally failing acceptance contract for the July 202
 | `handoff-extension.red.test.ts` | `extensions/session-handoff.ts` | Actual `/handoff` registration, persistence, and one-time bootstrap consumption |
 | `evaluation-rollout-runtime.red.test.ts` | evaluator and context report | Observe-only reports, experiments, confidence intervals, release gates, and rollout stages |
 | `provider-tool-economics.red.test.ts` | provider economics and prefix profiler | Anthropic/OpenAI/Gemini accounting, cache controls, canonical tool order, and net economics |
+| `live-wiring.red.test.ts` | production Pi hooks | Live trajectory reduction, provider cache controls, persisted diagnostics, canonical routed tools, sidecar selection, and structured `/handoff` |
 
 ## Expected initial result
 
@@ -35,7 +36,7 @@ Run:
 bun test tests/token-efficiency-red
 ```
 
-The initial suite discovered 25 tests, then expanded to the complete 77-test roadmap contract. The current baseline is **77 pass, 0 fail**. The files retain the `.red.test.ts` suffix as permanent regression contracts; empirical rollout evidence remains separate from contract completion.
+The initial suite discovered 25 tests, expanded to 77 roadmap contracts, then added seven production-hook wiring checks. The current baseline is **84 pass, 0 fail**. The files retain the `.red.test.ts` suffix as permanent regression contracts; empirical rollout evidence remains separate from contract completion.
 
 Implementation order and exit criteria are documented in:
 

@@ -7,8 +7,8 @@ This matrix is the executable checklist for the entire researched token-efficien
 ## Baseline
 
 ```text
-77 tests discovered
-77 green contracts
+84 tests discovered
+84 green contracts
 0 RED contracts
 ```
 
@@ -115,6 +115,20 @@ File: `evaluation-rollout-runtime.red.test.ts`
 
 File: `provider-tool-economics.red.test.ts`
 
+### Production Pi hook wiring
+
+| ID | Test | Live hook |
+|---|---|---|
+| TE-090 | Cold recoverable result uses trajectory reducer | `context-runtime.ts` `context` event |
+| TE-091 | Anthropic cache controls reach provider payload | `usage-tracker.ts` `before_provider_request` |
+| TE-092 | Safe prefix and spend diagnostics persist | `usage-tracker.ts` `message_end` |
+| TE-093 | Handoff opens replacement session with bounded bootstrap | `session-handoff.ts` `/handoff` |
+| TE-094 | Handoff carries controls, failures, files, and verification | runtime state → replacement session |
+| TE-095 | Routed tools use canonical stable order | `intent-router.ts` `setActiveTools` |
+| TE-096 | Optional sidecar is selected without switching main model | structured compaction generation |
+
+File: `live-wiring.red.test.ts`
+
 ## Roadmap-to-test completeness
 
 | Roadmap deliverable | Test coverage |
@@ -138,4 +152,4 @@ File: `provider-tool-economics.red.test.ts`
 
 ## Completion rule
 
-The roadmap is complete only when all 77 tests are green without weakening assertions, all existing harness/security/context suites remain green, both typechecks pass, and the measured release gates pass on the agreed corpus. New roadmap scope must add a RED row here before production implementation.
+The roadmap contract is complete only when all 84 tests are green without weakening assertions, all existing harness/security/context suites remain green, both typechecks pass, and the measured release gates pass on the agreed corpus. New roadmap scope must add a RED row here before production implementation.

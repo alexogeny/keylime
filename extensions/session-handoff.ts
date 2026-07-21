@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildHandoffCommandPlan, planSessionBootstrapInjection } from "./shared/session-handoff";
+import { buildHandoffCommandPlan, checkpointStateFromSessionEntries, planSessionBootstrapInjection } from "./shared/session-handoff";
 
 export default function sessionHandoffExtension(pi: ExtensionAPI) {
   const consumed = new Set<string>();
@@ -9,7 +9,8 @@ export default function sessionHandoffExtension(pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const goal = String(args ?? "").trim() || "Continue the current repository task";
       const sessionId = String(ctx.sessionManager?.getSessionId?.() ?? "session");
-      const plan = buildHandoffCommandPlan({ goal, pendingActions: [goal], sessionId });
+      const state = checkpointStateFromSessionEntries(ctx.sessionManager?.getBranch?.() ?? ctx.sessionManager?.getEntries?.() ?? []);
+      const plan = buildHandoffCommandPlan({ goal, pendingActions: [goal], sessionId, state });
       const entry = plan.entries[0];
       pi.appendEntry("token-efficiency-handoff", { ...(entry.data as Record<string, unknown>), bootstrap: plan.bootstrap });
       if (typeof ctx.newSession === "function") {

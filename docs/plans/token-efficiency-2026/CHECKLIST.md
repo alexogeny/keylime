@@ -21,6 +21,7 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - [x] Map every roadmap deliverable to an executable test in `RED-MATRIX.md`.
 - [x] Verify the initial complete baseline: 77 discovered, 29 green, 48 intentionally RED.
 - [x] Implement all 48 remaining RED runtime and completion contracts.
+- [x] Add and pass seven production Pi-hook wiring contracts (TE-090–TE-096).
 
 ## Slice 1 — truthful spend accounting
 
@@ -89,7 +90,7 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 
 ## Final release gate
 
-- [x] All 77 token-efficiency RED tests are green.
+- [x] All 84 token-efficiency RED and live-wiring tests are green.
 - [x] Existing harness-thesis, compaction, security, retrieval, and context tests remain green.
 - [x] Source and test typechecks pass.
 - [ ] Median successful-task cost improves by at least 20% on the agreed corpus.

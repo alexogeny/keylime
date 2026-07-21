@@ -31,6 +31,16 @@ export function validateCompactionContinuation(input: { before: { protectedIds: 
   return { valid: missingProtectedIds.length === 0, missingProtectedIds, allowContinuation: missingProtectedIds.length === 0 };
 }
 
+export function selectCompactionGenerationModel(ctx: any) {
+  const configured = String(process.env.KEYLIME_COMPACTION_SIDECAR_MODEL ?? "").trim();
+  if (!configured) return ctx.model;
+  const slash = configured.indexOf("/");
+  if (slash <= 0 || slash === configured.length - 1) return ctx.model;
+  const provider = configured.slice(0, slash);
+  const id = configured.slice(slash + 1);
+  return ctx.modelRegistry?.find?.(provider, id) ?? ctx.model;
+}
+
 const providerCircuitBreaker = createProviderCircuitBreaker();
 const COMPACTION_EXECUTION_PROFILE = selectAgentExecutionProfile({
   taskKind: "structured_extraction", ambiguity: 0, risk: "medium", contextPressure: .9, requiresCreativity: false,
@@ -459,7 +469,7 @@ function providerFailureKind(error: unknown): ProviderFailureKind {
 }
 
 async function generateWithActiveModel(input: CompactionGenerationInput, signal: AbortSignal, ctx: any, attempt = 0): Promise<unknown> {
-  const model = ctx.model;
+  const model = selectCompactionGenerationModel(ctx);
   if (!model) throw new Error("No active model available");
   const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
   if (!auth.ok || !auth.apiKey) throw new Error(auth.ok ? `No API key for ${model.provider}` : auth.error);

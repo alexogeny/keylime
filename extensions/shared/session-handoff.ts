@@ -19,7 +19,7 @@ function renderCheckpoint(checkpoint: Record<string, unknown>): string {
   const lines = ["# Session handoff"];
   for (const [key, value] of Object.entries(checkpoint)) {
     const title = key.replace(/([a-z])([A-Z])/g, "$1 $2");
-    lines.push(`\n## ${title}`, typeof value === "string" ? value : JSON.stringify(value, null, 2));
+    lines.push(`\n## ${title} (${key})`, typeof value === "string" ? value : JSON.stringify(value, null, 2));
   }
   return lines.join("\n");
 }
@@ -84,8 +84,27 @@ export function decideEconomicCompaction(input: {
   return { compact: false, reason: "not-needed" };
 }
 
-export function buildHandoffCommandPlan(input: { goal: string; pendingActions: string[]; sessionId: string }) {
-  const checkpoint = { id: `${input.sessionId}:handoff`, goal: input.goal, pendingActions: [...input.pendingActions] };
+export type SessionHandoffState = {
+  constraints?: Array<{ sourceEventId: string; text: string }>;
+  plans?: Array<{ sourceEventId: string; text: string }>;
+  unresolvedFailures?: Array<{ sourceEventId: string; text: string }>;
+  activeFiles?: string[];
+  verificationPassed?: boolean;
+};
+
+export function checkpointStateFromSessionEntries(entries: Array<Record<string, any>>): SessionHandoffState {
+  const runtime = [...entries].reverse().find(entry => entry?.type === "custom" && entry?.customType === "context-runtime-v1")?.data;
+  return {
+    constraints: structuredClone(runtime?.controlState?.constraints ?? []),
+    plans: structuredClone(runtime?.controlState?.plans ?? []),
+    unresolvedFailures: structuredClone(runtime?.controlState?.unresolvedFailures ?? []),
+    activeFiles: [...new Set<string>((runtime?.retrieval?.modifiedPaths ?? []).map((value: unknown) => String(value)))].sort(),
+    verificationPassed: Boolean(runtime?.retrieval?.verificationPassed),
+  };
+}
+
+export function buildHandoffCommandPlan(input: { goal: string; pendingActions: string[]; sessionId: string; state?: SessionHandoffState }) {
+  const checkpoint = { id: `${input.sessionId}:handoff`, goal: input.goal, pendingActions: [...input.pendingActions], ...(input.state ?? {}) };
   return {
     entries: [{ customType: "token-efficiency-handoff", data: checkpoint }],
     bootstrap: buildSessionBootstrap({ checkpoint, maxChars: 2_000 }),

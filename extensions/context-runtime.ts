@@ -209,8 +209,19 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
         const item = byId.get(String(message.toolCallId ?? ""));
         if (!item || item.tier !== "cold") return message;
         const before = textFromContent(message.content);
-        transforms.push({ kind: "observation_mask", toolCallId: item.id, beforeChars: before.length, afterChars: item.rendered.length, recoverable: Boolean(item.objectId) });
-        return { ...message, content: replaceTextContent(message.content, item.rendered), details: { ...(message.details ?? {}), contextRuntimeTier: "cold", contextObjectId: item.objectId ?? message.details?.contextObjectId } };
+        const planned = planTrajectoryReduction([{
+          id: item.id,
+          role: "tool",
+          kind: item.kind === "failure" ? "failure" : "tool_result",
+          text: before,
+          ageTurns: Math.max(0, turn - item.turn),
+          protected: item.kind === "failure" || item.kind === "constraint" || item.kind === "safety",
+          toolCallId: item.id,
+          recoverableObjectId: item.objectId,
+        }], { hotTurns: options.hotTurns ?? 2, warmTurns: options.warmTurns ?? 8 });
+        const rendered = planned.messages[0]?.text !== before ? planned.messages[0].text : item.rendered;
+        transforms.push({ kind: "observation_mask", toolCallId: item.id, beforeChars: before.length, afterChars: rendered.length, recoverable: Boolean(item.objectId) });
+        return { ...message, content: replaceTextContent(message.content, rendered), details: { ...(message.details ?? {}), contextRuntimeTier: "cold", contextRuntimeReducer: "trajectory-reducer", contextObjectId: item.objectId ?? message.details?.contextObjectId } };
       });
       maskedObservations = transforms.length;
       const stable = assembleCacheStableContext([{ id: "runtime-policy", stability: "static", content: "keylime-context-runtime-v1" }]);

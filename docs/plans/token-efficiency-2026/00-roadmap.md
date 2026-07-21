@@ -6,7 +6,7 @@ Reduce **successful-task spend** in Keylime's Pi harness without weakening task 
 
 The optimization target is not the footer's cumulative `↑` value. It is the combined cost of uncached input, cache reads/writes, output/reasoning, tool-discovery calls, compression calls, retries, and additional turns required to finish a task successfully.
 
-**Current status:** all 77 roadmap contracts are green. Spend accounting, privacy-safe prefix profiling, telemetry migration, trajectory runtime behavior, handoff/compaction contracts, provider economics, benchmark builders, and staged rollout gates are implemented. Empirical corpus experiments and default enablement remain pending release evidence.
+**Current status:** all 84 roadmap and live-wiring contracts are green. Spend accounting, privacy-safe prefix profiling, telemetry migration, live trajectory reduction, provider cache controls, canonical routed-tool ordering, structured handoff, optional sidecar selection, provider economics, benchmark builders, and staged rollout gates are implemented. Empirical corpus experiments and default enablement remain pending release evidence.
 
 ## Evidence behind the plan
 

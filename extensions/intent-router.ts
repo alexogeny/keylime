@@ -13,6 +13,7 @@ import { CODING_CONTRACT } from "./shared/coding-contract";
 import { bestIntentCorpusMatch, FOLLOWUP_STICKINESS_THRESHOLD, SWITCH_THRESHOLD, type IntentCorpusMatch } from "./shared/intent-corpus";
 import { agentOsContinuityToolNames, agentOsRoutingPromptSuffix } from "./agent-os";
 import { clearDiscoveredToolsForTurn, discoveredToolsForTurn } from "./shared/tool-catalog";
+import { stabilizeToolOrder } from "./shared/prompt-prefix-profiler";
 
 const STATUS_KEY = "intent";
 
@@ -177,8 +178,9 @@ function sameTools(left: string[], right: string[]): boolean {
 export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute, source: RouteSource = "classifier", extras: { stickyFrom?: IntentCorpusMatch; switchFrom?: IntentCorpusMatch } = {}): void {
   const resolution = resolveToolsForRoute(pi, route.capabilityGroups, route);
   const routed = resolution.routed;
-  const next = resolution.active;
-  const current = sortedToolNames(pi.getActiveTools());
+  const canonicalOrder = sortedToolNames(pi.getAllTools());
+  const next = stabilizeToolOrder(resolution.active, canonicalOrder);
+  const current = pi.getActiveTools().map(toolName).filter(Boolean) as string[];
   const fingerprint = toolSetFingerprint(next);
   const changed = lastFingerprint !== fingerprint;
   lastFingerprint = fingerprint;

@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { clearPendingContextLedgerRecord, consumePendingContextLedgerRecord, type ContextLedgerRecord } from "./shared/context-ledger";
 import { buildSpendSnapshot, type ReportedUsage } from "./shared/spend-accounting";
 import { buildPromptPrefixDiagnostic, type PromptPrefixDiagnostic } from "./shared/prompt-prefix-profiler";
+import { planProviderCacheControls } from "./shared/provider-token-economics";
 
 type UsageRecord = {
 	version?: 1 | 2;
@@ -211,7 +212,7 @@ export default function usageTracker(pi: ExtensionAPI) {
 		currentTurn = event.turnIndex;
 	});
 
-	pi.on("before_provider_request", (event) => {
+	pi.on("before_provider_request", (event, ctx) => {
 		if (currentTurn === undefined) return;
 		const payload = event.payload as Record<string, unknown>;
 		const existing = byTurn.get(currentTurn) || {};
@@ -220,6 +221,9 @@ export default function usageTracker(pi: ExtensionAPI) {
 		existing.promptPrefix = buildPromptPrefixDiagnostic(previousPromptPrefix, payload);
 		previousPromptPrefix = existing.promptPrefix;
 		byTurn.set(currentTurn, existing);
+		const provider = String(payload.provider ?? (ctx as any)?.model?.provider ?? "");
+		const cachePlan = planProviderCacheControls(provider, payload, { ttl: "5m", implicitCaching: /google|gemini/i.test(provider) });
+		return cachePlan.changed ? cachePlan.payload : undefined;
 	});
 
 	pi.on("after_provider_response", (event) => {
