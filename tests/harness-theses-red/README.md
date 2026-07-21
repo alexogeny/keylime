@@ -40,6 +40,8 @@ bun run typecheck:tests
 
 The implementation baseline is now **54 pass, 0 fail**. `typecheck:tests` remained green throughout RED. Tests transitioned to green through production behavior, without weakening assertions or introducing test doubles.
 
+The next intentionally failing contract is `tests/token-efficiency-red/`, which focuses specifically on successful-task spend, cache-prefix stability, trajectory reduction, cross-session handoff, and economic release gates.
+
 ## Research anchors
 
 - [What Context Does a Coding Agent Actually Need to Act?](https://arxiv.org/abs/2607.09691)

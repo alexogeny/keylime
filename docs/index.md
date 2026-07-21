@@ -22,6 +22,8 @@ The short version: less prompt sludge, fewer unsafe shortcuts, more deliciously 
 - [Skills](skills.html) — reusable workflows invoked with `/skill:<name>`.
 - [Safety model](safety.html) — locked tools, safe mutation paths, checkpointing, and raw git policy.
 - [Agentic programming model](agentic-programming.html) — context/harness engineering principles behind Keylime.
+- [Token-efficiency roadmap](plans/token-efficiency-2026/00-roadmap.html) — RED contracts and staged plans for successful-task spend reduction.
+- [Token-efficiency checklist](plans/token-efficiency-2026/CHECKLIST.html) — implementation and release-gate checklist.
 
 ## Core workflow
 
