@@ -62,6 +62,9 @@ describe("tool result compaction", () => {
     }, { cwd });
 
     expect(patch.details.compacted).toBe(true);
+    expect(patch.details.originalTokens).toBeGreaterThan(0);
+    expect(patch.details.activeTokensSaved).toBeGreaterThan(0);
+    expect(patch.details.auxiliaryModelCalls).toBe(0);
     expect(patch.details.resultId).toBeString();
     expect(patch.details.contextObjectId).toBe(patch.details.resultId);
     expect(patch.content[0].text).toContain("Tool result compacted for run_checks");
@@ -84,6 +87,39 @@ describe("tool result compaction", () => {
       expect(listed.content[0].text).toContain("run_checks");
     } finally {
       process.chdir(oldCwd);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("tool_result middleware uses the current task for deterministic distant-line selection", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tool-result-task-selection-"));
+    const handlers: Record<string, any> = {};
+    toolResultCompactorExtension({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerTool: () => {},
+    } as any);
+
+    await handlers.input({ text: "locate the auth timeout retryPolicy setting" });
+    const text = [
+      ...Array.from({ length: 180 }, (_, index) => `unrelated telemetry row ${index}`),
+      "auth timeout retryPolicy is defined at src/auth/client.ts:84",
+      ...Array.from({ length: 80 }, (_, index) => `unrelated footer row ${index}`),
+    ].join("\n");
+    try {
+      const patch = await handlers.tool_result({
+        toolName: "fetch_url",
+        toolCallId: "call-query",
+        content: [{ type: "text", text }],
+        details: {},
+        isError: false,
+      }, { cwd });
+
+      expect(patch.content[0].text).toContain("src/auth/client.ts:84");
+      expect(patch.content[0].text).not.toContain("unrelated telemetry row 100");
+      const stored = await readStoredContextObject(cwd, patch.details.contextObjectId);
+      expect(stored.object.sections).toHaveProperty("task_match_1");
+      expect(stored.content).toBe(text);
+    } finally {
       await rm(cwd, { recursive: true, force: true });
     }
   });

@@ -8,21 +8,27 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { bypassGenericToolResultReduction, contextObjectKindForTool, reduceToolResultText } from "./shared/tool-result-reducers";
 import { cleanupContextObjects, readStoredContextObject, storeContextObject } from "./context-object-store";
+import { estimateDeterministicTokens, planRecoverableToolResultReduction, type TokenEstimator } from "./shared/tool-result-economics";
 
 export interface CompactToolResultOptions {
   thresholdChars?: number;
+  thresholdTokens?: number;
   previewChars?: number;
   maxSummaryLines?: number;
+  estimateTokens?: TokenEstimator;
 }
 
 export interface CompactToolResult {
   shouldCompact: boolean;
   originalChars: number;
+  originalTokens: number;
   compactedText: string;
   summary: string[];
 }
 
 const DEFAULT_THRESHOLD = Number(process.env.PI_TOOL_RESULT_COMPACT_THRESHOLD ?? 3500);
+const DEFAULT_TOKEN_THRESHOLD = Number(process.env.PI_TOOL_RESULT_COMPACT_THRESHOLD_TOKENS ?? 900);
+const DEFAULT_MINIMUM_TOKEN_SAVING = Number(process.env.PI_TOOL_RESULT_MIN_SAVINGS_TOKENS ?? 256);
 const DEFAULT_PREVIEW = Number(process.env.PI_TOOL_RESULT_COMPACT_PREVIEW ?? 1400);
 const DEFAULT_SUMMARY_LINES = 12;
 
@@ -38,10 +44,16 @@ function textFromContent(content: any): string {
 export function compactToolResultContent(content: any, options: CompactToolResultOptions = {}): CompactToolResult {
   const text = textFromContent(content);
   const threshold = options.thresholdChars ?? DEFAULT_THRESHOLD;
+  const thresholdTokens = options.thresholdTokens ?? DEFAULT_TOKEN_THRESHOLD;
+  const estimateTokens = options.estimateTokens ?? estimateDeterministicTokens;
+  const originalTokens = estimateTokens(text);
   const previewChars = options.previewChars ?? DEFAULT_PREVIEW;
   const maxSummaryLines = options.maxSummaryLines ?? DEFAULT_SUMMARY_LINES;
-  if (text.length <= threshold) {
-    return { shouldCompact: false, originalChars: text.length, compactedText: text, summary: [] };
+  const exceedsConfiguredThreshold = options.thresholdChars !== undefined
+    ? text.length > threshold
+    : text.length > threshold || originalTokens >= thresholdTokens;
+  if (!exceedsConfiguredThreshold) {
+    return { shouldCompact: false, originalChars: text.length, originalTokens, compactedText: text, summary: [] };
   }
 
   const interesting: string[] = [];
@@ -67,6 +79,7 @@ export function compactToolResultContent(content: any, options: CompactToolResul
   return {
     shouldCompact: true,
     originalChars: text.length,
+    originalTokens,
     compactedText: headTail(text, previewChars),
     summary,
   };
@@ -192,6 +205,10 @@ function compactedContentText(toolName: string, stored: { id: string; path: stri
 }
 
 export default function toolResultCompactor(pi: ExtensionAPI) {
+  let currentTaskText = "";
+  pi.on("input", async (event) => {
+    currentTaskText = (event as any).text ?? "";
+  });
   pi.on("session_start", async (_event, ctx) => {
     const cwd = ctx.cwd ?? process.cwd();
     await cleanupToolResults(cwd).catch(() => undefined);
@@ -206,7 +223,7 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
     const toolName = (event as any).toolName;
     const originalText = textFromContent((event as any).content);
     const kind = contextObjectKindForTool(toolName);
-    const reduced = reduceToolResultText(toolName, originalText, { maxChars: DEFAULT_PREVIEW });
+    const reduced = reduceToolResultText(toolName, originalText, { maxChars: DEFAULT_PREVIEW, query: currentTaskText });
     let contextStored: Awaited<ReturnType<typeof storeContextObject>> | undefined;
     if (kind === "file_read") {
       contextStored = await storeContextObject(cwd, {
@@ -229,6 +246,15 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
     }
     const compacted = compactToolResultContent((event as any).content);
     if (!compacted.shouldCompact) return;
+    const contextObjectId = contextStored?.object.id ?? randomUUID();
+    const economics = planRecoverableToolResultReduction({
+      originalText,
+      reducedText: reduced.activeText,
+      recoverableObjectId: contextObjectId,
+      expectedFutureUses: 1,
+      minimumActiveTokensSaved: DEFAULT_MINIMUM_TOKEN_SAVING,
+    });
+    if (economics.decision !== "compact") return;
 
     const typedCompacted: CompactToolResult = {
       ...compacted,
@@ -236,7 +262,7 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
       summary: [reduced.summary],
     };
     contextStored ??= await storeContextObject(cwd, {
-      id: randomUUID(),
+      id: contextObjectId,
       kind,
       sourceTool: toolName,
       toolCallId: (event as any).toolCallId,
@@ -262,6 +288,10 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
         contextObjectId: contextStored.object.id,
         resultPath: stored.path,
         originalChars: compacted.originalChars,
+        originalTokens: compacted.originalTokens,
+        activeTokensSaved: economics.activeTokensSaved,
+        uncachedTokensSaved: economics.uncachedTokensSaved,
+        auxiliaryModelCalls: economics.auxiliaryModelCalls,
       },
       isError: (event as any).isError,
     };

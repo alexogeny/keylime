@@ -41,7 +41,47 @@ function cap(text: string, maxChars: number): string {
   return `${text.slice(0, Math.max(0, maxChars - 32)).trimEnd()}\n… [omitted ${omitted} chars]`;
 }
 
-export function reduceToolResultText(toolName: string, text: string, options: { maxChars: number }): ReducedToolResultText {
+const QUERY_STOPWORDS = new Set(["and", "are", "for", "from", "find", "how", "into", "that", "the", "this", "with", "configuration"]);
+
+function queryTerms(query: string): string[] {
+  return [...new Set((query.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []).filter(term => !QUERY_STOPWORDS.has(term)))];
+}
+
+function taskConditionedSelection(lines: string[], query: string, maxChars: number): ReducedToolResultText | undefined {
+  const terms = queryTerms(query);
+  if (terms.length === 0) return undefined;
+  const ranked = lines
+    .map((line, index) => {
+      const normalized = line.toLowerCase();
+      const score = terms.reduce((sum, term) => sum + (normalized.includes(term) ? 1 : 0), 0);
+      return { line, index, score };
+    })
+    .filter(item => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  if (ranked.length === 0) return undefined;
+
+  const selected: typeof ranked = [];
+  let used = 48;
+  for (const item of ranked) {
+    const renderedLength = item.line.length + String(item.index + 1).length + 4;
+    if (selected.length > 0 && used + renderedLength > maxChars) continue;
+    selected.push(item);
+    used += renderedLength;
+    if (used >= maxChars) break;
+  }
+  selected.sort((left, right) => left.index - right.index);
+  const sections = Object.fromEntries(selected.map((item, index) => [
+    `task_match_${index + 1}`,
+    { startLine: item.index + 1, endLine: item.index + 1 },
+  ]));
+  return {
+    activeText: cap(`Task-relevant excerpts from ${lines.length} lines:\n${selected.map(item => `L${item.index + 1}: ${item.line}`).join("\n")}`, maxChars),
+    summary: `${selected.length} task-conditioned line${selected.length === 1 ? "" : "s"} retained from ${lines.length}`,
+    sections,
+  };
+}
+
+export function reduceToolResultText(toolName: string, text: string, options: { maxChars: number; query?: string }): ReducedToolResultText {
   const kind = contextObjectKindForTool(toolName);
   const lines = text.split("\n");
   if (kind === "test_run") {
@@ -74,6 +114,10 @@ export function reduceToolResultText(toolName: string, text: string, options: { 
       summary: `${kept.length} of ${lines.length} ranked result lines retained`,
       sections: kept.length ? { leading_matches: { startLine: 1, endLine: kept.length } } : {},
     };
+  }
+  if (options.query && text.length > options.maxChars) {
+    const selected = taskConditionedSelection(lines, options.query, options.maxChars);
+    if (selected) return selected;
   }
   return {
     activeText: cap(text, options.maxChars),

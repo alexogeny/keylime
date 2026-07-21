@@ -20,21 +20,21 @@ function findSignal(statuses: ReadonlyMap<string, string>, aliases: string[]): S
 }
 
 function contextSummary(signal: SignalPick): string {
-	if (!signal) return "ctx:—";
+	if (!signal) return "context: —";
 	const value = plain(signal.value).replace(/^(?:ctx|context)\s*:\s*/i, "");
-	if (!value || value === "—" || value === "-") return "ctx:—";
+	if (!value || value === "—" || value === "-") return "context: —";
 	const pct = value.match(/(\d+(?:\.\d+)?)%/);
 	const tokens = value.match(/([\d.]+[kmg]?)\s*\/\s*([\d.]+[kmg]?)/i);
-	if (!pct) return `ctx:${value}`;
-	return `ctx:${pct[1]}% pressure${tokens ? ` (${tokens[1]}/${tokens[2]})` : ""}`;
+	if (!pct) return `context: ${value}`;
+	return tokens ? `context: ${tokens[1]}/${tokens[2]} (${pct[1]}% used)` : `context: ${pct[1]}% used`;
 }
 
 function cacheSummary(signal: SignalPick): string {
-	if (!signal) return "cache:—";
+	if (!signal) return "cache reuse: —";
 	const value = plain(signal.value).replace(/^cache\s*:\s*/i, "");
-	if (!value || value === "—" || value === "-") return "cache:—";
+	if (!value || value === "—" || value === "-") return "cache reuse: —";
 	const pct = value.match(/(\d+(?:\.\d+)?)%/);
-	return pct ? `cache:${pct[1]}% reused` : `cache:${value}`;
+	return pct ? `cache reuse: ${pct[1]}%` : `cache reuse: ${value}`;
 }
 
 export const INTENT_PERSONAS: Record<IntentId, string> = {
@@ -161,7 +161,7 @@ export default function signalFooter(pi: ExtensionAPI) {
 					const sigParts = buildSignalParts(statuses);
 
 					const traffic = totals.value();
-					const leftText = `${sigParts.length ? sigParts.join(" • ") : "signals:-"} • turn in:${fmt(traffic.currentTurn.input)} cache:${fmt(traffic.currentTurn.cacheRead)} out:${fmt(traffic.currentTurn.output)} • branch in:${fmt(traffic.branch.input)} out:${fmt(traffic.branch.output)}`;
+					const leftText = `${sigParts.length ? sigParts.join(" • ") : "signals: —"} • last model call: input ${fmt(traffic.currentTurn.input)} new + ${fmt(traffic.currentTurn.cacheRead)} cached, output ${fmt(traffic.currentTurn.output)} • branch total: input ${fmt(traffic.branch.input)} new + ${fmt(traffic.branch.cacheRead)} cached, output ${fmt(traffic.branch.output)}`;
 					const rightText = buildFooterRight(ctx.model?.id || "no-model", footerData.getGitBranch(), String(pi.getThinkingLevel?.() ?? "unknown"));
 
 					const left = theme.fg("dim", leftText);

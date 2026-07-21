@@ -10,8 +10,8 @@ describe("signal footer formatting", () => {
       ["context-health", "[███████░░░] 73% 146k/200k"],
     ]);
     expect(buildSignalParts(statuses)).toEqual([
-      "ctx:73% pressure (146k/200k)",
-      "cache:98% reused",
+      "context: 146k/200k (73% used)",
+      "cache reuse: 98%",
       "persona:Builder",
     ]);
   });
@@ -69,14 +69,14 @@ describe("signal footer formatting", () => {
         onBranchChange: () => () => {},
       },
     );
-    expect(footer.render(120)[0]).toContain("turn in:0 cache:0 out:0");
-    expect(footer.render(120)[0]).toContain("branch in:0 out:0");
+    expect(footer.render(180)[0]).toContain("last model call: input 0 new + 0 cached, output 0");
+    expect(footer.render(180)[0]).toContain("branch total: input 0 new + 0 cached, output 0");
 
     await handlers.message_end({ message: { role: "assistant", usage: { input: 12, output: 3, cacheRead: 40 } } }, ctx);
 
     expect(renderRequests).toBe(1);
-    expect(footer.render(120)[0]).toContain("turn in:12 cache:40 out:3");
-    expect(footer.render(120)[0]).toContain("branch in:12 out:3");
+    expect(footer.render(180)[0]).toContain("last model call: input 12 new + 40 cached, output 3");
+    expect(footer.render(180)[0]).toContain("branch total: input 12 new + 40 cached, output 3");
   });
 
   test("shows thinking level beside the model and git branch", () => {
@@ -89,6 +89,6 @@ describe("signal footer formatting", () => {
       ["context-health", "ctx: —"],
       ["cache-guard", "cache: —"],
     ]);
-    expect(buildSignalParts(statuses)).toEqual(["ctx:—", "cache:—"]);
+    expect(buildSignalParts(statuses)).toEqual(["context: —", "cache reuse: —"]);
   });
 });
