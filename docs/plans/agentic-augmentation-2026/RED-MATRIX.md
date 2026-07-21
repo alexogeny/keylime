@@ -2,7 +2,7 @@
 
 This matrix is the executable checklist for `../agentic-augmentation-2026.md`.
 
-The tests intentionally describe desired production behavior before implementation. A RED result proves the gap is observable; a GREEN result is retained permanently as a regression contract.
+The tests described desired production behavior before implementation. The initial baseline was 0 pass / 53 fail; the current verified baseline is 53 pass / 0 fail. GREEN tests remain permanent regression contracts.
 
 ## Slice 1 — settled task outcomes
 
@@ -23,6 +23,8 @@ The tests intentionally describe desired production behavior before implementati
 
 ## Slice 2 — trajectory lifecycle
 
+**Status: GREEN — AA-011 through AA-017 pass.**
+
 | ID | Acceptance condition | Test |
 |---|---|---|
 | AA-011 | Intermediate `message_end` does not finalize a trajectory. | `trajectory-settlement.red.test.ts` |
@@ -34,6 +36,8 @@ The tests intentionally describe desired production behavior before implementati
 | AA-017 | Unverified mutation is explicitly reported. | `trajectory-settlement.red.test.ts` |
 
 ## Slice 3 — live governance wiring
+
+**Status: GREEN — AA-018 through AA-025 pass.**
 
 | ID | Acceptance condition | Test |
 |---|---|---|
@@ -48,6 +52,8 @@ The tests intentionally describe desired production behavior before implementati
 
 ## Slice 4 — promotion-grade runtime canaries
 
+**Status: GREEN — AA-026 through AA-031 pass.**
+
 | ID | Acceptance condition | Test |
 |---|---|---|
 | AA-026 | Live canary samples retain complete aggregate metrics. | `canary-rollout.red.test.ts` |
@@ -58,6 +64,8 @@ The tests intentionally describe desired production behavior before implementati
 | AA-031 | Aggregate runs persist across sessions without private payloads. | `canary-rollout.red.test.ts` |
 
 ## Slice 5 — live delegation validation
+
+**Status: GREEN — AA-032 through AA-038 pass.**
 
 | ID | Acceptance condition | Test |
 |---|---|---|
@@ -71,6 +79,8 @@ The tests intentionally describe desired production behavior before implementati
 
 ## Slice 6 — shared subprocess sandbox seam
 
+**Status: GREEN — AA-039 through AA-045 pass.**
+
 | ID | Acceptance condition | Test |
 |---|---|---|
 | AA-039 | Commands use argv execution and structural audit metadata. | `process-sandbox.red.test.ts` |
@@ -82,6 +92,8 @@ The tests intentionally describe desired production behavior before implementati
 | AA-045 | Enforce mode fails closed when its backend is unavailable. | `process-sandbox.red.test.ts` |
 
 ## Slice 7 — observe-only routing and LSP evidence
+
+**Status: GREEN — AA-046 through AA-053 pass.**
 
 | ID | Acceptance condition | Test |
 |---|---|---|

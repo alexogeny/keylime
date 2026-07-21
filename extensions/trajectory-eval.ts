@@ -1,4 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
+import { createTaskOutcomeTracker, type TaskOutcome } from "./shared/task-outcome";
 
 type StepType = "tool_call" | "tool_result" | "assistant_message";
 
@@ -35,6 +37,9 @@ type EvalReport = {
   issues: EvalIssue[];
   recommendation: string;
   counterfactuals: string[];
+  outcome?: TaskOutcome;
+  recoveredFailures?: number;
+  finalizationEvent?: "agent_settled";
   humanGrade?: "good" | "bad";
   humanNote?: string;
   survey?: {
@@ -70,6 +75,7 @@ export default function trajectoryEvalExtension(pi: ExtensionAPI) {
 
   let currentId = "";
   let activeSteps: TrajectoryStep[] = [];
+  let taskTracker: ReturnType<typeof createTaskOutcomeTracker> | undefined;
   let weights: EvalWeights = { ...DEFAULT_WEIGHTS };
   let notifyMode: "silent" | "severe" | "normal" = "severe";
 
@@ -77,9 +83,14 @@ export default function trajectoryEvalExtension(pi: ExtensionAPI) {
     return `traj-${Date.now().toString(36)}`;
   }
 
-  function startTrajectory() {
+  function startTrajectory(ctx?: any) {
     currentId = newId();
     activeSteps = [];
+    taskTracker = ctx?.cwd ? createTaskOutcomeTracker({
+      taskId: currentId,
+      repositoryFingerprint: createHash("sha256").update(String(ctx.cwd)).digest("hex"),
+      startedAt: Date.now(),
+    }) : undefined;
   }
 
   function summarizeToolInput(input: any): string {
@@ -101,20 +112,23 @@ export default function trajectoryEvalExtension(pi: ExtensionAPI) {
     return suggestions;
   }
 
-  function evaluate(steps: TrajectoryStep[], ctx: any): EvalReport {
+  function evaluate(steps: TrajectoryStep[], ctx: any, settled?: ReturnType<ReturnType<typeof createTaskOutcomeTracker>["settle"]>): EvalReport {
     const issues: EvalIssue[] = [];
     const toolCalls = steps.filter(s => s.type === "tool_call");
     const toolErrors = steps.filter(s => s.type === "tool_result" && s.isError).length;
 
-    if (toolCalls.length === 0) issues.push("no_tool_use");
-    if (toolErrors > 0) issues.push("tool_errors");
+    if (toolErrors > 0 && settled?.outcome !== "verified") issues.push("tool_errors");
     if (steps.length > 16) issues.push("long_trajectory");
 
     const usage = ctx.getContextUsage?.();
     if (usage?.percent && usage.percent >= 80) issues.push("high_context_pressure");
 
-    const hasEvidenceTool = toolCalls.some(s => s.toolName === "read" || s.toolName === "code_search" || s.toolName === "fetch_url");
-    if (!hasEvidenceTool) issues.push("low_evidence");
+    const evidenceTools = new Set([
+      "code_search", "inspect_lines", "inspect_text_matches", "list_files", "fetch_url", "get_site_page",
+      "search_site_content", "recall_web_knowledge", "run_checks", "read_agent_registers", "ctx_region_read",
+    ]);
+    const hasEvidenceTool = toolCalls.some(s => evidenceTools.has(String(s.toolName ?? "")));
+    if (toolCalls.length > 0 && !hasEvidenceTool) issues.push("low_evidence");
 
     let score = 1;
     score -= toolErrors * weights.toolErrorPenalty;
@@ -136,6 +150,9 @@ export default function trajectoryEvalExtension(pi: ExtensionAPI) {
       issues,
       recommendation,
       counterfactuals: buildCounterfactuals(issues),
+      outcome: settled?.outcome,
+      recoveredFailures: settled?.recoveredFailures,
+      finalizationEvent: settled ? "agent_settled" : undefined,
     };
   }
 
@@ -178,8 +195,8 @@ export default function trajectoryEvalExtension(pi: ExtensionAPI) {
     ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "traj:—"));
   });
 
-  pi.on("before_agent_start", async () => {
-    startTrajectory();
+  pi.on("before_agent_start", async (_event, ctx) => {
+    startTrajectory(ctx);
   });
 
   pi.on("tool_call", async (event: any) => {
@@ -189,6 +206,7 @@ export default function trajectoryEvalExtension(pi: ExtensionAPI) {
       toolName: event.toolName,
       summary: summarizeToolInput(event.input),
     });
+    taskTracker?.recordToolCall({ toolName: event.toolName, input: event.input });
   });
 
   pi.on("tool_result", async (event: any) => {
@@ -199,37 +217,58 @@ export default function trajectoryEvalExtension(pi: ExtensionAPI) {
       ok: !event.isError,
       isError: !!event.isError,
     });
+    const verification = event.toolName === "run_checks" && Array.isArray(event.details?.results)
+      ? event.details.results.map((item: any) => ({
+          command: [item.command, ...(item.args ?? [])].filter(Boolean).join(" "),
+          passed: item.ok === true,
+          diagnosticPaths: item.diagnosticPaths,
+        }))
+      : undefined;
+    taskTracker?.recordToolResult({
+      toolName: event.toolName,
+      isError: Boolean(event.isError),
+      blocked: Boolean(event.details?.blocked),
+      changedPaths: event.details?.changedPaths,
+      evidenceObjectIds: [event.details?.contextObjectId, event.details?.resultId].filter(Boolean),
+      verification,
+    });
   });
 
-  pi.on("message_end", async (event: any, ctx) => {
+  pi.on("message_end", async (event: any) => {
     if (event.message?.role !== "assistant") return;
-
-    activeSteps.push({
-      ts: Date.now(),
-      type: "assistant_message",
-      summary: (event.message?.content?.[0]?.text ?? "").slice(0, 180),
+    const summary = (event.message?.content?.[0]?.text ?? "").slice(0, 180);
+    activeSteps.push({ ts: Date.now(), type: "assistant_message", summary });
+    taskTracker?.recordAssistantMessage({ text: summary });
+    const usage = event.message?.usage;
+    if (usage) taskTracker?.recordUsage({
+      inputTokens: usage.input,
+      outputTokens: usage.output,
+      cacheReadTokens: usage.cacheRead,
+      cacheWriteTokens: usage.cacheWrite,
+      costUsd: typeof usage.cost === "number" ? usage.cost : usage.cost?.total,
     });
+  });
 
-    const report = evaluate(activeSteps, ctx);
+  pi.on("agent_settled", async (_event: any, ctx: any) => {
+    if (!taskTracker) return;
+    const settled = taskTracker.settle({ settledAt: Date.now() });
+    taskTracker = undefined;
+    const report = evaluate(activeSteps, ctx, settled);
     pi.appendEntry("trajectory-eval", report);
     setStatus(ctx, report);
 
-    const shouldNotify =
-      notifyMode === "normal"
-        ? (report.score < weights.badThreshold || report.issues.length > 0)
-        : notifyMode === "severe"
-          ? (report.score < 0.6 || report.issues.includes("tool_errors"))
-          : false;
-
-    if (shouldNotify) {
-      ctx.ui.notify(
-        `Trajectory ${report.id}: ${Math.round(report.score * 100)}%\n` +
-        `Issues: ${report.issues.join(", ") || "none"}\n` +
-        `Counterfactual: ${report.counterfactuals[0]}\n` +
-        `Quick survey: /traj-survey ${report.id} <goal1-5> <evidence1-5> <efficiency1-5> [note]`,
-        "warning"
-      );
-    }
+    const shouldNotify = notifyMode === "normal"
+      ? (report.score < weights.badThreshold || report.issues.length > 0)
+      : notifyMode === "severe"
+        ? (report.score < 0.6 || report.issues.includes("tool_errors"))
+        : false;
+    if (shouldNotify) ctx.ui.notify(
+      `Trajectory ${report.id}: ${Math.round(report.score * 100)}%\n` +
+      `Issues: ${report.issues.join(", ") || "none"}\n` +
+      `Counterfactual: ${report.counterfactuals[0]}\n` +
+      `Quick survey: /traj-survey ${report.id} <goal1-5> <evidence1-5> <efficiency1-5> [note]`,
+      "warning",
+    );
   });
 
   pi.registerCommand("traj-status", {

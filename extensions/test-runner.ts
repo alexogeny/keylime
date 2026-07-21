@@ -1,15 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readdir } from "node:fs/promises";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { customCheckCommand, defaultCheckCommands, detectProjectKind, type CheckSuite } from "./shared/test-runner";
 import { isCapabilityActive } from "./shared/intent";
 import { runChecksCommandBlockReason } from "./shared/safety-policy";
 import { headTail } from "./shared/output-preview";
+import { createProcessExecutor } from "./shared/process-executor";
 export { runChecksCommandBlockReason } from "./shared/safety-policy";
-
-const execFileAsync = promisify(execFile);
 const CHECK_STREAM_PREVIEW_CHARS = 3000;
 
 export function summarizeCheckStream(text: string, maxChars = CHECK_STREAM_PREVIEW_CHARS): string {
@@ -69,20 +66,27 @@ export default function testRunnerExtension(pi: ExtensionAPI) {
       if (commands.length === 0) throw new Error("No default check command for this project/suite; provide command + args.");
 
       const results = [];
+      const sandboxMode = process.env.KEYLIME_PROCESS_SANDBOX_MODE === "enforce" ? "enforce" : "observe";
+      const executor = createProcessExecutor({
+        cwd: ctx.cwd,
+        mode: sandboxMode,
+        backend: process.env.KEYLIME_PROCESS_SANDBOX_BACKEND ?? "native",
+        network: process.env.KEYLIME_PROCESS_NETWORK === "allow" ? "allow" : "deny",
+        timeoutMs: params.timeout_ms ?? 120_000,
+        maxOutputChars: 1024 * 1024,
+      });
       for (const cmd of commands) {
         onUpdate?.({ content: [{ type: "text", text: `Running ${cmd.label}…` }], details: {} });
-        try {
-          const result = await execFileAsync(cmd.command, cmd.args, {
-            cwd: ctx.cwd,
-            timeout: params.timeout_ms ?? 120_000,
-            maxBuffer: 1024 * 1024,
-          });
-          results.push({ ...cmd, ok: true, stdout: summarizeCheckStream(result.stdout), stderr: summarizeCheckStream(result.stderr) });
-        } catch (err: any) {
-          const stderr = typeof err.stderr === "string" && err.stderr.trim() ? err.stderr : err.message ?? "";
-          results.push({ ...cmd, ok: false, stdout: summarizeCheckStream(err.stdout ?? ""), stderr: summarizeCheckStream(stderr), code: err.code });
-          break;
-        }
+        const result = await executor.run({ command: cmd.command, args: cmd.args, timeoutMs: params.timeout_ms });
+        results.push({
+          ...cmd,
+          ok: result.ok,
+          stdout: summarizeCheckStream(result.stdout),
+          stderr: summarizeCheckStream(result.stderr),
+          code: result.exitCode,
+          executionAudit: result.audit,
+        });
+        if (!result.ok) break;
       }
 
       const text = results.map(r => [

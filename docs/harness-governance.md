@@ -82,3 +82,23 @@ Mandatory modes fail closed before tool execution. `/capability-lease` is an exp
 Governance persistence and snapshots exclude prompts, responses, source code, hydrated tool output, full transcripts, and absolute repository paths. They retain hashes, relative locators, counts, decisions, object IDs, risk classifications, and bounded command metadata.
 
 All collections have explicit limits: repository files, events, leases, audit history, trust history, evidence nodes/edges, replay dependencies, canary results, runtime tools, and commands.
+
+## Agentic augmentation runtime
+
+The July 2026 augmentation contract is live through the existing shared runtime rather than a parallel agent stack:
+
+- `usage-tracker.ts` opens one aggregate task record at `before_agent_start` and closes it at Pi's `agent_settled` boundary. It persists `task-outcome-v1` and observe-only `agent-routing-observation-v1` entries without prompts, responses, source, or absolute paths.
+- `trajectory-eval.ts`, when enabled, also finalizes once at `agent_settled`; intermediate tool-calling messages do not produce partial trajectory grades.
+- Live impact treats manifests, lockfiles, deletion, and failed targeted verification as escalation signals while reusing the kernel's one repository snapshot.
+- Verification records retain bounded command status, diagnostic paths, changed paths, and context-object references in the governance snapshot.
+- Aggregate canary runs persist in `.pi/agentic-canaries-v1.json`, use hashed fixture identities, and require paired raw/candidate evidence before promotion evaluation.
+- Delegation contracts issued by the runtime are bounded to two concurrent, non-recursive contracts. Scout, reviewer, and researcher roles are read-only; results are rejected unless their live contract, repository, evidence, budget, expiry, and verification validate.
+- External LSP results remain externally owned. Keylime accepts bounded in-repository reference locations and adds fresh reference edges to the shared impact graph without spawning a language-server process.
+
+`run_checks` now uses the shared process executor. Configuration:
+
+- `KEYLIME_PROCESS_SANDBOX_MODE=observe|enforce` (default `observe`)
+- `KEYLIME_PROCESS_SANDBOX_BACKEND=native|bubblewrap` (default `native`)
+- `KEYLIME_PROCESS_NETWORK=deny|allow` (default `deny`)
+
+Observe mode records the sandbox plan without changing execution. Enforce mode fails closed for unknown backends. Child execution uses argv rather than a shell, repository-bounded working directories, filtered environment variables, timeouts, bounded output, and structural audit metadata.

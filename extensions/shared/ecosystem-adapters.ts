@@ -24,11 +24,24 @@ export function createEcosystemAdapters(options: { cwd?: string; lspOwnership?: 
       return { serverId: String(serverId).slice(0, 200), bootstrapTools, bootstrapChars: JSON.stringify(bootstrapTools).length, deferredTools: names.length, catalogFingerprint: sha(names.join("\n")) };
     },
     ingestLspResult(result: any) {
-      const location = result?.locations?.[0] ?? result?.location;
-      const raw = String(location?.uri ?? location?.path ?? "").replace(/^file:\/\//, "");
-      const marker = raw.lastIndexOf("/src/");
-      const path = marker >= 0 ? raw.slice(marker + 1) : raw.replace(/^\/+/, "");
-      return { kind: result?.operation === "findReferences" ? "reference" : String(result?.operation ?? "lsp_signal"), path, line: Number(location?.range?.start?.line ?? 0) + 1 };
+      const rawLocations = (Array.isArray(result?.locations) ? result.locations : result?.location ? [result.location] : []).slice(0, 1_000);
+      let rejectedLocations = 0;
+      const locations = rawLocations.flatMap((location: any) => {
+        const raw = String(location?.uri ?? location?.path ?? "").replace(/^file:\/\//, "").replace(/\\/g, "/");
+        const marker = raw.lastIndexOf("/src/");
+        if (marker < 0 && !raw.startsWith("src/")) { rejectedLocations++; return []; }
+        const path = marker >= 0 ? raw.slice(marker + 1) : raw;
+        if (!path || path === ".." || path.startsWith("../") || path.includes("/../")) { rejectedLocations++; return []; }
+        return [{ path, line: Number(location?.range?.start?.line ?? 0) + 1 }];
+      });
+      const queryPath = String(result?.query?.path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
+      const edges = result?.operation === "findReferences" && queryPath
+        ? locations.filter((location: any) => location.path !== queryPath).map((location: any) => ({ kind: "lsp", from: location.path, to: queryPath }))
+        : [];
+      return {
+        kind: result?.operation === "findReferences" ? "reference" : String(result?.operation ?? "lsp_signal"),
+        path: locations[0]?.path ?? "", line: locations[0]?.line ?? 0, locations, edges, rejectedLocations,
+      };
     },
     ingestSubagentResult(result: any) {
       return {

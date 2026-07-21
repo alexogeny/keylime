@@ -294,14 +294,14 @@ Pi intentionally keeps subagents, MCP, plan mode, and sandboxing out of the core
 
 ## Executable RED contract
 
-The implementation checklist is encoded as 53 intentionally failing acceptance tests under `tests/agentic-augmentation-red/`.
+The implementation checklist is encoded as 53 permanent acceptance tests under `tests/agentic-augmentation-red/`. The initial baseline was 0 pass / 53 fail; all 53 contracts are now implemented and green.
 
 - Test policy and implementation order: `tests/agentic-augmentation-red/README.md`
 - Requirement-by-requirement checklist: `docs/plans/agentic-augmentation-2026/RED-MATRIX.md`
 - Run: `bun run test:agentic:red`
 
-Keep each test RED until its production behavior exists, then retain it permanently as a regression contract. Do not implement broad agent orchestration before the settled task-outcome and live governance slices are green.
+All AA tests are retained permanently as regression contracts. The implementation now provides settled task outcomes, task-level spend and observe-only routing, `agent_settled` trajectory evaluation, rich live impact and verification evidence, persistent aggregate canaries, live delegation validation, a shared process-execution sandbox seam used by `run_checks`, and bounded LSP evidence edges.
 
 ## Resume point
 
-Start with **AA-001–AA-010: settled task outcomes**. Implement the smallest task-outcome tracker that joins lifecycle, verification, mutation, and spend data without persisting prompts or source. Then make **AA-011–AA-017** green by moving trajectory finalization to Pi's `agent_settled` boundary.
+Collect live outcome and canary evidence before enabling automatic model switching or mutable subagents. The next implementation expansion should be a separately gated, read-only reviewer/scout executor that consumes the now-live delegation registry; it should receive its own RED contract before production code.

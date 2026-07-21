@@ -32,6 +32,8 @@ export async function createDelegationContract(input: any) {
     version: 1 as const,
     schema: String(input.requiredResultSchema ?? "keylime-delegation-result-v1"),
     repositoryFingerprint: repoFingerprint(input.cwd),
+    role: ["scout", "reviewer", "researcher"].includes(String(input.role)) ? String(input.role) : "worker",
+    readOnly: ["scout", "reviewer", "researcher"].includes(String(input.role)),
     goal: String(input.goal ?? "").slice(0, 500),
     controls: controls(input.checkpoint),
     tools: strings(input.tools ?? []), paths: strings(input.paths ?? []),
@@ -42,6 +44,8 @@ export async function createDelegationContract(input: any) {
     },
     maxDepth: Math.max(0, Math.floor(input.maxDepth ?? 0)),
     requiredVerification: strings(input.requiredVerification ?? [], 50),
+    ...(input.issuedAt !== undefined ? { issuedAt: Math.max(0, Math.floor(Number(input.issuedAt))) } : {}),
+    ...(input.expiresAt !== undefined ? { expiresAt: Math.max(0, Math.floor(Number(input.expiresAt))) } : {}),
   };
   return { ...body, id: sha(stable(body)) };
 }

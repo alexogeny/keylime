@@ -312,7 +312,7 @@ Running shoe catalog and query tools:
 - `context-health.ts` — context usage and health signals.
 - `cache-guard.ts` — prompt-cache/cache-stability diagnostics.
 - `adaptive-context-policy.ts` — optional adaptive context hints.
-- `trajectory-eval.ts` — optional trajectory/session evaluation.
-- `usage-tracker.ts` — usage/cost logging.
+- `trajectory-eval.ts` — optional task-level trajectory evaluation finalized once at `agent_settled`.
+- `usage-tracker.ts` — usage/cost logging plus privacy-safe settled task outcomes and observe-only routing records.
 - `signal-footer.ts` — compact session footer/status signal.
 - `memory-manager.ts` — memory-management helpers.

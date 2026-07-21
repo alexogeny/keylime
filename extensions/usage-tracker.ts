@@ -1,10 +1,13 @@
 import { appendFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { clearPendingContextLedgerRecord, consumePendingContextLedgerRecord, type ContextLedgerRecord } from "./shared/context-ledger";
 import { buildSpendSnapshot, type ReportedUsage } from "./shared/spend-accounting";
 import { buildPromptPrefixDiagnostic, type PromptPrefixDiagnostic } from "./shared/prompt-prefix-profiler";
 import { planProviderCacheControls } from "./shared/provider-token-economics";
+import { createTaskOutcomeTracker } from "./shared/task-outcome";
+import { createAgentRoutingObserver } from "./shared/agent-routing-observer";
 
 type UsageRecord = {
 	version?: 1 | 2;
@@ -129,6 +132,10 @@ export default function usageTracker(pi: ExtensionAPI) {
 	const byTurn = new Map<number, ProviderMeta>();
 	let currentTurn: number | undefined;
 	let previousPromptPrefix: PromptPrefixDiagnostic | undefined;
+	let taskCounter = 0;
+	let currentTaskId: string | undefined;
+	let taskTracker: ReturnType<typeof createTaskOutcomeTracker> | undefined;
+	const routingObserver = createAgentRoutingObserver({ mode: "observe-only", maxRecords: 1_000 });
 
 	const logsDir = join(process.cwd(), ".pi", "usage");
 	const ndjsonPath = join(logsDir, "usage.ndjson");
@@ -199,6 +206,8 @@ export default function usageTracker(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		records.length = 0;
+		taskTracker = undefined;
+		currentTaskId = undefined;
 		clearPendingContextLedgerRecord();
 		for (const entry of ctx.sessionManager.getEntries()) {
 			if (entry.type === "custom" && (entry.customType === CUSTOM_TYPE || entry.customType === CUSTOM_TYPE_V1) && entry.data) {
@@ -208,8 +217,50 @@ export default function usageTracker(pi: ExtensionAPI) {
 		previousPromptPrefix = [...records].reverse().find(record => record.promptPrefix)?.promptPrefix;
 	});
 
+	pi.on("before_agent_start", async (_event, ctx) => {
+		currentTaskId = `task-${Date.now().toString(36)}-${++taskCounter}`;
+		taskTracker = createTaskOutcomeTracker({
+			taskId: currentTaskId,
+			repositoryFingerprint: createHash("sha256").update(String(ctx.cwd)).digest("hex"),
+			startedAt: Date.now(),
+		});
+		const activeTools = (pi.getActiveTools?.() ?? []).map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean);
+		const coding = activeTools.some((name: string) => ["apply_code_replacements", "create_file", "delete_file", "move_file"].includes(name));
+		routingObserver.observe({
+			taskId: currentTaskId,
+			taskKind: coding ? "coding" : "other",
+			ambiguity: 0.5,
+			risk: coding ? "medium" : "low",
+			contextPressure: Number(ctx.getContextUsage?.()?.percent ?? 0) / 100,
+			requiresCreativity: coding,
+			actual: { provider: ctx.model?.provider, model: ctx.model?.id, thinking: pi.getThinkingLevel?.() },
+		});
+	});
+
 	pi.on("turn_start", async (event) => {
 		currentTurn = event.turnIndex;
+	});
+
+	pi.on("tool_call", async (event: any) => {
+		taskTracker?.recordToolCall({ toolName: event.toolName, input: event.input });
+	});
+
+	pi.on("tool_result", async (event: any) => {
+		const verification = event.toolName === "run_checks" && Array.isArray(event.details?.results)
+			? event.details.results.map((item: any) => ({
+				command: [item.command, ...(item.args ?? [])].filter(Boolean).join(" "),
+				passed: item.ok === true,
+				diagnosticPaths: item.diagnosticPaths,
+			}))
+			: undefined;
+		taskTracker?.recordToolResult({
+			toolName: event.toolName,
+			isError: Boolean(event.isError),
+			blocked: Boolean(event.details?.blocked),
+			changedPaths: event.details?.changedPaths ?? (event.input?.path ? [event.input.path] : []),
+			evidenceObjectIds: [event.details?.contextObjectId, event.details?.resultId].filter(Boolean),
+			verification,
+		});
 	});
 
 	pi.on("before_provider_request", (event, ctx) => {
@@ -256,6 +307,15 @@ export default function usageTracker(pi: ExtensionAPI) {
 			tokens: activeContext?.tokens ?? undefined,
 			percent: activeContext?.percent ?? undefined,
 		});
+		taskTracker?.recordAssistantMessage({ text: "" });
+		taskTracker?.recordUsage({
+			inputTokens: maybeOptionalNum(usage?.input),
+			outputTokens: maybeOptionalNum(usage?.output),
+			cacheReadTokens: maybeOptionalNum((usage as any)?.cacheRead),
+			cacheWriteTokens: maybeOptionalNum((usage as any)?.cacheWrite),
+			costUsd: maybeOptionalNum(usageCost(usage as unknown as RawUsage)),
+		});
+
 		const rec: UsageRecord = {
 			version: 2,
 			ts: Date.now(),
@@ -289,6 +349,16 @@ export default function usageTracker(pi: ExtensionAPI) {
 		} catch {
 			// best effort
 		}
+	});
+
+	pi.on("agent_settled", async () => {
+		if (!taskTracker || !currentTaskId) return;
+		const outcome = taskTracker.settle({ settledAt: Date.now() });
+		taskTracker = undefined;
+		pi.appendEntry("task-outcome-v1", outcome);
+		const routing = routingObserver.attachOutcome(currentTaskId, outcome);
+		pi.appendEntry("agent-routing-observation-v1", routing);
+		currentTaskId = undefined;
 	});
 
 	pi.registerCommand("usage", {

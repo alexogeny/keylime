@@ -1,6 +1,6 @@
 # Agentic augmentation — RED acceptance contract
 
-This suite turns `docs/plans/agentic-augmentation-2026.md` into an intentionally failing, executable implementation checklist.
+This suite began as the intentionally failing executable checklist for `docs/plans/agentic-augmentation-2026.md` and now remains the permanent regression contract.
 
 ## Status
 
@@ -9,13 +9,13 @@ Initial verified baseline: **0 pass / 53 fail**.
 Current verified status:
 
 ```text
-10 pass (AA-001–AA-010)
-43 fail (AA-011–AA-053)
+53 pass (AA-001–AA-053)
+0 fail
 bun run typecheck: pass
 bun run typecheck:tests: pass
 ```
 
-Production code must make tests green one narrowly scoped slice at a time. Keep green tests as permanent regressions; do not rename the files when they pass.
+All slices are green and remain permanent regressions. Future changes must preserve the contracts; do not rename the files or weaken assertions.
 
 ## Test policy
 

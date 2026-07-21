@@ -17,7 +17,7 @@ export default function harnessGovernanceExtension(pi: ExtensionAPI) {
 
   const getRuntime = async (ctx: any) => {
     if (runtime && runtime.kernel) return runtime;
-    if (!initializing) initializing = createHarnessGovernanceRuntime({ cwd: ctx.cwd, sessionId });
+    if (!initializing) initializing = createHarnessGovernanceRuntime({ cwd: ctx.cwd, sessionId, canaryPersistence: true });
     runtime = await initializing;
     return runtime;
   };
@@ -71,13 +71,33 @@ export default function harnessGovernanceExtension(pi: ExtensionAPI) {
     const active = await getRuntime(ctx);
     const changedPaths = Array.isArray(event.details?.changedPaths) ? event.details.changedPaths.map(String) : event.input?.path ? [String(event.input.path)] : [];
     const objectId = event.details?.contextObjectId ?? event.details?.resultId;
-    await active.recordToolOutcome({ toolName: event.toolName, toolCallId: event.toolCallId, isError: Boolean(event.isError), objectId, changedPaths, verificationPassed: event.toolName === "run_checks" && !event.isError && event.details?.ok !== false });
+    const verification = event.toolName === "run_checks" && Array.isArray(event.details?.results)
+      ? event.details.results.map((item: any) => ({
+          command: [item.command, ...(item.args ?? [])].filter(Boolean).join(" "),
+          passed: item.ok === true,
+          diagnosticPaths: item.diagnosticPaths,
+        }))
+      : undefined;
+    await active.recordToolOutcome({
+      toolName: event.toolName, toolCallId: event.toolCallId, isError: Boolean(event.isError), objectId, changedPaths,
+      verificationPassed: event.toolName === "run_checks" && !event.isError,
+      verification,
+    });
     const ecosystem = classifyEcosystemTool(String(event.toolName));
     if (ecosystem === "lsp" && (event.details?.locations || event.details?.location)) {
-      try { active.ingestEvent("lsp_signal", active.adapters.ingestLspResult(event.details)); } catch { active.ingestEvent("lsp_signal", { isError: true }); }
+      try {
+        const normalized = active.adapters.ingestLspResult({ ...event.details, query: event.input });
+        for (const edge of normalized.edges ?? []) active.ingestLspSignal({ ...edge, repositoryFingerprint: active.repositoryFingerprint });
+        active.ingestEvent("lsp_result", { kind: normalized.kind, locationCount: normalized.locations?.length ?? 0, rejectedLocations: normalized.rejectedLocations ?? 0 });
+      } catch { active.ingestEvent("lsp_signal", { isError: true }); }
     } else if (ecosystem === "subagent") {
       const delegated = active.adapters.ingestSubagentResult({ provider: event.details?.provider ?? event.toolName, contractId: event.details?.contractId, summary: event.details?.summary, evidenceObjectIds: event.details?.evidenceObjectIds, verification: event.details?.verification, transcript: event.details?.transcript });
-      active.ingestEvent("delegation_candidate", { provider: delegated.provider, contractId: delegated.contractId, evidenceCount: delegated.evidenceObjectIds.length, requiresContractValidation: true, isError: Boolean(event.isError) });
+      try {
+        const accepted = await active.acceptDelegationResult(event.details);
+        active.ingestEvent("delegation_accepted", { provider: delegated.provider, contractId: delegated.contractId, evidenceCount: accepted.evidenceVerified, isError: false });
+      } catch {
+        active.ingestEvent("delegation_rejected", { provider: delegated.provider, contractId: delegated.contractId, evidenceCount: 0, isError: true });
+      }
     } else if (ecosystem !== "native") active.ingestEvent("ecosystem_tool_result", { ecosystem, toolName: event.toolName, isError: Boolean(event.isError) });
     const pending = pendingLeaseCalls.get(String(event.toolCallId));
     if (pending) {
@@ -90,7 +110,7 @@ export default function harnessGovernanceExtension(pi: ExtensionAPI) {
   pi.on("session_before_compact", async (_event: any, ctx: any) => { (await getRuntime(ctx)).handleBoundary("session_before_compact"); });
   pi.on("session_compact", async (event: any, ctx: any) => { (await getRuntime(ctx)).ingestEvent("session_compact", { fromExtension: Boolean(event.fromExtension), reason: event.reason, willRetry: Boolean(event.willRetry) }); });
   pi.on("session_shutdown", async (_event: any, ctx: any) => {
-    if (runtime) runtime.handleBoundary("session_shutdown");
+    if (runtime) { runtime.handleBoundary("session_shutdown"); await runtime.flushCanaries?.(); }
     clearHarnessGovernanceRuntime(runtime);
     detachCompactionMetrics?.(); detachCompactionMetrics = undefined; pendingLeaseCalls.clear();
     runtime = undefined; initializing = undefined;

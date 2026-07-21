@@ -39,7 +39,10 @@ export function evaluateRuntimeCanary(runs: any[], options: { minResolutionRate?
   if (candidateRuns.some(run => !run.safetyPassed)) reasons.add("safety_failed");
   if (candidateRuns.some(run => run.relinkingDetected)) reasons.add("relinking_detected");
   if (candidateRuns.some(run => Number(run.prohibitedBackendActions ?? 0) > 0)) reasons.add("prohibited_backend_action");
-  if (candidateRuns.some(run => (run.activeControlIdsBefore ?? []).some((id: string) => !(run.activeControlIdsAfter ?? []).includes(id)))) reasons.add("active_control_loss");
+  if (candidateRuns.some(run =>
+    (run.activeControlIdsBefore ?? []).some((id: string) => !(run.activeControlIdsAfter ?? []).includes(id))
+    || (Number.isFinite(run.activeControlsBefore) && Number(run.activeControlsAfter ?? 0) < Number(run.activeControlsBefore))
+  )) reasons.add("active_control_loss");
   if (candidateRuns.some(run => run.evaluatorId && run.optimizerId && run.evaluatorId === run.optimizerId)) reasons.add("evaluator_not_independent");
   for (const name of candidateNames) {
     const metrics = strategies[name];
