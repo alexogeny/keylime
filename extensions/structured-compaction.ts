@@ -16,6 +16,21 @@ import { compactionMetricsChannel } from "./shared/compaction-metrics-channel";
 import { createProviderCircuitBreaker, type ProviderFailureKind } from "./shared/provider-circuit-breaker";
 export { COMPACTION_MAX_CONTROL_CHARS, stabilizeCompactionControlPlane } from "./shared/compaction-control";
 
+export function mergeHandoffIntoCompaction<T extends { repositoryFacts?: unknown[]; externalFacts?: unknown[]; userIntent?: unknown[]; suggestions?: unknown[] }>(handoff: T) {
+  return {
+    repositoryFacts: structuredClone(handoff.repositoryFacts ?? []),
+    externalFacts: structuredClone(handoff.externalFacts ?? []),
+    userIntent: structuredClone(handoff.userIntent ?? []),
+    suggestions: structuredClone(handoff.suggestions ?? []),
+  };
+}
+
+export function validateCompactionContinuation(input: { before: { protectedIds: string[] }; after: { retainedIds: string[] } }) {
+  const retained = new Set(input.after.retainedIds);
+  const missingProtectedIds = input.before.protectedIds.filter(id => !retained.has(id));
+  return { valid: missingProtectedIds.length === 0, missingProtectedIds, allowContinuation: missingProtectedIds.length === 0 };
+}
+
 const providerCircuitBreaker = createProviderCircuitBreaker();
 const COMPACTION_EXECUTION_PROFILE = selectAgentExecutionProfile({
   taskKind: "structured_extraction", ambiguity: 0, risk: "medium", contextPressure: .9, requiresCreativity: false,

@@ -329,6 +329,19 @@ function usageNumber(usage: any, ...keys: string[]): number {
   return 0;
 }
 
+export function normalizePassiveSpendSample(usage: any, context: any): TelemetrySample {
+  return {
+    inputTokens: usageNumber(usage, "input", "inputTokens", "input_tokens"),
+    outputTokens: usageNumber(usage, "output", "outputTokens", "output_tokens"),
+    cacheReadTokens: usageNumber(usage, "cacheRead", "cacheReadTokens", "cache_read_input_tokens"),
+    cacheWriteTokens: usageNumber(usage, "cacheWrite", "cacheWriteTokens", "cache_creation_input_tokens"),
+    costUsd: typeof usage?.cost === "number" ? usage.cost : usage?.cost?.total,
+    contextPercent: context?.percent,
+    contextTokens: context?.tokens,
+    contextWindow: context?.contextWindow,
+  };
+}
+
 export function formatVariantReport(aggregates: DailyAggregate[]): string {
   const variants = new Map<string, { turns: number; input: number; output: number; cacheRead: number; cost: number }>();
   for (const aggregate of aggregates) for (const [key, model] of Object.entries(aggregate.models ?? {})) {
@@ -385,14 +398,7 @@ export default function passiveContextTelemetryExtension(pi: ExtensionAPI, optio
     const folded = Boolean(runtime?.lastFold?.id && runtime.lastFold.id !== lastFoldId);
     if (runtime?.lastFold?.id) lastFoldId = runtime.lastFold.id;
     await store.record({
-      inputTokens: usageNumber(usage, "input", "inputTokens", "input_tokens"),
-      outputTokens: usageNumber(usage, "output", "outputTokens", "output_tokens"),
-      cacheReadTokens: usageNumber(usage, "cacheRead", "cacheReadTokens", "cache_read_input_tokens"),
-      cacheWriteTokens: usageNumber(usage, "cacheWrite", "cacheWriteTokens", "cache_creation_input_tokens"),
-      costUsd: usage?.cost?.total,
-      contextPercent: context?.percent,
-      contextTokens: context?.tokens,
-      contextWindow: context?.contextWindow,
+      ...normalizePassiveSpendSample(usage, context),
       maskedObservations: runtime?.maskedObservations,
       retrievalUtilization: runtime?.retrieval.utilization,
       folded,

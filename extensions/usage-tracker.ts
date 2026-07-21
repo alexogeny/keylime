@@ -66,6 +66,63 @@ export function buildUsageSpendSnapshot(
 	});
 }
 
+export function migrateUsageRecord(record: Record<string, any>) {
+	const spend = record.spend ?? buildSpendSnapshot({
+		activeContext: { chars: Number(record.context?.totalChars ?? 0) },
+		currentTurn: {
+			input: typeof record.input === "number" ? record.input : undefined,
+			output: typeof record.output === "number" ? record.output : undefined,
+			cacheRead: typeof record.cacheRead === "number" ? record.cacheRead : undefined,
+			cacheWrite: typeof record.cacheWrite === "number" ? record.cacheWrite : undefined,
+			cost: typeof record.cost === "number" ? record.cost : undefined,
+		},
+		branchTotals: {
+			input: typeof record.input === "number" ? record.input : undefined,
+			output: typeof record.output === "number" ? record.output : undefined,
+			cacheRead: typeof record.cacheRead === "number" ? record.cacheRead : undefined,
+			cacheWrite: typeof record.cacheWrite === "number" ? record.cacheWrite : undefined,
+			cost: typeof record.cost === "number" ? record.cost : undefined,
+		},
+	});
+	return { ...record, version: 2, spend };
+}
+
+function rounded(value: number): number { return Number(value.toFixed(12)); }
+
+export function createTaskSpendLedger(taskId: string) {
+	const calls: Array<{ purpose: string; cost?: number }> = [];
+	const pending = new Set<string>();
+	return {
+		record(call: { purpose: string; cost?: number }) { calls.push({ ...call }); },
+		queue(id: string) { pending.add(id); },
+		resolve(id: string) { pending.delete(id); },
+		complete() { return { complete: pending.size === 0, pending: [...pending].sort() }; },
+		snapshot() {
+			const totalCostUsd = rounded(calls.reduce((sum, call) => sum + (call.cost ?? 0), 0));
+			const auxiliaryCostUsd = rounded(calls.filter(call => call.purpose !== "main").reduce((sum, call) => sum + (call.cost ?? 0), 0));
+			return { taskId, modelCalls: calls.length, auxiliaryCostUsd, totalCostUsd };
+		},
+	};
+}
+
+export function sanitizeUsageRecordForPersistence(record: Record<string, any>) {
+	const allowed = ["version", "ts", "turnIndex", "taskId", "input", "output", "cost", "cacheRead", "cacheWrite", "modelId", "provider", "routedModel", "routedProvider", "status", "context", "spend", "promptPrefix"];
+	return Object.fromEntries(allowed.filter(key => Object.hasOwn(record, key)).map(key => [key, record[key]]));
+}
+
+export function restoreUsageRuntimeState(entries: Array<Record<string, any>>) {
+	const records = entries.filter(entry => entry?.type === "custom" && (entry.customType === CUSTOM_TYPE || entry.customType === CUSTOM_TYPE_V1) && entry.data).map(entry => migrateUsageRecord(entry.data));
+	const sum = (key: string) => records.reduce((total, record) => total + (typeof record[key] === "number" ? record[key] : 0), 0);
+	const previousPromptPrefix = [...records].reverse().find(record => record.promptPrefix)?.promptPrefix;
+	return {
+		records,
+		branchTotals: {
+			uncachedInputTokens: sum("input"), outputTokens: sum("output"), cacheReadTokens: sum("cacheRead"), cacheWriteTokens: sum("cacheWrite"), costUsd: sum("cost"),
+		},
+		previousPromptPrefix,
+	};
+}
+
 export default function usageTracker(pi: ExtensionAPI) {
 	const records: UsageRecord[] = [];
 	const byTurn = new Map<number, ProviderMeta>();

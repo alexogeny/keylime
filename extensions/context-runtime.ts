@@ -10,6 +10,44 @@ import { assignRetrievalCredit, adaptRetrievalBudget, type RetrievalCredit, type
 import { retrieveRepositoryExperiences, type ExperienceMatch, type ExperienceQuery, type RepositoryExperience } from "./shared/experience-memory";
 import { chooseCompactionStrategy, type CompactionStrategyDecision, type ProviderContextCapabilities, type ProviderContextState } from "./shared/provider-compaction-policy";
 import { publishContextRuntimeTelemetry, readContextRuntimeTelemetry, resetContextRuntimeTelemetry } from "./shared/context-runtime-bus";
+import { planTrajectoryReduction, validateToolPairing, type TrajectoryItem } from "./shared/trajectory-reducer";
+
+export function transformTrajectoryForContext(items: Array<TrajectoryItem & Record<string, any>>, options: { currentTurn?: number; hotTurns: number; warmTurns: number }) {
+  const result = planTrajectoryReduction(items, { hotTurns: options.hotTurns, warmTurns: options.warmTurns });
+  const states: Record<string, string> = {};
+  for (const item of items) {
+    states[item.id] = item.supersededBy ? "superseded"
+      : item.kind === "failure" || item.kind === "mutation_failure" ? "failure"
+      : item.recoverableObjectId && item.ageTurns > options.hotTurns ? "recoverable"
+      : item.protected ? "protected"
+      : item.ageTurns <= options.hotTurns ? "hot"
+      : item.ageTurns <= options.warmTurns ? "warm"
+      : "cold";
+  }
+  const protectedChanged = items.filter(item => item.protected).flatMap(item => {
+    const next = result.messages.find(message => message.id === item.id);
+    return next?.text === item.text ? [] : [item.id];
+  });
+  return {
+    owner: "context-runtime",
+    mutationPasses: 1,
+    states,
+    messages: result.messages,
+    actions: result.actions,
+    report: result.report,
+    typedFacts: {
+      external: result.messages.filter((item: any) => item.kind === "external_fact"),
+      repository: result.messages.filter((item: any) => item.kind === "repository_fact"),
+    },
+    audit: {
+      protectedChanged,
+      recoverableIds: items.flatMap(item => item.recoverableObjectId ? [item.recoverableObjectId] : []),
+      toolPairing: validateToolPairing(result.messages),
+      failuresFolded: result.report.failuresFolded,
+      protectedKinds: [...new Set(items.filter(item => item.protected).map(item => item.kind))].sort(),
+    },
+  };
+}
 
 const STATUS_KEY = "context-runtime";
 
