@@ -116,25 +116,33 @@ export function createTokenTotalsAccumulator(entries: any[] = []) {
 
 export default function signalFooter(pi: ExtensionAPI) {
 	let enabled = true;
+	const totals = createTokenTotalsAccumulator();
+	let requestFooterRender: (() => void) | undefined;
 
 	const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 
 	function apply(ctx: any) {
 		if (!ctx.hasUI) return;
 		if (!enabled) {
+			requestFooterRender = undefined;
 			ctx.ui.setFooter(undefined);
 			return;
 		}
 
 		ctx.ui.setFooter((tui: any, theme: any, footerData: any) => {
-			const totals = createTokenTotalsAccumulator(ctx.sessionManager.getBranch());
+			totals.reset(ctx.sessionManager.getBranch());
+			const requestRender = () => tui.requestRender();
+			requestFooterRender = requestRender;
 			const unsub = footerData.onBranchChange(() => {
 				totals.reset(ctx.sessionManager.getBranch());
-				tui.requestRender();
+				requestRender();
 			});
 
 			return {
-				dispose: unsub,
+				dispose() {
+					unsub();
+					if (requestFooterRender === requestRender) requestFooterRender = undefined;
+				},
 				invalidate() {},
 				render(width: number): string[] {
 					const statuses = footerData.getExtensionStatuses() as ReadonlyMap<string, string>;
@@ -155,6 +163,11 @@ export default function signalFooter(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		apply(ctx);
+	});
+	pi.on("message_end", async (event) => {
+		if (event.message.role !== "assistant") return;
+		totals.record(event.message);
+		requestFooterRender?.();
 	});
 	pi.on("model_select", async (_event, ctx) => { apply(ctx); });
 	pi.on("thinking_level_select", async (_event, ctx) => { apply(ctx); });

@@ -359,9 +359,10 @@ export default function passiveContextTelemetryExtension(pi: ExtensionAPI, optio
   let lastFoldId: string | undefined;
   let selectedProvider = "unknown";
   let selectedModel = "unknown";
-  let thinkingLevel = String((pi as any).getThinkingLevel?.() ?? "unknown");
+  let thinkingLevel = "unknown";
   const currentVariant = (): ModelVariant => ({ provider: selectedProvider, model: selectedModel, thinking: thinkingLevel });
   pi.on("session_start", async (_event: any, ctx: any) => {
+    thinkingLevel = String(pi.getThinkingLevel());
     if (!detachCompactionMetrics) detachCompactionMetrics = compactionMetricsChannel.attachStore(store);
     const model = ctx?.model;
     if (model) { selectedProvider = String(model.provider ?? selectedProvider); selectedModel = String(model.id ?? model.model ?? selectedModel); }

@@ -15,6 +15,7 @@ import boundedToolPipeline from "../extensions/bounded-tool-pipeline";
 import webContent from "../extensions/web-content";
 import contextRuntime from "../extensions/context-runtime";
 import passiveContextTelemetry from "../extensions/passive-context-telemetry";
+import thinkingLevelCommand from "../extensions/thinking-level-command";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 describe("extension registration smoke", () => {
@@ -37,6 +38,7 @@ describe("extension registration smoke", () => {
     webContent(harness.pi);
     contextRuntime(harness.pi);
     passiveContextTelemetry(harness.pi);
+    thinkingLevelCommand(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
       "list_files",
@@ -71,6 +73,7 @@ describe("extension registration smoke", () => {
       "keylime-stop",
       "context-runtime",
       "context-telemetry",
+      "thinking-level",
     ]));
     expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining([
       "tool_result",

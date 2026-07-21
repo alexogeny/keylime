@@ -96,6 +96,25 @@ describe("passive context telemetry", () => {
     expect(report).toContain("2 turns");
   });
 
+  test("defers thinking-level runtime access until the session has started", async () => {
+    const dir = await tempRoot();
+    const harness = mockPiFixture();
+    let runtimeInitialized = false;
+    let thinkingLevelReads = 0;
+    (harness.pi as any).getThinkingLevel = () => {
+      if (!runtimeInitialized) throw new Error("runtime action called during extension loading");
+      thinkingLevelReads++;
+      return "high";
+    };
+
+    expect(() => passiveContextTelemetry(harness.pi, { dir })).not.toThrow();
+    expect(thinkingLevelReads).toBe(0);
+
+    runtimeInitialized = true;
+    await harness.handlers.session_start[0]({}, { ...harness.ctx, model: { provider: "test", id: "test-model" } });
+    expect(thinkingLevelReads).toBe(1);
+  });
+
   test("Pi extension records assistant usage passively and exposes stats controls", async () => {
     const dir = await tempRoot();
     const harness = mockPiFixture();

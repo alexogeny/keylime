@@ -37,6 +37,40 @@ describe("signal footer formatting", () => {
     expect(totals.value()).toEqual({ input: 15, output: 3 });
   });
 
+  test("records completed assistant usage and requests a live footer render", async () => {
+    const handlers: Record<string, any> = {};
+    let footerFactory: any;
+    let renderRequests = 0;
+    signalFooter.default({
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerCommand: () => {},
+      getThinkingLevel: () => "high",
+    } as any);
+    const ctx = {
+      hasUI: true,
+      model: { id: "test-model" },
+      sessionManager: { getBranch: () => [] },
+      ui: { setFooter: (factory: any) => { footerFactory = factory; } },
+    };
+
+    await handlers.session_start({}, ctx);
+    const footer = footerFactory(
+      { requestRender: () => { renderRequests += 1; } },
+      { fg: (_style: string, text: string) => text },
+      {
+        getExtensionStatuses: () => new Map(),
+        getGitBranch: () => undefined,
+        onBranchChange: () => () => {},
+      },
+    );
+    expect(footer.render(120)[0]).toContain("tok ↑0 ↓0");
+
+    await handlers.message_end({ message: { role: "assistant", usage: { input: 12, output: 3 } } }, ctx);
+
+    expect(renderRequests).toBe(1);
+    expect(footer.render(120)[0]).toContain("tok ↑12 ↓3");
+  });
+
   test("shows thinking level beside the model and git branch", () => {
     expect(buildFooterRight("claude-opus-4-6", "main", "high")).toBe("claude-opus-4-6 · think:high (main)");
     expect(buildFooterRight("gpt-5.6-terra", undefined, "off")).toBe("gpt-5.6-terra · think:off");
