@@ -29,12 +29,18 @@ describe("signal footer formatting", () => {
     ].sort());
   });
 
-  test("maintains token totals incrementally without rescanning the session", () => {
-    const totals = (signalFooter as any).createTokenTotalsAccumulator([{ type: "message", message: { role: "assistant", usage: { input: 10, output: 2 } } }]);
-    expect(totals.value()).toEqual({ input: 10, output: 2 });
-    totals.record({ role: "assistant", usage: { input: 5, output: 1 } });
+  test("separates current-turn traffic and cache reuse from cumulative branch totals", () => {
+    const totals = (signalFooter as any).createTokenTotalsAccumulator([{ type: "message", message: { role: "assistant", usage: { input: 10, output: 2, cacheRead: 30 } } }]);
+    expect(totals.value()).toEqual({
+      currentTurn: { input: 10, output: 2, cacheRead: 30, cacheWrite: 0 },
+      branch: { input: 10, output: 2, cacheRead: 30, cacheWrite: 0 },
+    });
+    totals.record({ role: "assistant", usage: { input: 5, output: 1, cacheRead: 20, cacheWrite: 3 } });
     totals.record({ role: "user", content: "ignored" });
-    expect(totals.value()).toEqual({ input: 15, output: 3 });
+    expect(totals.value()).toEqual({
+      currentTurn: { input: 5, output: 1, cacheRead: 20, cacheWrite: 3 },
+      branch: { input: 15, output: 3, cacheRead: 50, cacheWrite: 3 },
+    });
   });
 
   test("records completed assistant usage and requests a live footer render", async () => {
@@ -63,12 +69,14 @@ describe("signal footer formatting", () => {
         onBranchChange: () => () => {},
       },
     );
-    expect(footer.render(120)[0]).toContain("tok ↑0 ↓0");
+    expect(footer.render(120)[0]).toContain("turn in:0 cache:0 out:0");
+    expect(footer.render(120)[0]).toContain("branch in:0 out:0");
 
-    await handlers.message_end({ message: { role: "assistant", usage: { input: 12, output: 3 } } }, ctx);
+    await handlers.message_end({ message: { role: "assistant", usage: { input: 12, output: 3, cacheRead: 40 } } }, ctx);
 
     expect(renderRequests).toBe(1);
-    expect(footer.render(120)[0]).toContain("tok ↑12 ↓3");
+    expect(footer.render(120)[0]).toContain("turn in:12 cache:40 out:3");
+    expect(footer.render(120)[0]).toContain("branch in:12 out:3");
   });
 
   test("shows thinking level beside the model and git branch", () => {

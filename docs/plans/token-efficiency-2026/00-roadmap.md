@@ -6,6 +6,8 @@ Reduce **successful-task spend** in Keylime's Pi harness without weakening task 
 
 The optimization target is not the footer's cumulative `↑` value. It is the combined cost of uncached input, cache reads/writes, output/reasoning, tool-discovery calls, compression calls, retries, and additional turns required to finish a task successfully.
 
+**Current status:** all 29 shared and integration RED contracts are green. Spend accounting and privacy-safe prompt-prefix profiling are wired into usage telemetry, and the footer now distinguishes current-turn traffic from branch totals. Telemetry migrations, trajectory/handoff runtime integration, replay experiments, and default rollout remain pending.
+
 ## Evidence behind the plan
 
 - Pi extensions can transform outbound messages through `context`, compact through `session_before_compact`, inspect final provider payloads through `before_provider_request`, measure usage at `message_end`, bound tool output at `tool_result`, select tools with `setActiveTools`, and persist non-message state with custom entries.

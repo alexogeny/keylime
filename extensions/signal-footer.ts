@@ -99,19 +99,31 @@ export function buildFooterRight(model: string, branch: string | undefined, thin
 }
 
 export function createTokenTotalsAccumulator(entries: any[] = []) {
-	let input = 0;
-	let output = 0;
+	type Traffic = { input: number; output: number; cacheRead: number; cacheWrite: number };
+	let currentTurn: Traffic = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	let branch: Traffic = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 	const record = (message: any): void => {
 		if (message?.role !== "assistant") return;
-		input += message.usage?.input ?? 0;
-		output += message.usage?.output ?? 0;
+		currentTurn = {
+			input: message.usage?.input ?? 0,
+			output: message.usage?.output ?? 0,
+			cacheRead: message.usage?.cacheRead ?? 0,
+			cacheWrite: message.usage?.cacheWrite ?? 0,
+		};
+		branch = {
+			input: branch.input + currentTurn.input,
+			output: branch.output + currentTurn.output,
+			cacheRead: branch.cacheRead + currentTurn.cacheRead,
+			cacheWrite: branch.cacheWrite + currentTurn.cacheWrite,
+		};
 	};
 	const reset = (nextEntries: any[]): void => {
-		input = 0; output = 0;
+		currentTurn = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+		branch = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 		for (const entry of nextEntries) if (entry?.type === "message") record(entry.message);
 	};
 	reset(entries);
-	return { record, reset, value: () => ({ input, output }) };
+	return { record, reset, value: () => ({ currentTurn: { ...currentTurn }, branch: { ...branch } }) };
 }
 
 export default function signalFooter(pi: ExtensionAPI) {
@@ -148,8 +160,8 @@ export default function signalFooter(pi: ExtensionAPI) {
 					const statuses = footerData.getExtensionStatuses() as ReadonlyMap<string, string>;
 					const sigParts = buildSignalParts(statuses);
 
-					const t = totals.value();
-					const leftText = `${sigParts.length ? sigParts.join(" • ") : "signals:-"} • tok ↑${fmt(t.input)} ↓${fmt(t.output)}`;
+					const traffic = totals.value();
+					const leftText = `${sigParts.length ? sigParts.join(" • ") : "signals:-"} • turn in:${fmt(traffic.currentTurn.input)} cache:${fmt(traffic.currentTurn.cacheRead)} out:${fmt(traffic.currentTurn.output)} • branch in:${fmt(traffic.branch.input)} out:${fmt(traffic.branch.output)}`;
 					const rightText = buildFooterRight(ctx.model?.id || "no-model", footerData.getGitBranch(), String(pi.getThinkingLevel?.() ?? "unknown"));
 
 					const left = theme.fg("dim", leftText);

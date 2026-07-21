@@ -29,7 +29,7 @@ Run:
 bun test tests/token-efficiency-red
 ```
 
-The initial suite must discover **25 tests** and fail because the five production modules above do not exist. That is the starting RED state, not a repository regression diagnosis.
+The initial suite discovered **25 tests** and failed because the five production modules did not exist. Integration contracts were then added as each slice reached runtime wiring. The current baseline is **29 pass, 0 fail**. The files retain the `.red.test.ts` suffix as permanent regression contracts, matching `tests/harness-theses-red/`. Extension wiring and rollout gates remain tracked in the checklist.
 
 Implementation order and exit criteria are documented in:
 

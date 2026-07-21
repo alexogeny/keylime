@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { buildUsageSpendSnapshot } from "../../extensions/usage-tracker";
 
 const modulePath = "../../extensions/shared/spend-accounting";
 async function spendApi(): Promise<any> {
@@ -75,5 +76,18 @@ describe("RED: spend accounting distinguishes context, traffic, cache, and task 
     expect(display).toContain("turn");
     expect(display).toContain("cached");
     expect(display).toContain("branch");
+  });
+
+  test("builds the normalized spend snapshot recorded by the usage tracker", () => {
+    const snapshot = buildUsageSpendSnapshot(
+      [{ input: 100, output: 20, cacheRead: 400, cacheWrite: 10, cost: 0.2 }],
+      { input: 50, output: 10, cacheRead: 500, cost: { total: 0.1 } },
+      { chars: 48_000, tokens: 12_000, percent: 12 },
+    );
+
+    expect(snapshot.activeContext).toEqual({ chars: 48_000, tokens: 12_000, percent: 12 });
+    expect(snapshot.currentTurn).toMatchObject({ uncachedInputTokens: 50, cacheReadTokens: 500, cacheWriteTokens: null, costUsd: 0.1 });
+    expect(snapshot.branchTotals).toMatchObject({ uncachedInputTokens: 150, cacheReadTokens: 900, cacheWriteTokens: 10, outputTokens: 30 });
+    expect(snapshot.branchTotals.costUsd).toBeCloseTo(0.3, 8);
   });
 });

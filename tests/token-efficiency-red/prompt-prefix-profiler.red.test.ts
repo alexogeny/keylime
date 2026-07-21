@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { adaptProviderPayloadForProfiling, buildPromptPrefixDiagnostic } from "../../extensions/shared/prompt-prefix-profiler";
 
 const modulePath = "../../extensions/shared/prompt-prefix-profiler";
 async function prefixApi(): Promise<any> {
@@ -88,5 +89,50 @@ describe("RED: prompt-prefix profiling explains cache stability", () => {
 
     expect(comparison.best.strategy).toBe("preactivated");
     expect(comparison.best.reason).toContain("successful-task cost");
+  });
+
+  test("adapts Anthropic-style provider payloads without changing ordered tools", () => {
+    const adapted = adaptProviderPayloadForProfiling({
+      system: [{ type: "text", text: "stable system" }],
+      tools: [{ name: "inspect", description: "bounded", input_schema: { type: "object" } }],
+      messages: [{ role: "user", content: "stable request" }, { role: "user", content: "volatile newest request" }],
+    });
+
+    expect(adapted.systemPrompt).toContain("stable system");
+    expect(adapted.tools).toEqual([{ name: "inspect", description: "bounded", schema: { type: "object" } }]);
+    expect(adapted.stableMessageCount).toBe(1);
+  });
+
+  test("persists hash-and-size diagnostics without provider prompt bodies", () => {
+    const diagnostic = buildPromptPrefixDiagnostic(undefined, {
+      instructions: "PRIVATE_SYSTEM_BODY",
+      tools: [{ type: "function", name: "check", description: "PRIVATE_TOOL_BODY", parameters: { type: "object" } }],
+      input: [{ role: "user", content: "PRIVATE_MESSAGE_BODY" }],
+    });
+    const serialized = JSON.stringify(diagnostic);
+
+    expect(diagnostic.current.hash).toHaveLength(64);
+    expect(diagnostic.profile.categories.tools.chars).toBeGreaterThan(0);
+    expect(serialized).not.toContain("PRIVATE_SYSTEM_BODY");
+    expect(serialized).not.toContain("PRIVATE_TOOL_BODY");
+    expect(serialized).not.toContain("PRIVATE_MESSAGE_BODY");
+  });
+
+  test("attributes cache-significant changes from safe prior diagnostics", () => {
+    const first = buildPromptPrefixDiagnostic(undefined, {
+      system: "PRIVATE_SYSTEM_STABLE",
+      tools: [{ name: "inspect", input_schema: {} }, { name: "check", input_schema: {} }],
+      messages: [{ role: "user", content: "PRIVATE_TASK_BODY" }],
+    });
+    const second = buildPromptPrefixDiagnostic(first, {
+      system: "PRIVATE_SYSTEM_STABLE",
+      tools: [{ name: "check", input_schema: {} }, { name: "inspect", input_schema: {} }],
+      messages: [{ role: "user", content: "PRIVATE_TASK_BODY" }],
+    });
+
+    expect(second.diff?.cacheBust).toBe(true);
+    expect(second.diff?.changedCategories).toContain("tool_order");
+    expect(JSON.stringify(first)).not.toContain("PRIVATE_SYSTEM_STABLE");
+    expect(JSON.stringify(first)).not.toContain("PRIVATE_TASK_BODY");
   });
 });

@@ -2,6 +2,8 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { clearPendingContextLedgerRecord, consumePendingContextLedgerRecord, type ContextLedgerRecord } from "./shared/context-ledger";
+import { buildSpendSnapshot, type ReportedUsage } from "./shared/spend-accounting";
+import { buildPromptPrefixDiagnostic, type PromptPrefixDiagnostic } from "./shared/prompt-prefix-profiler";
 
 type UsageRecord = {
 	version?: 1 | 2;
@@ -18,6 +20,8 @@ type UsageRecord = {
 	cacheRead?: number;
 	cacheWrite?: number;
 	context?: Pick<ContextLedgerRecord, "activeToolFingerprint" | "categories" | "totalChars" | "transforms">;
+	spend?: ReturnType<typeof buildSpendSnapshot>;
+	promptPrefix?: ReturnType<typeof buildPromptPrefixDiagnostic>;
 };
 
 type ProviderMeta = {
@@ -25,15 +29,48 @@ type ProviderMeta = {
 	payloadProvider?: string;
 	responseStatus?: number;
 	responseHeaders?: Record<string, string>;
+	promptPrefix?: ReturnType<typeof buildPromptPrefixDiagnostic>;
 };
 
 const CUSTOM_TYPE_V1 = "usage-record-v1";
 const CUSTOM_TYPE = "usage-record-v2";
 
+type RawUsage = Omit<ReportedUsage, "cost"> & { cost?: number | { total?: number } };
+type ActiveContext = { chars: number; tokens?: number; percent?: number };
+
+function sumReported(values: unknown[]): number | undefined {
+	const reported = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+	return reported.length > 0 ? reported.reduce((sum, value) => sum + value, 0) : undefined;
+}
+
+function usageCost(usage: RawUsage): number | undefined {
+	return typeof usage.cost === "number" ? usage.cost : usage.cost?.total;
+}
+
+export function buildUsageSpendSnapshot(
+	records: Array<Pick<UsageRecord, "input" | "output" | "cacheRead" | "cacheWrite" | "cost">>,
+	usage: RawUsage,
+	activeContext: ActiveContext,
+) {
+	const current: ReportedUsage = { ...usage, cost: usageCost(usage) };
+	return buildSpendSnapshot({
+		activeContext,
+		currentTurn: current,
+		branchTotals: {
+			input: sumReported([...records.map(record => record.input), usage.input]),
+			output: sumReported([...records.map(record => record.output), usage.output]),
+			cacheRead: sumReported([...records.map(record => record.cacheRead), usage.cacheRead]),
+			cacheWrite: sumReported([...records.map(record => record.cacheWrite), usage.cacheWrite]),
+			cost: sumReported([...records.map(record => record.cost), usageCost(usage)]),
+		},
+	});
+}
+
 export default function usageTracker(pi: ExtensionAPI) {
 	const records: UsageRecord[] = [];
 	const byTurn = new Map<number, ProviderMeta>();
 	let currentTurn: number | undefined;
+	let previousPromptPrefix: PromptPrefixDiagnostic | undefined;
 
 	const logsDir = join(process.cwd(), ".pi", "usage");
 	const ndjsonPath = join(logsDir, "usage.ndjson");
@@ -110,6 +147,7 @@ export default function usageTracker(pi: ExtensionAPI) {
 				records.push(entry.data as UsageRecord);
 			}
 		}
+		previousPromptPrefix = [...records].reverse().find(record => record.promptPrefix)?.promptPrefix;
 	});
 
 	pi.on("turn_start", async (event) => {
@@ -122,6 +160,8 @@ export default function usageTracker(pi: ExtensionAPI) {
 		const existing = byTurn.get(currentTurn) || {};
 		existing.payloadModel = typeof payload.model === "string" ? payload.model : undefined;
 		existing.payloadProvider = typeof payload.provider === "string" ? payload.provider : undefined;
+		existing.promptPrefix = buildPromptPrefixDiagnostic(previousPromptPrefix, payload);
+		previousPromptPrefix = existing.promptPrefix;
 		byTurn.set(currentTurn, existing);
 	});
 
@@ -149,6 +189,12 @@ export default function usageTracker(pi: ExtensionAPI) {
 			turnMeta?.payloadModel;
 
 		const contextRecord = consumePendingContextLedgerRecord();
+		const activeContext = ctx.getContextUsage?.();
+		const spend = buildUsageSpendSnapshot(records, usage as unknown as RawUsage, {
+			chars: contextRecord?.totalChars ?? 0,
+			tokens: activeContext?.tokens ?? undefined,
+			percent: activeContext?.percent ?? undefined,
+		});
 		const rec: UsageRecord = {
 			version: 2,
 			ts: Date.now(),
@@ -169,6 +215,8 @@ export default function usageTracker(pi: ExtensionAPI) {
 				totalChars: contextRecord.totalChars,
 				transforms: contextRecord.transforms,
 			} : undefined,
+			spend,
+			promptPrefix: turnMeta?.promptPrefix,
 		};
 
 		records.push(rec);
