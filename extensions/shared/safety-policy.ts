@@ -194,21 +194,6 @@ const LINUX_SYSTEM_MUTATION_TOOLS = new Set([
 ]);
 const PROFILING_RUN_TOOLS = new Set(["run_python_profile", "run_typescript_profile", "run_rust_profile"]);
 
-function isSmallTargetedReplacementBatch(edits: any[]): boolean {
-  if (edits.length === 0 || edits.length > 8) return false;
-  const paths = new Set<string>();
-  for (const edit of edits) {
-    if (typeof edit?.path !== "string") return false;
-    paths.add(edit.path);
-    if (typeof edit.oldText !== "string" || typeof edit.newText !== "string") return false;
-    if (edit.regex || edit.replaceAll === true) return false;
-    if (edit.oldText.length > 2_000 || edit.newText.length > 2_000) return false;
-    const maxReplacements = Number(edit.expectedReplacements ?? edit.maxReplacements ?? 1);
-    if (!Number.isFinite(maxReplacements) || maxReplacements > 3) return false;
-  }
-  return paths.size > 1 && paths.size <= 5;
-}
-
 export function classifyToolMutation(toolName: string, input: any): MutationClassification {
   const writePaths = writePathsForTool(toolName, input);
   let score = 0;
@@ -258,12 +243,13 @@ export function classifyToolMutation(toolName: string, input: any): MutationClas
     } else {
       const edits = Array.isArray(input?.edits) ? input.edits : [];
       const paths = new Set(edits.map((edit: any) => edit?.path).filter(Boolean));
-      if (isSmallTargetedReplacementBatch(edits)) {
-        score = 3;
-        reasons.push(`small targeted replacements across ${paths.size} files`);
+      const hasBroadOperation = edits.some((edit: any) => typeof edit?.regex === "string" || edit?.replaceAll === true);
+      if (hasBroadOperation) {
+        score = 8;
+        reasons.push("regex or replace-all replacement");
       } else {
-        score = paths.size > 1 ? 8 : 3;
-        reasons.push(paths.size > 1 ? "replacement spans multiple files" : "targeted file replacement");
+        score = 3;
+        reasons.push(paths.size > 1 ? `targeted exact replacements across ${paths.size} files` : "targeted exact file replacement");
       }
     }
     matchedPolicies.push("mutation.file-replacement");

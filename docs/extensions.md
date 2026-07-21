@@ -16,12 +16,15 @@ The always-on bootstrap is deliberately small:
 - `code_search`
 - `inspect_text_matches`
 - `inspect_lines`
+- `plan_code_replacements`
+- `apply_code_replacements`
 - `run_checks`
 - `tool_search`
+- `tool_help`
 
-`tool_search` ranks registered names, descriptions, guidance, and schemas with the shared retrieval core, then loads at most five matching tools additively for the current turn. Discoveries survive tool-result context passes and reset on the next user input. Operational mode, research availability, locked built-ins, and execution-time guards remain authoritative.
+`tool_search` ranks registered names, descriptions, guidance, and schemas with the shared retrieval core, then activates at most five matching registered tools additively with `pi.setActiveTools()`. Pi exposes additions on the immediately following model request (using native deferred loading where available), so activation does not depend on extension state surviving a session replacement. Repeated searches report tools already active. Discoveries survive tool-result context passes and reset on the next user input. Operational mode, research availability, locked built-ins, and execution-time guards remain authoritative.
 
-Other safe inspection, mutation, git, document, policy, memory, project, and domain tools are routed or discovered on demand. Raw `bash` and built-in `read`/`write`/`edit` remain guarded or locked.
+Other safe inspection, mutation, git, document, policy, memory, project, and domain tools are routed or discovered on demand. Exact replacements against explicit paths—including ordinary multi-file batches—run without confirmation, with count guards enforced by the replacement primitive when supplied. Glob/language-wide, regex, replace-all, protected-path, and similarly high-risk edits remain confirmed or rejected at execution time. Raw `bash` and built-in `read`/`write`/`edit` remain guarded or locked.
 
 Commands:
 

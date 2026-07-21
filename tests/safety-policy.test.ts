@@ -16,33 +16,30 @@ describe("central mutation classification", () => {
     expect(broad).toMatchObject({ mutates: true, category: "file_replace", severity: "high", score: 8, requiresConfirmation: true, checkpointScore: "major" });
   });
 
-  test("does not require confirmation for small exact replacements across a few explicit files", () => {
+  test("does not require confirmation for an ordinary multi-file exact replacement batch", () => {
     const c = classifyToolMutation("apply_code_replacements", {
       edits: [
         { path: "README.md", oldText: "old", newText: "new", expectedReplacements: 1 },
         { path: "docs/extensions.md", oldText: "old", newText: "new", expectedReplacements: 1 },
         { path: "tests/example.test.ts", oldText: "old", newText: "new", expectedReplacements: 1 },
+        { path: "src/a.ts", oldText: "old", newText: "new", expectedReplacements: 1 },
+        { path: "src/b.ts", oldText: "old", newText: "new", expectedReplacements: 1 },
+        { path: "src/c.ts", oldText: "old", newText: "new", expectedReplacements: 1 },
       ],
     });
 
     expect(c).toMatchObject({ mutates: true, category: "file_replace", severity: "medium", score: 3, requiresConfirmation: false, checkpointScore: "minor" });
-    expect(c.reasons.join("\n")).toContain("small targeted replacements across 3 files");
+    expect(c.reasons.join("\n")).toContain("targeted exact replacements across 6 files");
   });
 
-  test("still requires confirmation for multi-file regex or replace-all replacements", () => {
+  test("still requires confirmation for regex or replace-all replacements against an explicit file", () => {
     const regex = classifyToolMutation("apply_code_replacements", {
-      edits: [
-        { path: "src/a.ts", regex: "foo", newText: "bar" },
-        { path: "src/b.ts", regex: "foo", newText: "bar" },
-      ],
+      edits: [{ path: "src/a.ts", regex: "foo", newText: "bar" }],
     });
     expect(regex).toMatchObject({ score: 8, requiresConfirmation: true, checkpointScore: "major" });
 
     const replaceAll = classifyToolMutation("apply_code_replacements", {
-      edits: [
-        { path: "src/a.ts", oldText: "foo", newText: "bar", replaceAll: true },
-        { path: "src/b.ts", oldText: "foo", newText: "bar" },
-      ],
+      edits: [{ path: "src/a.ts", oldText: "foo", newText: "bar", replaceAll: true }],
     });
     expect(replaceAll).toMatchObject({ score: 8, requiresConfirmation: true, checkpointScore: "major" });
   });

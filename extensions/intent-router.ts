@@ -123,7 +123,8 @@ export function modeAdjustedGroups(groups: CapabilityGroup[]): CapabilityGroup[]
   return groups;
 }
 
-const MUTATION_REQUEST = /\b(implement|edit|change|fix|update|modify|refactor|replace|rename|remove|delete|add)\b/i;
+const EXPLICIT_REPLACEMENT_REQUEST = /\bapply\s+(?:code\s+)?replacements?\b/i;
+const MUTATION_REQUEST = /\b(implement|edit|change|fix|update|modify|refactor|replace|rename|remove|delete|add)\b|\bapply\s+(?:code\s+)?replacements?\b/i;
 
 export function workflowToolNames(route: IntentRoute): string[] {
   if (!["coding", "refactor"].includes(route.primaryIntent)) return [];
@@ -165,6 +166,7 @@ function forcedRoute(intent: IntentOverride, prompt: string): IntentRoute {
 
 function routeForIntent(prompt: string): IntentRoute {
   if (intentOverride) return forcedRoute(intentOverride, prompt);
+  if (EXPLICIT_REPLACEMENT_REQUEST.test(prompt)) return forcedRoute("coding", prompt);
   const suffix = agentOsRoutingPromptSuffix();
   return classifyIntent(suffix ? `${prompt}\n\nActive agent OS registers: ${suffix}` : prompt);
 }
@@ -303,6 +305,10 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
   });
 
   pi.on("input", async (event, ctx) => {
+    // A new user turn starts a new provider request boundary, so its routed
+    // schema may replace the previous turn's prefix. Context/tool-result passes
+    // remain locked below until the next input event.
+    branchToolPrefixLocked = false;
     clearDiscoveredToolsForTurn();
     const route = routeForPrompt(pi, event.text ?? "");
     branchToolPrefixLocked = true;

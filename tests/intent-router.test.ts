@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import intentRouterExtension, { activeToolNames, workflowToolNames } from "../extensions/intent-router";
+import intentRouterExtension, { activeToolNames, routeForPrompt, workflowToolNames } from "../extensions/intent-router";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 import { clearContextProviders, composeTurnContext } from "../extensions/shared/turn-context";
 import { allKnownTestTools, mockPi } from "./helpers/mock-pi";
@@ -32,6 +32,8 @@ describe("activeToolNames", () => {
     expect(tools).not.toContain("create_directory");
     expect(tools).toContain("tool_search");
     expect(tools).toContain("tool_help");
+    expect(tools).toContain("plan_code_replacements");
+    expect(tools).toContain("apply_code_replacements");
     expect(tools).not.toContain("read_agent_registers");
     expect(tools).not.toContain("ctx_region_write");
     expect(tools).not.toContain("compile_tool_grammar");
@@ -56,7 +58,8 @@ describe("activeToolNames", () => {
     expect(tools).toContain("list_files");
     expect(tools).not.toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
-    expect(tools).not.toContain("apply_code_replacements");
+    expect(tools).toContain("apply_code_replacements");
+    expect(tools).toContain("plan_code_replacements");
     expect(tools).not.toContain("create_file");
     expect(tools).toContain("run_checks");
     expect(tools).not.toContain("read");
@@ -64,12 +67,20 @@ describe("activeToolNames", () => {
     expect(tools).not.toContain("web_search");
   });
 
+  test("explicit apply-code-replacements phrasing counts as a mutation workflow", () => {
+    const route = routeForPrompt(pi(["custom_safe_tool"]), "apply code replacements");
+
+    expect(route.primaryIntent).toBe("coding");
+    expect(workflowToolNames(route)).toEqual(["apply_code_replacements", "plan_code_replacements", "run_checks"]);
+  });
+
   test("readonly routing avoids raw read by default", () => {
     const tools = activeToolNames(pi(["read", "bash", "fetch_url"]), ["readonly"]);
 
     expect(tools).toContain("code_search");
     expect(tools).toContain("inspect_lines");
-    expect(tools).not.toContain("apply_code_replacements");
+    expect(tools).toContain("apply_code_replacements");
+    expect(tools).toContain("plan_code_replacements");
     expect(tools).not.toContain("create_file");
     expect(tools).toContain("fetch_url");
     expect(tools).not.toContain("bash");
@@ -84,7 +95,8 @@ describe("research gating", () => {
     expect(tools).toContain("web_search");
     expect(tools).toContain("fetch_url");
     expect(tools).toContain("inspect_lines");
-    expect(tools).not.toContain("apply_code_replacements");
+    expect(tools).toContain("apply_code_replacements");
+    expect(tools).toContain("plan_code_replacements");
     expect(tools).not.toContain("create_file");
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("read");
@@ -255,6 +267,42 @@ describe("context rerouting", () => {
     else process.env.KEYLIME_DISABLE_RESEARCH = oldDisable;
   });
 
+  test("a later user input unlocks the branch and refreshes routed tools", async () => {
+    const { default: intentRouterExtension, resetIntentRoutingForTests } = await import("../extensions/intent-router");
+    const fixture = mockPi(["custom_safe_tool"]);
+    const handlers: Record<string, any> = {};
+    let active = ["custom_safe_tool"];
+    const oldEnable = process.env.KEYLIME_ENABLE_RESEARCH;
+    const oldDisable = process.env.KEYLIME_DISABLE_RESEARCH;
+    process.env.KEYLIME_ENABLE_RESEARCH = "1";
+    delete process.env.KEYLIME_DISABLE_RESEARCH;
+    const routedPi = {
+      ...fixture,
+      getActiveTools: () => active.map(name => ({ name })),
+      setActiveTools: (names: string[]) => { active = names; },
+      on: (name: string, handler: any) => { handlers[name] = handler; },
+      registerCommand: () => {},
+    } as any;
+    const ctx = { ui: { setStatus: () => {}, theme: { fg: (_style: string, text: string) => text } } };
+
+    resetIntentRoutingForTests();
+    intentRouterExtension(routedPi);
+    await handlers.input({ text: "implement this code change" }, ctx);
+    expect(active).not.toContain("web_search");
+
+    await handlers.context({ messages: [{ role: "user", content: "research current sources online" }] }, ctx);
+    expect(active).not.toContain("web_search");
+
+    await handlers.input({ text: "research current sources online" }, ctx);
+    expect(active).toContain("web_search");
+    expect(active).toContain("research_topic");
+
+    if (oldEnable === undefined) delete process.env.KEYLIME_ENABLE_RESEARCH;
+    else process.env.KEYLIME_ENABLE_RESEARCH = oldEnable;
+    if (oldDisable === undefined) delete process.env.KEYLIME_DISABLE_RESEARCH;
+    else process.env.KEYLIME_DISABLE_RESEARCH = oldDisable;
+  });
+
   test("context pass does not reset tools when the active schema set is already correct", async () => {
     const { default: intentRouterExtension } = await import("../extensions/intent-router");
     const handlers: Record<string, any> = {};
@@ -275,9 +323,9 @@ describe("context rerouting", () => {
     await handlers.context({ messages: [{ role: "user", content: "implement code change" }] }, ctx);
     await handlers.context({ messages: [{ role: "user", content: "implement code change" }] }, ctx);
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toContain("plan_code_replacements");
-    expect(calls[0]).toContain("apply_code_replacements");
+    expect(calls).toHaveLength(0);
+    expect(active).toContain("plan_code_replacements");
+    expect(active).toContain("apply_code_replacements");
   });
 });
 
@@ -310,7 +358,7 @@ test("switch-intent linux_ops activates the execution capability guard", async (
   await commands["switch-intent"].handler("auto", ctx);
 });
 
-test("switch-intent programming forces coding tools until cleared", async () => {
+test("manual programming intent followed by apply code replacements exposes the apply tool", async () => {
   const { default: intentRouterExtension, routeForPrompt } = await import("../extensions/intent-router");
   const commands: Record<string, any> = {};
   const calls: string[][] = [];
@@ -328,10 +376,11 @@ test("switch-intent programming forces coding tools until cleared", async () => 
   intentRouterExtension(mockPi);
   await commands["switch-intent"].handler("programming", ctx);
 
-  const forcedRoute = routeForPrompt(mockPi, "tell me about the latest brooks ghost");
+  const forcedRoute = routeForPrompt(mockPi, "apply code replacements");
 
   expect(forcedRoute.primaryIntent).toBe("coding");
-  expect(calls.at(-1)).not.toContain("apply_code_replacements");
+  expect(calls.at(-1)).toContain("apply_code_replacements");
+  expect(calls.at(-1)).toContain("plan_code_replacements");
   expect(calls.at(-1)).toContain("run_checks");
   expect(calls.at(-1)).not.toContain("web_search");
 
@@ -408,8 +457,8 @@ test("coding route starts with bootstrap tools and defers codemods", () => {
 
   expect(tools).toContain("inspect_text_matches");
   expect(tools).toContain("inspect_lines");
-  expect(tools).not.toContain("plan_code_replacements");
-  expect(tools).not.toContain("apply_code_replacements");
+  expect(tools).toContain("plan_code_replacements");
+  expect(tools).toContain("apply_code_replacements");
   expect(tools).not.toContain("create_file");
   expect(tools).not.toContain("create_directory");
   expect(tools).toContain("run_checks");
@@ -441,7 +490,8 @@ test("review mode keeps safe file primitives but removes unrelated domain tools"
   expect(tools).not.toContain("read");
   expect(tools).toContain("code_search");
   expect(tools).not.toContain("inspect_code_structure");
-  expect(tools).not.toContain("apply_code_replacements");
+  expect(tools).toContain("apply_code_replacements");
+  expect(tools).toContain("plan_code_replacements");
   expect(tools).not.toContain("create_file");
   expect(tools).toContain("custom_safe_tool");
   expect(tools).not.toContain("edit");
