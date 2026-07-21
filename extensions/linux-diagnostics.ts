@@ -18,6 +18,121 @@ async function optionalCommand(command: string, args: string[], maxChars = 12000
   }
 }
 
+interface DiagnosticProbe { name: string; status: "ok" | "unavailable" | "error"; output: string }
+interface ResourceSnapshot { at_ms: number; load?: Record<string, unknown>; memory?: Record<string, number>; pressure?: Record<string, unknown>; vmstat?: Record<string, number>; unavailable: string[] }
+
+const anomalyPatterns: Array<{ category: string; severity: "warning" | "error" | "critical"; pattern: RegExp }> = [
+  { category: "kernel_panic_lockup", severity: "critical", pattern: /kernel panic|not syncing|soft lockup|hard lockup|watchdog.*lockup|hung task/i },
+  { category: "out_of_memory", severity: "critical", pattern: /out of memory|oom-kill|oom_reaper|killed process \d+/i },
+  { category: "hardware_mce_edac", severity: "critical", pattern: /machine check|hardware error|\bmce\b|\bedac\b|uncorrected error|corrected error/i },
+  { category: "storage_io", severity: "error", pattern: /\bnvme\b.*(?:error|reset|timeout|abort|failed)|I\/O error|blk_update_request|buffer i\/o|ata\d.*(?:error|failed|timeout)/i },
+  { category: "filesystem", severity: "error", pattern: /EXT[234]-fs error|XFS.*(?:corruption|error)|BTRFS.*(?:error|corrupt)|filesystem.*read-only|journal.*abort/i },
+  { category: "thermal_power", severity: "critical", pattern: /critical temperature|overheat|thermal.*(?:trip|thrott)|undervoltage|brownout|power (?:failure|loss)/i },
+  { category: "gpu", severity: "error", pattern: /(?:amdgpu|i915|nvrm|nouveau|drm|gpu).*(?:hang|reset|fault|timeout|wedged|error)/i },
+  { category: "network", severity: "warning", pattern: /NETDEV WATCHDOG|link is down|tx timeout|carrier lost|renamed from|martian source/i },
+  { category: "service", severity: "error", pattern: /Failed to start|Main process exited|start request repeated too quickly|dependency failed|timed out waiting/i },
+  { category: "security", severity: "warning", pattern: /apparmor=.*DENIED|avc:\s+denied|segfault at|general protection fault/i },
+];
+
+async function probeCommand(name: string, command: string, args: string[], maxChars = 6000, timeoutMs = 15_000): Promise<DiagnosticProbe> {
+  if (!(await commandAvailable(command))) return { name, status: "unavailable", output: `${command} is unavailable` };
+  try {
+    const result = await runCommand({ command, args }, { timeoutMs, maxBuffer: 512 * 1024 });
+    return { name, status: "ok", output: preview(result.stdout || result.stderr || "No output", maxChars) };
+  } catch (error: any) {
+    return { name, status: "error", output: preview(error.stdout ?? error.stderr ?? error.message ?? String(error), maxChars) };
+  }
+}
+
+async function probeFile(name: string, file: string, maxChars = 6000): Promise<DiagnosticProbe> {
+  try { return { name, status: "ok", output: preview(await readFile(file, "utf8"), maxChars) }; }
+  catch (error: any) { return { name, status: error?.code === "ENOENT" ? "unavailable" : "error", output: `Unavailable or permission-restricted: ${String(error?.code ?? error?.message ?? error).slice(0, 200)}` }; }
+}
+
+function boundedTime(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 200 || /[\0\r\n]/.test(value)) throw new Error(`${label} must be a single bounded journal time expression`);
+  return value;
+}
+
+function classifyEvidence(text: string, maxEvidence = 100) {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const categories: Record<string, { severity: string; count: number; evidence: string[] }> = {};
+  const events: Array<{ category: string; severity: string; line: string }> = [];
+  for (const line of lines) {
+    for (const rule of anomalyPatterns) {
+      if (!rule.pattern.test(line)) continue;
+      const entry = categories[rule.category] ??= { severity: rule.severity, count: 0, evidence: [] };
+      entry.count++;
+      if (entry.evidence.length < 12) entry.evidence.push(line.slice(0, 1000));
+      if (events.length < maxEvidence) events.push({ category: rule.category, severity: rule.severity, line: line.slice(0, 1000) });
+    }
+  }
+  return { categories, events };
+}
+
+function parseKeyValues(text: string): Record<string, number> {
+  const values: Record<string, number> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^([A-Za-z0-9_()]+):?\s+(-?\d+(?:\.\d+)?)/);
+    if (match) values[match[1]!] = Number(match[2]);
+  }
+  return values;
+}
+
+function parsePressure(text: string) {
+  const result: Record<string, Record<string, number>> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const [kind, ...fields] = line.trim().split(/\s+/);
+    if (!kind) continue;
+    result[kind] = Object.fromEntries(fields.map(field => field.split("=")).filter(parts => parts.length === 2).map(([key, value]) => [key, Number(value)]));
+  }
+  return result;
+}
+
+async function collectResourceSnapshot(): Promise<ResourceSnapshot> {
+  const snapshot: ResourceSnapshot = { at_ms: Date.now(), unavailable: [] };
+  try {
+    const parts = (await readFile("/proc/loadavg", "utf8")).trim().split(/\s+/);
+    snapshot.load = { one_minute: Number(parts[0]), five_minutes: Number(parts[1]), fifteen_minutes: Number(parts[2]), runnable: parts[3], latest_pid: Number(parts[4]) };
+  } catch (error: any) { snapshot.unavailable.push(`/proc/loadavg: ${error?.code ?? error?.message ?? error}`); }
+  try { snapshot.memory = parseKeyValues(await readFile("/proc/meminfo", "utf8")); }
+  catch (error: any) { snapshot.unavailable.push(`/proc/meminfo: ${error?.code ?? error?.message ?? error}`); }
+  const pressure: Record<string, unknown> = {};
+  for (const kind of ["cpu", "memory", "io"]) {
+    try { pressure[kind] = parsePressure(await readFile(`/proc/pressure/${kind}`, "utf8")); }
+    catch (error: any) { snapshot.unavailable.push(`/proc/pressure/${kind}: ${error?.code ?? error?.message ?? error}`); }
+  }
+  snapshot.pressure = pressure;
+  try { snapshot.vmstat = parseKeyValues((await readFile("/proc/vmstat", "utf8")).replace(/^(\S+)\s+/gm, "$1: ")); }
+  catch (error: any) { snapshot.unavailable.push(`/proc/vmstat: ${error?.code ?? error?.message ?? error}`); }
+  return snapshot;
+}
+
+function resourceDelta(first: ResourceSnapshot, last: ResourceSnapshot) {
+  const keys = ["pswpin", "pswpout", "pgmajfault", "oom_kill", "pgscan_kswapd", "pgscan_direct", "pgsteal_kswapd", "pgsteal_direct"];
+  return Object.fromEntries(keys.map(key => [key, (last.vmstat?.[key] ?? 0) - (first.vmstat?.[key] ?? 0)]));
+}
+
+function compactResource(snapshot: ResourceSnapshot) {
+  const memoryKeys = ["MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapTotal", "SwapFree", "Dirty", "Writeback", "Slab", "SReclaimable", "PageTables"];
+  const vmstatKeys = ["pswpin", "pswpout", "pgfault", "pgmajfault", "oom_kill", "pgscan_kswapd", "pgscan_direct", "pgsteal_kswapd", "pgsteal_direct"];
+  return { at_ms: snapshot.at_ms, load: snapshot.load, memory_kb: Object.fromEntries(memoryKeys.map(key => [key, snapshot.memory?.[key]]).filter(([, value]) => value !== undefined)), pressure: snapshot.pressure, vmstat: Object.fromEntries(vmstatKeys.map(key => [key, snapshot.vmstat?.[key]]).filter(([, value]) => value !== undefined)), unavailable: snapshot.unavailable };
+}
+
+function incidentHypotheses(categories: Record<string, unknown>): string[] {
+  const present = new Set(Object.keys(categories));
+  const hypotheses: string[] = [];
+  if (present.has("out_of_memory")) hypotheses.push("Memory exhaustion is supported by OOM evidence; inspect pressure, swap activity, and the named victim processes.");
+  if (present.has("storage_io") && present.has("filesystem")) hypotheses.push("Storage and filesystem errors co-occur; investigate device health and preserve data before stress testing.");
+  if (present.has("thermal_power")) hypotheses.push("Thermal or power evidence is present; correlate temperatures, voltage/power readings, and shutdown timing.");
+  if (present.has("kernel_panic_lockup")) hypotheses.push("Kernel panic/lockup evidence is present; inspect pstore, taint, hardware counters, and affected drivers.");
+  if (present.has("gpu")) hypotheses.push("GPU driver or hardware recovery events are present; correlate resets with workload and kernel taint.");
+  if (present.has("network")) hypotheses.push("Network link or transmit evidence is present; inspect interface counters, routes, and driver logs.");
+  return hypotheses;
+}
+
+function resultReport(report: unknown, details: Record<string, unknown> = {}) { return textResult(preview(JSON.stringify(report, null, 2), 30000), details); }
+
 export default function (pi: ExtensionAPI) {
   registerLinuxTool(pi, {
     name: "inspect_boot",
@@ -134,6 +249,214 @@ export default function (pi: ExtensionAPI) {
         optionalCommand("pacman", ["-Qu"], 16000),
       ]);
       return textResult(parts.join("\n\n"));
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "diagnose_system_health",
+    label: "Diagnose System Health",
+    description: "Run a resilient, bounded cross-system health snapshot covering resources, processes, storage, services, kernel evidence, and networking.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ duration_seconds: Type.Optional(Type.Number({ minimum: 0, maximum: 10 })), process_limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })) }),
+    async execute(_id: string, params: any) {
+      const duration = params.duration_seconds ?? 0;
+      const processLimit = params.process_limit ?? 15;
+      const first = await collectResourceSnapshot();
+      const probesPromise = Promise.all([
+        probeCommand("top_cpu_processes", "ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,etime,comm", "--sort=-pcpu"]),
+        probeCommand("top_memory_processes", "ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,etime,comm", "--sort=-rss"]),
+        probeCommand("filesystem_capacity", "df", ["-hPT"]),
+        probeCommand("filesystem_inodes", "df", ["-hiP"]),
+        probeCommand("failed_services", "systemctl", ["--failed", "--no-legend", "--plain"]),
+        probeCommand("socket_summary", "ss", ["-s"]),
+        probeCommand("network_links", "ip", ["-s", "link", "show"]),
+        probeCommand("current_boot_errors", "journalctl", ["--no-pager", "-b", "-p", "err", "-n", "200"]),
+        probeFile("software_raid", "/proc/mdstat"),
+      ]);
+      if (duration > 0) await new Promise(resolve => setTimeout(resolve, duration * 1000));
+      const last = duration > 0 ? await collectResourceSnapshot() : first;
+      const probes = await probesPromise;
+      for (const probe of probes.filter(probe => probe.name.startsWith("top_"))) probe.output = probe.output.split(/\r?\n/).slice(0, processLimit + 1).join("\n");
+      const classified = classifyEvidence(probes.map(probe => probe.output).join("\n"), 100);
+      const severities = Object.values(classified.categories).map(category => category.severity);
+      const overall = severities.includes("critical") ? "critical evidence detected" : severities.includes("error") ? "degraded evidence detected" : severities.includes("warning") ? "warnings detected" : "no known critical signatures detected";
+      return resultReport({ overall, sampled_seconds: duration, resources: { first: compactResource(first), last: compactResource(last), vmstat_delta: resourceDelta(first, last) }, anomalies: classified.categories, hypotheses: incidentHypotheses(classified.categories), probes }, { process_limit: processLimit, duration_seconds: duration });
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "inspect_kernel_anomalies",
+    label: "Inspect Kernel Anomalies",
+    description: "Classify bounded kernel journal evidence for panics, lockups, OOM, hardware, storage, filesystem, GPU, thermal, power, network, and security faults.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ boot: Type.Optional(Type.Integer({ minimum: -100, maximum: 0 })), since: Type.Optional(Type.String({ maxLength: 200 })), until: Type.Optional(Type.String({ maxLength: 200 })), lines: Type.Optional(Type.Integer({ minimum: 50, maximum: 2000 })) }),
+    async execute(_id: string, params: any) {
+      const lineLimit = params.lines ?? 500;
+      const args = ["--no-pager", "-k", `--boot=${params.boot ?? 0}`, "-n", String(lineLimit), "-o", "short-iso", ...(params.since ? [`--since=${boundedTime(params.since, "since")}`] : []), ...(params.until ? [`--until=${boundedTime(params.until, "until")}`] : [])];
+      const journal = await probeCommand("kernel_journal", "journalctl", args, 20000, 30_000);
+      const classified = classifyEvidence(journal.output, 200);
+      return resultReport({ boot: params.boot ?? 0, status: journal.status, categories: classified.categories, hypotheses: incidentHypotheses(classified.categories), events: classified.events, note: "Signatures are diagnostic evidence, not definitive root-cause determinations." }, { lines: lineLimit });
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "inspect_resource_pressure",
+    label: "Inspect Resource Pressure",
+    description: "Sample load, PSI, memory, swap, reclaim, major faults, OOM counters, and top CPU/memory processes.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ duration_seconds: Type.Optional(Type.Number({ minimum: 0, maximum: 30 })), sample_count: Type.Optional(Type.Integer({ minimum: 1, maximum: 30 })), process_limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })) }),
+    async execute(_id: string, params: any) {
+      const duration = params.duration_seconds ?? 0;
+      const sampleCount = duration > 0 ? (params.sample_count ?? 2) : 1;
+      const processLimit = params.process_limit ?? 20;
+      const snapshots: ResourceSnapshot[] = [];
+      for (let index = 0; index < sampleCount; index++) {
+        snapshots.push(await collectResourceSnapshot());
+        if (index + 1 < sampleCount) await new Promise(resolve => setTimeout(resolve, duration * 1000 / (sampleCount - 1)));
+      }
+      const [cpu, memory] = await Promise.all([
+        probeCommand("top_cpu_processes", "ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,vsz,etime,comm", "--sort=-pcpu"]),
+        probeCommand("top_memory_processes", "ps", ["-eo", "pid,ppid,user,stat,pcpu,pmem,rss,vsz,etime,comm", "--sort=-rss"]),
+      ]);
+      cpu.output = cpu.output.split(/\r?\n/).slice(0, processLimit + 1).join("\n");
+      memory.output = memory.output.split(/\r?\n/).slice(0, processLimit + 1).join("\n");
+      return resultReport({ sampled_seconds: duration, samples: snapshots.map(compactResource), vmstat_delta: resourceDelta(snapshots[0]!, snapshots.at(-1)!), processes: [cpu, memory] }, { samples: sampleCount, process_limit: processLimit });
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "inspect_service_failures",
+    label: "Inspect Service Failures",
+    description: "Inspect failed systemd units, exit results, restart counts, dependency failures, timeouts, and bounded recent logs.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ since: Type.Optional(Type.String({ maxLength: 200 })), max_units: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })), lines_per_unit: Type.Optional(Type.Integer({ minimum: 10, maximum: 200 })) }),
+    async execute(_id: string, params: any) {
+      const maxUnits = params.max_units ?? 10;
+      const lines = params.lines_per_unit ?? 60;
+      const failed = await probeCommand("failed_units", "systemctl", ["--failed", "--no-legend", "--plain"], 10000);
+      const restartJournal = await probeCommand("restart_loop_evidence", "journalctl", ["--no-pager", "-b", "-n", "1000", "--grep=(Scheduled restart job|start request repeated too quickly|Main process exited|Failed with result|dependency failed|timed out)", ...(params.since ? [`--since=${boundedTime(params.since, "since")}`] : [])], 10000);
+      const failedUnits = failed.output.split(/\r?\n/).map(line => line.trim().split(/\s+/)[0] ?? "");
+      const restartUnits = [...restartJournal.output.matchAll(/\b([A-Za-z0-9:_.@\\-]+\.service):/g)].map(match => match[1]!);
+      const units = [...new Set([...failedUnits, ...restartUnits])].filter(unit => /^[A-Za-z0-9:_.@\\-]+\.(?:service|socket|mount|target|timer|path|scope|slice|device)$/.test(unit)).slice(0, maxUnits);
+      const reports: Record<string, unknown>[] = [];
+      for (const unit of units) {
+        const show = await probeCommand(`${unit}_state`, "systemctl", ["show", unit, "--no-pager", "--property=Id,LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,NRestarts,StateChangeTimestamp,InactiveExitTimestamp"], 5000);
+        const journalArgs = ["--no-pager", "-b", `--unit=${unit}`, "-n", String(lines), ...(params.since ? [`--since=${boundedTime(params.since, "since")}`] : [])];
+        const journal = await probeCommand(`${unit}_journal`, "journalctl", journalArgs, 6000);
+        const restartMatches = journal.output.match(/Scheduled restart job|start request repeated too quickly|Main process exited/gi) ?? [];
+        reports.push({ unit, state: show, restart_or_crash_markers: restartMatches.length, journal, evidence: classifyEvidence(journal.output, 30).categories });
+      }
+      return resultReport({ failed_units_probe: failed, restart_loop_probe: restartJournal, units: reports, note: units.length === 0 ? "No failed or restart-looping units were reported, or systemd is unavailable." : undefined }, { units: units.length, lines_per_unit: lines });
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "inspect_storage_health",
+    label: "Inspect Storage Health",
+    description: "Inspect capacity, inode pressure, block devices, RAID, disk statistics, storage kernel errors, and optional read-only SMART/NVMe health.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ max_devices: Type.Optional(Type.Integer({ minimum: 1, maximum: 12 })), include_device_health: Type.Optional(Type.Boolean()), journal_lines: Type.Optional(Type.Integer({ minimum: 20, maximum: 1000 })) }),
+    async execute(_id: string, params: any) {
+      const maxDevices = params.max_devices ?? 6;
+      const journalLines = params.journal_lines ?? 300;
+      const probes = await Promise.all([
+        probeCommand("block_devices", "lsblk", ["-J", "-d", "-o", "NAME,PATH,TYPE,SIZE,MODEL,ROTA,RO,MOUNTPOINTS"], 12000),
+        probeCommand("filesystem_capacity", "df", ["-hPT"], 10000),
+        probeCommand("filesystem_inodes", "df", ["-hiP"], 10000),
+        probeCommand("mounts", "findmnt", ["--noheadings", "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"], 10000),
+        probeFile("software_raid", "/proc/mdstat", 8000),
+        probeFile("disk_statistics", "/proc/diskstats", 12000),
+        probeCommand("storage_kernel_evidence", "journalctl", ["--no-pager", "-k", "-b", "-n", String(journalLines), "--grep=(I/O error|nvme|ata[0-9]|blk_update_request|filesystem error|EXT[234]-fs|XFS|BTRFS|md.*degrad)"], 12000),
+      ]);
+      let devices: any[] = [];
+      try { devices = JSON.parse(probes[0]!.output).blockdevices?.filter((device: any) => device.type === "disk").slice(0, maxDevices) ?? []; } catch {}
+      const health: DiagnosticProbe[] = [];
+      if (params.include_device_health ?? true) {
+        for (const device of devices) {
+          const devicePath = String(device.path ?? "");
+          if (!/^\/dev\/[A-Za-z0-9._-]+$/.test(devicePath)) continue;
+          health.push(devicePath.includes("nvme")
+            ? await probeCommand(`${devicePath}_nvme_health`, "nvme", ["smart-log", devicePath], 8000, 20_000)
+            : await probeCommand(`${devicePath}_smart_health`, "smartctl", ["-H", "-A", "--", devicePath], 8000, 20_000));
+        }
+      }
+      const classified = classifyEvidence(probes.map(probe => probe.output).join("\n"), 100);
+      return resultReport({ devices, device_health: health, probes, anomalies: classified.categories, hypotheses: incidentHypotheses(classified.categories) }, { devices: devices.length, journal_lines: journalLines });
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "inspect_network_health",
+    label: "Inspect Network Health",
+    description: "Inspect interface errors and drops, routes, sockets, protocol counters, resolver state, driver evidence, and an optional bounded host probe.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ probe_host: Type.Optional(Type.String({ maxLength: 253 })), ping_count: Type.Optional(Type.Integer({ minimum: 1, maximum: 5 })), journal_lines: Type.Optional(Type.Integer({ minimum: 20, maximum: 1000 })) }),
+    async execute(_id: string, params: any) {
+      const journalLines = params.journal_lines ?? 300;
+      const netDev = await probeFile("interface_counters", "/proc/net/dev", 12000);
+      const interfaces = netDev.output.split(/\r?\n/).flatMap(line => {
+        const match = line.match(/^\s*([^:]+):\s+(.+)$/); if (!match) return [];
+        const fields = match[2]!.trim().split(/\s+/).map(Number);
+        return [{ interface: match[1]!.trim(), receive_bytes: fields[0], receive_errors: fields[2], receive_drops: fields[3], transmit_bytes: fields[8], transmit_errors: fields[10], transmit_drops: fields[11], collisions: fields[13], has_errors: [fields[2], fields[3], fields[10], fields[11], fields[13]].some(value => (value ?? 0) > 0) }];
+      });
+      const probes = await Promise.all([
+        probeCommand("link_state", "ip", ["-s", "link", "show"], 12000),
+        probeCommand("ipv4_routes", "ip", ["route", "show"], 8000),
+        probeCommand("ipv6_routes", "ip", ["-6", "route", "show"], 8000),
+        probeCommand("socket_summary", "ss", ["-s"], 6000),
+        probeCommand("resolver", "resolvectl", ["status"], 10000),
+        probeFile("snmp_counters", "/proc/net/snmp", 12000),
+        probeFile("extended_network_counters", "/proc/net/netstat", 12000),
+        probeCommand("network_kernel_evidence", "journalctl", ["--no-pager", "-k", "-b", "-n", String(journalLines), "--grep=(NETDEV WATCHDOG|link.*down|tx timeout|carrier|firmware.*fail|renamed from|martian)"], 10000),
+      ]);
+      if (params.probe_host) {
+        const host = validateOperand(params.probe_host, "probe host");
+        probes.push(await probeCommand("host_resolution", "getent", ["ahosts", host], 5000));
+        probes.push(await probeCommand("host_ping", "ping", ["-c", String(params.ping_count ?? 3), "--", host], 5000, 15_000));
+      }
+      const classified = classifyEvidence(probes.map(probe => probe.output).join("\n"), 100);
+      return resultReport({ interfaces, interfaces_with_errors: interfaces.filter(item => item.has_errors), probes, anomalies: classified.categories, hypotheses: incidentHypotheses(classified.categories) }, { interfaces: interfaces.length, journal_lines: journalLines });
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "inspect_boot_performance",
+    label: "Inspect Boot Performance",
+    description: "Inspect boot duration, slow units, critical chain, failed units, boot jobs, and bounded boot warnings.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ max_units: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })), warning_lines: Type.Optional(Type.Integer({ minimum: 20, maximum: 1000 })) }),
+    async execute(_id: string, params: any) {
+      const maxUnits = params.max_units ?? 30;
+      const warningLines = params.warning_lines ?? 200;
+      const probes = await Promise.all([
+        probeCommand("boot_time", "systemd-analyze", ["time"], 4000),
+        probeCommand("slow_units", "systemd-analyze", ["blame", "--no-pager"], 12000),
+        probeCommand("critical_chain", "systemd-analyze", ["critical-chain", "--no-pager"], 12000),
+        probeCommand("failed_units", "systemctl", ["--failed", "--no-legend", "--plain"], 8000),
+        probeCommand("pending_jobs", "systemctl", ["list-jobs", "--no-pager", "--no-legend"], 6000),
+        probeCommand("boot_warnings", "journalctl", ["--no-pager", "-b", "-p", "warning", "-n", String(warningLines)], 12000),
+      ]);
+      const blame = probes.find(probe => probe.name === "slow_units");
+      if (blame) blame.output = blame.output.split(/\r?\n/).slice(0, maxUnits).join("\n");
+      const classified = classifyEvidence(probes.map(probe => probe.output).join("\n"), 100);
+      return resultReport({ probes, anomalies: classified.categories, hypotheses: incidentHypotheses(classified.categories) }, { max_units: maxUnits, warning_lines: warningLines });
+    },
+  });
+
+  registerLinuxTool(pi, {
+    name: "correlate_system_incident",
+    label: "Correlate System Incident",
+    description: "Correlate bounded journal evidence across kernel, memory, storage, hardware, GPU, network, service, power, and security categories in one time window.",
+    promptGuidelines: guidelines,
+    parameters: Type.Object({ since: Type.Optional(Type.String({ maxLength: 200 })), until: Type.Optional(Type.String({ maxLength: 200 })), boot: Type.Optional(Type.Integer({ minimum: -100, maximum: 0 })), lines: Type.Optional(Type.Integer({ minimum: 100, maximum: 3000 })), max_events: Type.Optional(Type.Integer({ minimum: 20, maximum: 500 })) }),
+    async execute(_id: string, params: any) {
+      const lineLimit = params.lines ?? 1200;
+      const maxEvents = params.max_events ?? 200;
+      const args = ["--no-pager", `--boot=${params.boot ?? 0}`, "-n", String(lineLimit), "-o", "short-iso", `--since=${boundedTime(params.since ?? "1 hour ago", "since")}`, ...(params.until ? [`--until=${boundedTime(params.until, "until")}`] : [])];
+      const journal = await probeCommand("incident_journal", "journalctl", args, 24000, 30_000);
+      const classified = classifyEvidence(journal.output, maxEvents);
+      const severityCounts = classified.events.reduce<Record<string, number>>((counts, event) => { counts[event.severity] = (counts[event.severity] ?? 0) + 1; return counts; }, {});
+      return resultReport({ window: { since: params.since ?? "1 hour ago", until: params.until ?? "now", boot: params.boot ?? 0 }, journal_status: journal.status, severity_counts: severityCounts, categories: classified.categories, hypotheses: incidentHypotheses(classified.categories), timeline: classified.events, caveat: "Correlation identifies co-occurring evidence and plausible investigation paths; it does not prove causation." }, { lines: lineLimit, max_events: maxEvents });
     },
   });
 }

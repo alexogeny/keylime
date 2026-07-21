@@ -54,6 +54,8 @@ describe("linux operations tools", () => {
       "apt_remove", "pacman_plan_remove", "pacman_remove", "systemd_plan_action", "systemd_list_timers", "systemd_reload",
       "inspect_routes", "inspect_resolver", "plan_archive_path", "apply_ownership_change",
       "inspect_boot", "inspect_pressure", "inspect_disk_health", "inspect_open_deleted_files", "inspect_containers", "inspect_kernel_modules", "inspect_time_sync", "inspect_security_updates",
+      "diagnose_system_health", "inspect_kernel_anomalies", "inspect_resource_pressure", "inspect_service_failures",
+      "inspect_storage_health", "inspect_network_health", "inspect_boot_performance", "correlate_system_incident",
     ]));
   });
 
@@ -91,6 +93,25 @@ describe("linux operations tools", () => {
     const crash = tools.inspect_hardware_crash_evidence.parameters.properties;
     expect(crash.max_files.maximum).toBe(20);
     expect(crash.max_chars.maximum).toBe(20000);
+  });
+
+  test("advanced diagnostics are bounded and expose no arbitrary execution", () => {
+    const { tools } = registerAll();
+    const names = ["diagnose_system_health", "inspect_kernel_anomalies", "inspect_resource_pressure", "inspect_service_failures", "inspect_storage_health", "inspect_network_health", "inspect_boot_performance", "correlate_system_incident"];
+    for (const name of names) {
+      const properties = tools[name].parameters.properties;
+      expect(properties.command).toBeUndefined();
+      expect(properties.args).toBeUndefined();
+    }
+    expect(tools.diagnose_system_health.parameters.properties.process_limit.maximum).toBe(50);
+    expect(tools.inspect_kernel_anomalies.parameters.properties.lines.maximum).toBe(2000);
+    expect(tools.inspect_resource_pressure.parameters.properties.duration_seconds.maximum).toBe(30);
+    expect(tools.inspect_resource_pressure.parameters.properties.sample_count.maximum).toBe(30);
+    expect(tools.inspect_service_failures.parameters.properties.max_units.maximum).toBe(20);
+    expect(tools.inspect_storage_health.parameters.properties.max_devices.maximum).toBe(12);
+    expect(tools.inspect_network_health.parameters.properties.ping_count.maximum).toBe(5);
+    expect(tools.inspect_boot_performance.parameters.properties.max_units.maximum).toBe(100);
+    expect(tools.correlate_system_incident.parameters.properties.max_events.maximum).toBe(500);
   });
 
   test("shared safety helpers reject broad or critical targets", () => {
