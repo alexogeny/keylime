@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, statfs } from "node:fs/promises";
+import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { commandAvailable, preview, registerLinuxTool, runCommand, textResult, validateOperand } from "./shared/linux-safety";
 
 const guidelines = [
@@ -11,10 +12,10 @@ const guidelines = [
 async function optionalCommand(command: string, args: string[], maxChars = 12000): Promise<string> {
   if (!(await commandAvailable(command))) return `$ ${command} ${args.join(" ")}\nUnavailable`;
   try {
-    const result = await runCommand({ command, args }, { timeoutMs: 30_000, maxBuffer: 1024 * 1024 });
+    const result = await runCommand({ command, args }, { timeoutMs: 30_000, maxBuffer: 1024 * 1024, maxOutputChars: maxChars });
     return `$ ${command} ${args.join(" ")}\n${preview(result.stdout || result.stderr || "No output", maxChars)}`;
   } catch (error: any) {
-    return `$ ${command} ${args.join(" ")}\n${preview(error.stdout ?? error.stderr ?? error.message ?? String(error), maxChars)}`;
+    return `$ ${command} ${args.join(" ")}\n${preview(error.stdout || error.stderr || error.message || String(error), maxChars)}`;
   }
 }
 
@@ -34,17 +35,17 @@ const anomalyPatterns: Array<{ category: string; severity: "warning" | "error" |
   { category: "security", severity: "warning", pattern: /apparmor=.*DENIED|avc:\s+denied|segfault at|general protection fault/i },
 ];
 
-async function probeCommand(name: string, command: string, args: string[], maxChars = 6000, timeoutMs = 15_000): Promise<DiagnosticProbe> {
+export async function probeCommand(name: string, command: string, args: string[], maxChars = 6000, timeoutMs = 15_000): Promise<DiagnosticProbe> {
   if (!(await commandAvailable(command))) return { name, status: "unavailable", output: `${command} is unavailable` };
   try {
-    const result = await runCommand({ command, args }, { timeoutMs, maxBuffer: 512 * 1024 });
+    const result = await runCommand({ command, args }, { timeoutMs, maxBuffer: 512 * 1024, maxOutputChars: maxChars });
     return { name, status: "ok", output: preview(result.stdout || result.stderr || "No output", maxChars) };
   } catch (error: any) {
-    return { name, status: "error", output: preview(error.stdout ?? error.stderr ?? error.message ?? String(error), maxChars) };
+    return { name, status: "error", output: preview(error.stdout || error.stderr || error.message || String(error), maxChars) };
   }
 }
 
-async function probeFile(name: string, file: string, maxChars = 6000): Promise<DiagnosticProbe> {
+export async function probeFile(name: string, file: string, maxChars = 6000): Promise<DiagnosticProbe> {
   try { return { name, status: "ok", output: preview(await readFile(file, "utf8"), maxChars) }; }
   catch (error: any) { return { name, status: error?.code === "ENOENT" ? "unavailable" : "error", output: `Unavailable or permission-restricted: ${String(error?.code ?? error?.message ?? error).slice(0, 200)}` }; }
 }
@@ -54,7 +55,7 @@ function boundedTime(value: unknown, label: string): string {
   return value;
 }
 
-function classifyEvidence(text: string, maxEvidence = 100) {
+export function classifyEvidence(text: string, maxEvidence = 100) {
   const lines = text.split(/\r?\n/).filter(Boolean);
   const categories: Record<string, { severity: string; count: number; evidence: string[] }> = {};
   const events: Array<{ category: string; severity: string; line: string }> = [];
@@ -79,7 +80,7 @@ function parseKeyValues(text: string): Record<string, number> {
   return values;
 }
 
-function parsePressure(text: string) {
+export function parsePressure(text: string) {
   const result: Record<string, Record<string, number>> = {};
   for (const line of text.split(/\r?\n/)) {
     const [kind, ...fields] = line.trim().split(/\s+/);
@@ -113,6 +114,21 @@ function resourceDelta(first: ResourceSnapshot, last: ResourceSnapshot) {
   return Object.fromEntries(keys.map(key => [key, (last.vmstat?.[key] ?? 0) - (first.vmstat?.[key] ?? 0)]));
 }
 
+export function extractServiceUnits(failedOutput: string, restartOutput: string, limit: number): string[] {
+  const failedUnits = failedOutput.split(/\r?\n/).map(line => line.trim().split(/\s+/)[0] ?? "");
+  const restartUnits = [...restartOutput.matchAll(/\b([A-Za-z0-9:_.@\\-]+\.service):/g)].map(match => match[1]!);
+  return [...new Set([...failedUnits, ...restartUnits])].filter(unit => /^[A-Za-z0-9:_.@\\-]+\.(?:service|socket|mount|target|timer|path|scope|slice|device)$/.test(unit)).slice(0, limit);
+}
+
+export function parseNetworkDeviceCounters(text: string) {
+  return text.split(/\r?\n/).flatMap(line => {
+    const match = line.match(/^\s*([^:]+):\s+(.+)$/); if (!match) return [];
+    const fields = match[2]!.trim().split(/\s+/).map(Number);
+    if (fields.length < 16 || fields.some(value => !Number.isFinite(value))) return [];
+    return [{ interface: match[1]!.trim(), receive_bytes: fields[0]!, receive_errors: fields[2]!, receive_drops: fields[3]!, transmit_bytes: fields[8]!, transmit_errors: fields[10]!, transmit_drops: fields[11]!, collisions: fields[13]!, has_errors: [fields[2], fields[3], fields[10], fields[11], fields[13]].some(value => (value ?? 0) > 0) }];
+  });
+}
+
 function compactResource(snapshot: ResourceSnapshot) {
   const memoryKeys = ["MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SwapTotal", "SwapFree", "Dirty", "Writeback", "Slab", "SReclaimable", "PageTables"];
   const vmstatKeys = ["pswpin", "pswpout", "pgfault", "pgmajfault", "oom_kill", "pgscan_kswapd", "pgscan_direct", "pgsteal_kswapd", "pgsteal_direct"];
@@ -132,6 +148,133 @@ function incidentHypotheses(categories: Record<string, unknown>): string[] {
 }
 
 function resultReport(report: unknown, details: Record<string, unknown> = {}) { return textResult(preview(JSON.stringify(report, null, 2), 30000), details); }
+
+interface DashboardSnapshot {
+  at_ms: number;
+  cpu: { total: number; idle: number };
+  load: number[];
+  memory: { total_kb: number; available_kb: number; swap_total_kb: number; swap_free_kb: number };
+  pressure: { cpu: number; memory: number; io: number };
+  network: { received_bytes: number; transmitted_bytes: number; errors_drops: number };
+  disk: { read_sectors: number; written_sectors: number };
+  filesystem_used_percent?: number;
+  max_temperature_c?: number;
+  uptime_seconds?: number;
+  processes: string[];
+  unavailable: string[];
+}
+
+function pressureAvg10(text: string): number { return Number(text.match(/^some\s+avg10=(\d+(?:\.\d+)?)/m)?.[1] ?? 0); }
+
+export async function collectDashboardSnapshot(): Promise<DashboardSnapshot> {
+  const snapshot: DashboardSnapshot = { at_ms: Date.now(), cpu: { total: 0, idle: 0 }, load: [], memory: { total_kb: 0, available_kb: 0, swap_total_kb: 0, swap_free_kb: 0 }, pressure: { cpu: 0, memory: 0, io: 0 }, network: { received_bytes: 0, transmitted_bytes: 0, errors_drops: 0 }, disk: { read_sectors: 0, written_sectors: 0 }, processes: [], unavailable: [] };
+  const read = async (file: string) => { try { return await readFile(file, "utf8"); } catch (error: any) { snapshot.unavailable.push(`${file}: ${error?.code ?? error?.message ?? error}`); return ""; } };
+  const [stat, loadavg, meminfo, cpuPressure, memoryPressure, ioPressure, netdev, diskstats, uptime] = await Promise.all([read("/proc/stat"), read("/proc/loadavg"), read("/proc/meminfo"), read("/proc/pressure/cpu"), read("/proc/pressure/memory"), read("/proc/pressure/io"), read("/proc/net/dev"), read("/proc/diskstats"), read("/proc/uptime")]);
+  const cpu = stat.match(/^cpu\s+(.+)$/m)?.[1]?.trim().split(/\s+/).map(Number) ?? [];
+  snapshot.cpu.total = cpu.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+  snapshot.cpu.idle = (cpu[3] ?? 0) + (cpu[4] ?? 0);
+  snapshot.load = loadavg.trim().split(/\s+/).slice(0, 3).map(Number).filter(Number.isFinite);
+  const memory = parseKeyValues(meminfo);
+  snapshot.memory = { total_kb: memory.MemTotal ?? 0, available_kb: memory.MemAvailable ?? 0, swap_total_kb: memory.SwapTotal ?? 0, swap_free_kb: memory.SwapFree ?? 0 };
+  snapshot.pressure = { cpu: pressureAvg10(cpuPressure), memory: pressureAvg10(memoryPressure), io: pressureAvg10(ioPressure) };
+  const interfaces = parseNetworkDeviceCounters(netdev).filter(item => item.interface !== "lo");
+  snapshot.network = { received_bytes: interfaces.reduce((sum, item) => sum + item.receive_bytes, 0), transmitted_bytes: interfaces.reduce((sum, item) => sum + item.transmit_bytes, 0), errors_drops: interfaces.reduce((sum, item) => sum + item.receive_errors + item.receive_drops + item.transmit_errors + item.transmit_drops + item.collisions, 0) };
+  for (const line of diskstats.split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/); const device = fields[2] ?? "";
+    if (!/^(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+|dm-\d+|md\d+)$/.test(device)) continue;
+    snapshot.disk.read_sectors += Number(fields[5] ?? 0); snapshot.disk.written_sectors += Number(fields[9] ?? 0);
+  }
+  snapshot.uptime_seconds = Number(uptime.trim().split(/\s+/)[0]);
+  try { const root = await statfs("/"); snapshot.filesystem_used_percent = root.blocks > 0 ? (1 - Number(root.bavail) / Number(root.blocks)) * 100 : undefined; }
+  catch (error: any) { snapshot.unavailable.push(`statfs(/): ${error?.code ?? error?.message ?? error}`); }
+  try {
+    const temperatures: number[] = [];
+    for (const zone of (await readdir("/sys/class/thermal")).filter(name => /^thermal_zone\d+$/.test(name)).slice(0, 64)) {
+      const raw = Number(await readFile(`/sys/class/thermal/${zone}/temp`, "utf8").catch(() => "NaN"));
+      if (Number.isFinite(raw)) temperatures.push(raw / 1000);
+    }
+    if (temperatures.length > 0) snapshot.max_temperature_c = Math.max(...temperatures);
+  } catch (error: any) { snapshot.unavailable.push(`/sys/class/thermal: ${error?.code ?? error?.message ?? error}`); }
+  try {
+    const processes = await runCommand({ command: "ps", args: ["-eo", "pid,stat,pcpu,pmem,rss,comm", "--sort=-pcpu"] }, { timeoutMs: 5000, maxBuffer: 64 * 1024, maxOutputChars: 12_000 });
+    snapshot.processes = processes.stdout.split(/\r?\n/).slice(0, 13);
+  } catch (error: any) { snapshot.unavailable.push(`ps: ${error?.code ?? error?.message ?? error}`); }
+  return snapshot;
+}
+
+function formatRate(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B/s";
+  const units = ["B/s", "KiB/s", "MiB/s", "GiB/s"]; let amount = value; let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit++; }
+  return `${amount >= 100 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unit]}`;
+}
+
+class SystemDashboardComponent {
+  private current: DashboardSnapshot;
+  private previous: DashboardSnapshot;
+  private interval?: ReturnType<typeof setInterval>;
+  private refreshMs: number;
+  private paused = false;
+  private busy = false;
+  private version = 0;
+  private cachedVersion = -1;
+  private cachedWidth = 0;
+  private cachedLines: string[] = [];
+
+  constructor(private tui: { requestRender(): void }, private theme: any, initial: DashboardSnapshot, refreshMs: number, private close: () => void) {
+    this.current = initial; this.previous = initial; this.refreshMs = refreshMs; this.start();
+  }
+
+  private start() { this.stop(); this.interval = setInterval(() => void this.refresh(), this.refreshMs); }
+  private stop() { if (this.interval) clearInterval(this.interval); this.interval = undefined; }
+  private async refresh() {
+    if (this.paused || this.busy) return;
+    this.busy = true;
+    try { const next = await collectDashboardSnapshot(); this.previous = this.current; this.current = next; this.version++; this.tui.requestRender(); }
+    finally { this.busy = false; }
+  }
+  dispose() { this.stop(); }
+  invalidate() { this.cachedVersion = -1; }
+  handleInput(data: string) {
+    if (matchesKey(data, "escape") || data === "q" || data === "Q") { this.dispose(); this.close(); return; }
+    if (data === "p" || data === "P" || matchesKey(data, "space")) { this.paused = !this.paused; this.version++; this.tui.requestRender(); return; }
+    if (data === "r" || data === "R") { void this.refresh(); return; }
+    if (data === "+" || data === "=") { this.refreshMs = Math.max(500, this.refreshMs - 500); this.start(); this.version++; this.tui.requestRender(); }
+    if (data === "-" || data === "_") { this.refreshMs = Math.min(5000, this.refreshMs + 500); this.start(); this.version++; this.tui.requestRender(); }
+  }
+  render(width: number): string[] {
+    if (this.cachedVersion === this.version && this.cachedWidth === width) return this.cachedLines;
+    const elapsed = Math.max(0.001, (this.current.at_ms - this.previous.at_ms) / 1000);
+    const totalDelta = this.current.cpu.total - this.previous.cpu.total;
+    const idleDelta = this.current.cpu.idle - this.previous.cpu.idle;
+    const cpuPercent = totalDelta > 0 ? Math.max(0, Math.min(100, (1 - idleDelta / totalDelta) * 100)) : 0;
+    const memoryPercent = this.current.memory.total_kb > 0 ? (1 - this.current.memory.available_kb / this.current.memory.total_kb) * 100 : 0;
+    const swapPercent = this.current.memory.swap_total_kb > 0 ? (1 - this.current.memory.swap_free_kb / this.current.memory.swap_total_kb) * 100 : 0;
+    const rxRate = (this.current.network.received_bytes - this.previous.network.received_bytes) / elapsed;
+    const txRate = (this.current.network.transmitted_bytes - this.previous.network.transmitted_bytes) / elapsed;
+    const readRate = (this.current.disk.read_sectors - this.previous.disk.read_sectors) * 512 / elapsed;
+    const writeRate = (this.current.disk.written_sectors - this.previous.disk.written_sectors) * 512 / elapsed;
+    const color = (value: number, text: string) => value >= 90 ? this.theme.fg("error", text) : value >= 75 ? this.theme.fg("warning", text) : this.theme.fg("success", text);
+    const bar = (label: string, value: number) => { const cells = Math.max(8, Math.min(28, Math.floor((width - 24) / 2))); const filled = Math.round(Math.max(0, Math.min(100, value)) / 100 * cells); return `${label.padEnd(8)} ${color(value, "█".repeat(filled))}${this.theme.fg("dim", "░".repeat(cells - filled))} ${value.toFixed(1).padStart(5)}%`; };
+    const lines = [
+      this.theme.fg("accent", this.theme.bold(`KEYLIME SYSTEM DASHBOARD`)) + this.theme.fg("dim", `  ${this.paused ? "PAUSED" : `${(this.refreshMs / 1000).toFixed(1)}s refresh`}  uptime ${Math.floor((this.current.uptime_seconds ?? 0) / 3600)}h`),
+      this.theme.fg("dim", "─".repeat(Math.max(1, width))),
+      `${bar("CPU", cpuPercent)}   load ${this.current.load.map(value => value.toFixed(2)).join(" ") || "n/a"}`,
+      `${bar("Memory", memoryPercent)}   swap ${swapPercent.toFixed(1)}%`,
+      `${bar("Root FS", this.current.filesystem_used_percent ?? 0)}   temp ${this.current.max_temperature_c?.toFixed(1) ?? "n/a"}°C`,
+      `PSI avg10  cpu ${this.current.pressure.cpu.toFixed(2)}%  memory ${this.current.pressure.memory.toFixed(2)}%  I/O ${this.current.pressure.io.toFixed(2)}%`,
+      `Network    ↓ ${formatRate(rxRate)}   ↑ ${formatRate(txRate)}   cumulative errors/drops ${this.current.network.errors_drops}`,
+      `Storage    read ${formatRate(readRate)}   write ${formatRate(writeRate)}`,
+      this.theme.fg("dim", "─".repeat(Math.max(1, width))),
+      this.theme.fg("accent", "Top processes by CPU"),
+      ...this.current.processes.slice(0, 12).map((line, index) => index === 0 ? this.theme.fg("muted", line) : line),
+      ...(this.current.unavailable.length > 0 ? [this.theme.fg("warning", `${this.current.unavailable.length} interface(s) unavailable or restricted`)] : []),
+      this.theme.fg("dim", "q/esc close • p/space pause • r refresh • +/- speed"),
+    ];
+    this.cachedLines = lines.map(line => truncateToWidth(line, Math.max(1, width)));
+    this.cachedWidth = width; this.cachedVersion = this.version; return this.cachedLines;
+  }
+}
 
 export default function (pi: ExtensionAPI) {
   registerLinuxTool(pi, {
@@ -335,9 +478,7 @@ export default function (pi: ExtensionAPI) {
       const lines = params.lines_per_unit ?? 60;
       const failed = await probeCommand("failed_units", "systemctl", ["--failed", "--no-legend", "--plain"], 10000);
       const restartJournal = await probeCommand("restart_loop_evidence", "journalctl", ["--no-pager", "-b", "-n", "1000", "--grep=(Scheduled restart job|start request repeated too quickly|Main process exited|Failed with result|dependency failed|timed out)", ...(params.since ? [`--since=${boundedTime(params.since, "since")}`] : [])], 10000);
-      const failedUnits = failed.output.split(/\r?\n/).map(line => line.trim().split(/\s+/)[0] ?? "");
-      const restartUnits = [...restartJournal.output.matchAll(/\b([A-Za-z0-9:_.@\\-]+\.service):/g)].map(match => match[1]!);
-      const units = [...new Set([...failedUnits, ...restartUnits])].filter(unit => /^[A-Za-z0-9:_.@\\-]+\.(?:service|socket|mount|target|timer|path|scope|slice|device)$/.test(unit)).slice(0, maxUnits);
+      const units = extractServiceUnits(failed.output, restartJournal.output, maxUnits);
       const reports: Record<string, unknown>[] = [];
       for (const unit of units) {
         const show = await probeCommand(`${unit}_state`, "systemctl", ["show", unit, "--no-pager", "--property=Id,LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,NRestarts,StateChangeTimestamp,InactiveExitTimestamp"], 5000);
@@ -394,11 +535,7 @@ export default function (pi: ExtensionAPI) {
     async execute(_id: string, params: any) {
       const journalLines = params.journal_lines ?? 300;
       const netDev = await probeFile("interface_counters", "/proc/net/dev", 12000);
-      const interfaces = netDev.output.split(/\r?\n/).flatMap(line => {
-        const match = line.match(/^\s*([^:]+):\s+(.+)$/); if (!match) return [];
-        const fields = match[2]!.trim().split(/\s+/).map(Number);
-        return [{ interface: match[1]!.trim(), receive_bytes: fields[0], receive_errors: fields[2], receive_drops: fields[3], transmit_bytes: fields[8], transmit_errors: fields[10], transmit_drops: fields[11], collisions: fields[13], has_errors: [fields[2], fields[3], fields[10], fields[11], fields[13]].some(value => (value ?? 0) > 0) }];
-      });
+      const interfaces = parseNetworkDeviceCounters(netDev.output);
       const probes = await Promise.all([
         probeCommand("link_state", "ip", ["-s", "link", "show"], 12000),
         probeCommand("ipv4_routes", "ip", ["route", "show"], 8000),
@@ -457,6 +594,25 @@ export default function (pi: ExtensionAPI) {
       const classified = classifyEvidence(journal.output, maxEvents);
       const severityCounts = classified.events.reduce<Record<string, number>>((counts, event) => { counts[event.severity] = (counts[event.severity] ?? 0) + 1; return counts; }, {});
       return resultReport({ window: { since: params.since ?? "1 hour ago", until: params.until ?? "now", boot: params.boot ?? 0 }, journal_status: journal.status, severity_counts: severityCounts, categories: classified.categories, hypotheses: incidentHypotheses(classified.categories), timeline: classified.events, caveat: "Correlation identifies co-occurring evidence and plausible investigation paths; it does not prove causation." }, { lines: lineLimit, max_events: maxEvents });
+    },
+  });
+
+  pi.registerCommand("system-dashboard", {
+    description: "Open a live, read-only Linux system diagnostics dashboard.",
+    handler: async (args: string, ctx: any) => {
+      if (ctx.mode !== "tui") { ctx.ui.notify("The system dashboard requires interactive TUI mode.", "error"); return; }
+      if (process.platform !== "linux") { ctx.ui.notify("The system dashboard requires Linux.", "error"); return; }
+      const requestedSeconds = args.trim() ? Number(args.trim()) : 1;
+      if (!Number.isFinite(requestedSeconds)) { ctx.ui.notify("Usage: /system-dashboard [refresh-seconds between 0.5 and 5]", "error"); return; }
+      const refreshMs = Math.round(Math.min(5, Math.max(0.5, requestedSeconds)) * 1000);
+      const initial = await collectDashboardSnapshot();
+      let component: SystemDashboardComponent | undefined;
+      try {
+        await ctx.ui.custom((tui: { requestRender(): void }, theme: any, _keybindings: unknown, done: (value: undefined) => void) => {
+          component = new SystemDashboardComponent(tui, theme, initial, refreshMs, () => done(undefined));
+          return component;
+        });
+      } finally { component?.dispose(); }
     },
   });
 }

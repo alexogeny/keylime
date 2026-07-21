@@ -137,8 +137,9 @@ export function preview(text: string, max = 6000): string {
   return `${clean.slice(0, Math.floor(max / 2))}\n… truncated …\n${clean.slice(-Math.floor(max / 2))}`;
 }
 
-export async function runCommand(spec: CommandSpec, options: { timeoutMs?: number; maxBuffer?: number } = {}) {
-  const maxBuffer = options.maxBuffer ?? 1024 * 1024;
+export async function runCommand(spec: CommandSpec, options: { timeoutMs?: number; maxBuffer?: number; maxOutputChars?: number } = {}) {
+  const outputLimit = Math.min(50_000, Math.max(100, options.maxOutputChars ?? 6000));
+  const maxBuffer = Math.max(outputLimit, options.maxBuffer ?? 1024 * 1024);
   const child = spawn(spec.command, spec.args, { cwd: spec.cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   let stdout = "";
   let stderr = "";
@@ -148,10 +149,10 @@ export async function runCommand(spec: CommandSpec, options: { timeoutMs?: numbe
   }, options.timeoutMs ?? 15_000);
 
   child.stdout.on("data", chunk => {
-    if (stdout.length < maxBuffer) stdout += String(chunk);
+    if (stdout.length < maxBuffer) stdout += String(chunk).slice(0, maxBuffer - stdout.length);
   });
   child.stderr.on("data", chunk => {
-    if (stderr.length < maxBuffer) stderr += String(chunk);
+    if (stderr.length < maxBuffer) stderr += String(chunk).slice(0, maxBuffer - stderr.length);
   });
   if (spec.stdin) child.stdin.end(spec.stdin);
   else child.stdin.end();
@@ -163,12 +164,12 @@ export async function runCommand(spec: CommandSpec, options: { timeoutMs?: numbe
 
   if (code !== 0) {
     const error = new Error(`${spec.command} exited with ${code}: ${preview(stderr || stdout, 2000)}`) as Error & { stdout?: string; stderr?: string; code?: number | null };
-    error.stdout = preview(stdout);
-    error.stderr = preview(stderr);
+    error.stdout = preview(stdout, outputLimit);
+    error.stderr = preview(stderr, outputLimit);
     error.code = code;
     throw error;
   }
-  return { stdout: preview(stdout), stderr: preview(stderr) };
+  return { stdout: preview(stdout, outputLimit), stderr: preview(stderr, outputLimit) };
 }
 
 export async function commandAvailable(command: string): Promise<boolean> {

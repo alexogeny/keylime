@@ -6,15 +6,15 @@ import linuxPackages from "../extensions/linux-packages";
 import linuxSystemd from "../extensions/linux-systemd";
 import linuxFiles from "../extensions/linux-files";
 import linuxHardware from "../extensions/linux-hardware";
-import linuxLogs from "../extensions/linux-logs";
+import linuxLogs, { parseBootSessions } from "../extensions/linux-logs";
 import linuxNetwork from "../extensions/linux-network";
 import linuxFilesystem from "../extensions/linux-filesystem";
 import linuxUsers from "../extensions/linux-users";
 import linuxProcesses from "../extensions/linux-processes";
 import linuxChecks from "../extensions/linux-checks";
-import linuxDiagnostics from "../extensions/linux-diagnostics";
+import linuxDiagnostics, { classifyEvidence, collectDashboardSnapshot, extractServiceUnits, parseNetworkDeviceCounters, parsePressure, probeCommand, probeFile } from "../extensions/linux-diagnostics";
 import linuxDiscovery from "../extensions/linux-discovery";
-import { consumeOperationPlan, createOperationPlan, isSafeSystemPath, denylistedSystemdUnit, operationTarget, resolveWithinRoots, riskyFilesystemTarget, sudoPrefix, validateHttpUrl, validateMode, validateOperand, validateSignal } from "../extensions/shared/linux-safety";
+import { consumeOperationPlan, createOperationPlan, isSafeSystemPath, denylistedSystemdUnit, operationTarget, resolveWithinRoots, riskyFilesystemTarget, runCommand, sudoPrefix, validateHttpUrl, validateMode, validateOperand, validateSignal } from "../extensions/shared/linux-safety";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 import { mockPiFixture } from "./helpers/mock-pi";
 
@@ -113,6 +113,64 @@ describe("linux operations tools", () => {
     expect(tools.inspect_boot_performance.parameters.properties.max_units.maximum).toBe(100);
     expect(tools.correlate_system_incident.parameters.properties.max_events.maximum).toBe(500);
   });
+
+  test("diagnostic parsers classify representative Linux evidence", () => {
+    expect(parseBootSessions(" -1 0123456789abcdef0123456789abcdef Mon 2026-01-01 10:00:00 UTC — Mon 2026-01-01 11:00:00 UTC")).toEqual([
+      expect.objectContaining({ offset: -1, id: "0123456789abcdef0123456789abcdef" }),
+    ]);
+    const pressure = parsePressure("some avg10=1.25 avg60=0.50 avg300=0.10 total=42\nfull avg10=0.25 avg60=0.10 avg300=0.01 total=9");
+    expect(pressure.some.avg10).toBe(1.25);
+    expect(pressure.full.total).toBe(9);
+    const evidence = classifyEvidence("kernel: Out of memory: Killed process 42\nkernel: nvme0: I/O error\nsystemd[1]: demo.service: Main process exited", 20);
+    expect(evidence.categories.out_of_memory.count).toBeGreaterThan(0);
+    expect(evidence.categories.storage_io.count).toBeGreaterThan(0);
+    expect(evidence.categories.service.count).toBeGreaterThan(0);
+    expect(extractServiceUnits("demo.service loaded failed failed Demo", "systemd[1]: loop.service: Scheduled restart job", 10)).toEqual(["demo.service", "loop.service"]);
+    const interfaces = parseNetworkDeviceCounters("eth0: 100 2 2 3 0 0 0 0 200 4 4 5 0 6 0 0");
+    expect(interfaces[0]).toEqual(expect.objectContaining({ interface: "eth0", receive_errors: 2, transmit_drops: 5, has_errors: true }));
+  });
+
+  test("diagnostic probes degrade gracefully when interfaces are absent or commands fail", async () => {
+    const missingFile = await probeFile("missing", "/definitely/not/a/keylime/interface");
+    const missingCommand = await probeCommand("missing", "keylime-command-that-does-not-exist", []);
+    const failedCommand = await probeCommand("failed", process.execPath, ["-e", "process.stderr.write('denied'); process.exit(3)"]);
+    expect(missingFile.status).toBe("unavailable");
+    expect(missingCommand.status).toBe("unavailable");
+    expect(failedCommand).toEqual(expect.objectContaining({ status: "error", output: expect.stringContaining("denied") }));
+  });
+
+  test("runCommand supports larger explicit bounded output previews", async () => {
+    const script = "process.stdout.write('x'.repeat(20000))";
+    const normal = await runCommand({ command: process.execPath, args: ["-e", script] });
+    const expanded = await runCommand({ command: process.execPath, args: ["-e", script] }, { maxOutputChars: 12000 });
+    expect(normal.stdout.length).toBeLessThan(6100);
+    expect(expanded.stdout.length).toBeGreaterThan(11000);
+    expect(expanded.stdout.length).toBeLessThan(12100);
+  });
+
+  test("registers the interactive system dashboard command", () => {
+    const { commands } = registerAll();
+    expect(commands["system-dashboard"]?.description).toContain("dashboard");
+  });
+
+  if (process.platform === "linux" && process.env.KEYLIME_LINUX_SMOKE === "1") {
+    test("advanced diagnostics smoke-test on the current Linux host", async () => {
+      const { tools } = registerAll();
+      const results = await Promise.all([
+        tools.inspect_resource_pressure.execute("smoke", { duration_seconds: 0, sample_count: 1, process_limit: 3 }),
+        tools.inspect_network_health.execute("smoke", { journal_lines: 20 }),
+        tools.inspect_storage_health.execute("smoke", { max_devices: 1, include_device_health: false, journal_lines: 20 }),
+        tools.inspect_boot_performance.execute("smoke", { max_units: 5, warning_lines: 20 }),
+      ]);
+      for (const result of results) {
+        expect(result.isError).not.toBe(true);
+        expect(() => JSON.parse(result.content[0].text)).not.toThrow();
+      }
+      const dashboard = await collectDashboardSnapshot();
+      expect(dashboard.cpu.total).toBeGreaterThan(0);
+      expect(dashboard.processes.length).toBeGreaterThan(0);
+    }, 60_000);
+  }
 
   test("shared safety helpers reject broad or critical targets", () => {
     expect(isSafeSystemPath("/etc/ssh/sshd_config")).toBe(true);

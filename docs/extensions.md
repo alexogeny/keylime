@@ -166,14 +166,42 @@ Linux operations are selected by the `linux_ops` intent and `linux` capability g
 - `linux-packages.ts` — APT and Pacman search/query plus token-bound install and removal plans.
 - `linux-systemd.ts` — unit status/logs, timers, and token-bound restart/enable/disable actions; critical SSH, networking, and display units are refused.
 - `linux-files.ts` — symlink-resolved allowlisted config inspection, backup/restore, checksum-bound exact patches, validator presets, and privileged install fallback.
-- `linux-hardware.ts` — kernel, CPU, memory, block-device, mount, GPU, and interface inspection.
-- `linux-logs.ts` — journal inspection and bounded tail/search under resolved `/var/log`, user state, and user cache roots, with secret redaction.
+- `linux-hardware.ts` — kernel, CPU, memory, block-device, mount, GPU, thermal/power, pstore, EDAC, taint, DMI, and interface inspection.
+- `linux-logs.ts` — boot-aware journal inspection, boot-session listing, shutdown diagnosis, and bounded tail/search under resolved `/var/log`, user state, and user cache roots, with secret redaction.
 - `linux-network.ts` — listening ports, DNS/HTTP/ping/route probes, routes, resolver state, and firewall status.
 - `linux-filesystem.ts` — metadata, disk use, large/recent file discovery, token-bound quarantine deletion, and token-bound archive creation.
 - `linux-users.ts` — users, groups, permissions, and token-bound chmod/chown changes.
 - `linux-processes.ts` — bounded process inspection and identity-checked, token-bound signaling.
 - `linux-checks.ts` — predefined health, package, network, and GPU check suites.
-- `linux-diagnostics.ts` — boot analysis, pressure stalls, disk health, deleted-open files, containers, kernel modules, time sync, and available security updates.
+- `linux-diagnostics.ts` — boot analysis, pressure stalls, disk health, deleted-open files, containers, kernel modules, time sync, security updates, cross-system health diagnosis, incident correlation, and a live dashboard.
+
+### Advanced diagnostics
+
+The read-only diagnostic suite includes:
+
+- `diagnose_system_health` — sampled CPU, memory, PSI, process, filesystem, service, socket, network, RAID, and current-boot evidence.
+- `inspect_kernel_anomalies` — bounded classification of panic/lockup, OOM, MCE/EDAC, storage, filesystem, thermal/power, GPU, network, service, and security signatures.
+- `inspect_resource_pressure` — sampled load, PSI, swap/reclaim/fault deltas, and bounded top CPU/memory processes.
+- `inspect_service_failures` — failed units, restart loops, exit state, restart counts, and recent per-unit journals.
+- `inspect_storage_health` — filesystems, inodes, mounts, RAID, disk statistics, kernel errors, and optional read-only SMART/NVMe health.
+- `inspect_network_health` — interface errors/drops, routes, sockets, protocol counters, resolver state, driver evidence, and an optional host probe.
+- `inspect_boot_performance` — boot duration, slow units, critical chain, pending jobs, failed units, and warnings.
+- `correlate_system_incident` — time-window correlation and evidence-based investigation hypotheses without claiming definitive causation.
+
+Run `/system-dashboard` for a live btop-style view. An optional refresh interval may be supplied, for example `/system-dashboard 2`. Controls are `q`/Escape to close, `p`/Space to pause, `r` to refresh, and `+`/`-` to change refresh speed. It reads `/proc` and `/sys` and runs a fixed bounded `ps` query; no background timer starts until the command is opened, and the timer is disposed when it closes.
+
+Example agent requests:
+
+```text
+Run diagnose_system_health with a five-second sample and explain only evidence-backed concerns.
+Correlate system incidents since 30 minutes ago, then inspect the most relevant subsystem.
+Inspect service failures and identify restart loops without restarting anything.
+Inspect storage health with device health enabled and prioritize evidence that risks data loss.
+```
+
+Every probe has a fixed command shape, timeout, output cap, and count limit. Missing utilities, non-systemd environments, absent kernel interfaces, and permission errors are returned per probe instead of aborting the whole report. Command capture supports explicit bounded previews up to 50,000 characters.
+
+Behavioral parser tests run with `bun test tests/linux-tools.test.ts`. On Linux, run `bun run test:linux:smoke` to execute representative resource, network, storage, and boot probes against the current host. The smoke suite intentionally accepts unavailable systemd, journal, SMART, and resolver interfaces as structured probe results.
 
 ### Safety contracts
 

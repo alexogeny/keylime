@@ -176,7 +176,9 @@ function pathHeuristic(document: SearchDocument, query: string, analysis: Clarif
   const terms = tokenize(query, { preserveCodeTokens: true });
   const matches = terms.filter(term => path.includes(term)).length;
   const lexical = terms.length > 0 ? Math.min(1, matches / Math.min(4, terms.length)) : 0;
-  return Math.max(conceptPathPrior(path, analysis), lexical * 0.65);
+  const tokenOverheadPrior = /\btokens?\b/i.test(query) && /\b(?:prompt|session|cache|context|overhead)\b/i.test(query)
+    && /(?:usage-tracker|cache-guard|context-health|signal-footer|context-ledger)/.test(path) ? 0.9 : 0;
+  return Math.max(conceptPathPrior(path, analysis), lexical * 0.65, tokenOverheadPrior);
 }
 
 function repositoryRoleBoost(path: string, request: string): number {

@@ -6,6 +6,7 @@
   "scripts": {
     "test": "bun test tests",
     "test:core": "bun test tests/retrieval.test.ts tests/json-store.test.ts tests/ollama-embeddings.test.ts",
+    "test:linux:smoke": "KEYLIME_LINUX_SMOKE=1 bun test tests/linux-tools.test.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.tests.json",
     "bench": "bun run bench:retrieval && bun run bench:core && bun run bench:systems",

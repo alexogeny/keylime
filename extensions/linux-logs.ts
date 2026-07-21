@@ -31,7 +31,7 @@ function bootOperand(boot: unknown): string {
   throw new Error("boot must be an offset from -1000 through 0 or a 32-character boot ID");
 }
 
-function parseBootSessions(output: string): BootSession[] {
+export function parseBootSessions(output: string): BootSession[] {
   const sessions: BootSession[] = [];
   for (const line of output.split(/\r?\n/)) {
     const match = line.match(/^\s*(-?\d+)\s+([0-9a-fA-F]{32})\s+(.+?)\s+[—–]\s+(.+?)\s*$/);
@@ -41,7 +41,7 @@ function parseBootSessions(output: string): BootSession[] {
 }
 
 async function loadBootSessions(count: number): Promise<{ sessions: BootSession[]; raw: string }> {
-  const result = await runCommand({ command: "journalctl", args: ["--no-pager", "--list-boots"] }, { maxBuffer: 256 * 1024 });
+  const result = await runCommand({ command: "journalctl", args: ["--no-pager", "--list-boots"] }, { maxBuffer: 256 * 1024, maxOutputChars: 50_000 });
   const parsed = parseBootSessions(result.stdout);
   return { sessions: parsed.slice(-count), raw: result.stdout };
 }
@@ -60,7 +60,7 @@ const evidencePatterns: Array<[string, RegExp]> = [
 export default function (pi: ExtensionAPI) {
   registerLinuxTool(pi, { name: "inspect_journal", label: "Inspect Journal", description: "Inspect bounded systemd journal output by boot and filters.", promptGuidelines: guidelines, parameters: Type.Object({ unit: Type.Optional(Type.String()), priority: Type.Optional(Type.String()), since: Type.Optional(Type.String()), until: Type.Optional(Type.String()), boot: Type.Optional(bootSchema), grep: Type.Optional(Type.String()), reverse: Type.Optional(Type.Boolean()), lines: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })) }), async execute(_id: string, params: any) {
     const args = ["--no-pager", "-n", String(params.lines ?? 200), ...(params.unit ? [`--unit=${validateOperand(params.unit, "systemd unit")}`] : []), ...(params.priority ? [`--priority=${validateOperand(params.priority, "journal priority")}`] : []), ...(params.since ? [`--since=${validateOperand(params.since, "since value")}`] : []), ...(params.until ? [`--until=${validateOperand(params.until, "until value")}`] : []), ...(params.boot !== undefined ? [`--boot=${bootOperand(params.boot)}`] : []), ...(params.grep ? [`--grep=${validateOperand(params.grep, "journal grep")}`] : []), ...(params.reverse ? ["--reverse"] : [])];
-    const r = await runCommand({ command: "journalctl", args }); return textResult(r.stdout || r.stderr, { args });
+    const r = await runCommand({ command: "journalctl", args }, { maxOutputChars: 50_000 }); return textResult(r.stdout || r.stderr, { args });
   }});
   registerLinuxTool(pi, { name: "list_boot_sessions", label: "List Boot Sessions", description: "List a bounded number of systemd journal boot sessions with offsets, IDs, and time ranges.", promptGuidelines: guidelines, parameters: Type.Object({ count: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }), async execute(_id: string, params: any) {
     const count = params.count ?? 20;
