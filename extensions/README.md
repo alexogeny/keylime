@@ -5,9 +5,11 @@ The extension stack is optimized around two shared layers:
 - `intent-router.ts` classifies each user prompt, uses policy-corpus evidence for observability and low-confidence routing assistance, and activates only the relevant tool groups with `pi.setActiveTools()`.
 - `turn-context-composer.ts` collects registered context providers and injects one capped per-turn reminder.
 
-Most tools are registered by their owning extensions but omitted from the initial prompt. A six-tool bootstrap (`list_files`, `code_search`, `inspect_text_matches`, `inspect_lines`, `run_checks`, and `tool_search`) prevents dead ends; `tool_search` loads up to five policy-allowed tools additively for the current turn and resets discoveries on the next user input.
+Most tools are registered by their owning extensions but omitted from the initial prompt. A seven-tool bootstrap (`list_files`, `code_search`, `inspect_text_matches`, `inspect_lines`, `run_checks`, `tool_help`, and `tool_search`) prevents dead ends; `tool_search` loads up to five policy-allowed tools additively for the current turn and resets discoveries on the next user input.
 
 `code-primitives.ts` adds repository-native helpers (`list_files`, `code_search`, `inspect_text_matches`, `inspect_lines`, `inspect_json`, `inspect_code_structure`, `plan_code_replacements`, `apply_code_replacements`, `create_file`, `create_directory`, `run_checks`, `retrieve_policy`, `suggest_checks`, `codemod_plan`, `inspect_tool_result`, `commit_history`, `see_file_commit_history`, `inspect_at_checkpoint`) so repetitive TypeScript/Python/Rust edits do not need ad hoc shell or Python scripts. Replacement previews use compact unified diff hunks with ANSI color where supported, and inspection supports path, glob, language-scoped, and JSON-projection workflows. Built-in `bash`, `read`, `write`, and `edit` remain locked behind routing and safety guards.
+
+`clarification.ts` provides `/clarify <rough task>` and `/submit-clarified`. It deterministically indexes bounded repository text, retrieves likely paths and excerpts, and makes at most one tool-free model call to turn that evidence into a structured execution prompt. `KEYLIME_CLARIFICATION_MODE=deterministic` disables the model pass and uses the local fallback; tests evaluate retrieval against deliberately rough Keylime prompts without any model dependency.
 
 ## Environment flags
 

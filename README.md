@@ -63,6 +63,7 @@ Examples:
 - `repo-index/index.ts` — compact repo map and tiered `code_search`.
 - `danger-guard.ts` — runtime blocking/confirmation for risky tools and paths.
 - `git-checkpoint.ts` — rollback checkpoints with semantic LLM-generated commit subjects/bodies, an approve/edit/skip TUI review, deterministic fallback, `/undo`, guided `/git-auth`, explicitly gated Git identity setup, and confirmed `/git-push`.
+- `clarification.ts`, `shared/clarification.ts` — `/clarify` compiles rough tasks from deterministic repository retrieval plus one bounded tool-free model pass; `/submit-clarified` submits the persisted brief, with a deterministic fallback and a self-hosted evaluation corpus.
 - `git-tools.ts` — read-only git status, diff, history, and checkpoint inspection tools.
 - `linux-*.ts` — capability-gated Linux operations for discovery, packages, systemd, config files, hardware, logs, networking, filesystems, users, processes, health checks, and advanced diagnostics; mutations use approval and expiring plan tokens.
 - `test-runner.ts` — safe test/typecheck/lint runner.

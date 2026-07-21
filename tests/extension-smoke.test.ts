@@ -16,6 +16,7 @@ import webContent from "../extensions/web-content";
 import contextRuntime from "../extensions/context-runtime";
 import passiveContextTelemetry from "../extensions/passive-context-telemetry";
 import thinkingLevelCommand from "../extensions/thinking-level-command";
+import clarification from "../extensions/clarification";
 import { mockPiFixture } from "./helpers/mock-pi";
 
 describe("extension registration smoke", () => {
@@ -39,6 +40,7 @@ describe("extension registration smoke", () => {
     contextRuntime(harness.pi);
     passiveContextTelemetry(harness.pi);
     thinkingLevelCommand(harness.pi);
+    clarification(harness.pi);
 
     expect(Object.keys(harness.tools)).toEqual(expect.arrayContaining([
       "list_files",
@@ -74,6 +76,8 @@ describe("extension registration smoke", () => {
       "context-runtime",
       "context-telemetry",
       "thinking-level",
+      "clarify",
+      "submit-clarified",
     ]));
     expect(Object.keys(harness.handlers)).toEqual(expect.arrayContaining([
       "tool_result",
