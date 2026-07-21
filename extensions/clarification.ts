@@ -1,12 +1,16 @@
 import { complete } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
+import { loadAllSearchEntries } from "./shared/web-search-store";
+import type { SearchEntry } from "./shared/web-search-types";
 import {
+  analyzeClarificationRequest,
   buildClarificationSynthesisPrompt,
   collectClarificationDocuments,
   deterministicClarificationDraft,
   parseClarificationDraft,
   retrieveClarificationEvidence,
+  retrieveClarificationWebEvidence,
   type ClarificationDocument,
   type ClarificationDraft,
   type ClarificationPacket,
@@ -21,6 +25,7 @@ export type StoredClarification = ClarificationDraft & {
 
 type ClarificationExtensionOptions = {
   collectDocuments?: (cwd: string) => Promise<ClarificationDocument[]>;
+  loadWebResearch?: () => Promise<SearchEntry[]>;
   synthesize?: (packet: ClarificationPacket, ctx: any) => Promise<ClarificationDraft>;
 };
 
@@ -69,6 +74,7 @@ async function synthesizeClarification(packet: ClarificationPacket, ctx: any): P
 
 export function registerClarificationExtension(pi: ExtensionAPI, options: ClarificationExtensionOptions = {}): void {
   const collectDocuments = options.collectDocuments ?? ((cwd: string) => collectClarificationDocuments(cwd));
+  const loadWebResearch = options.loadWebResearch ?? (() => loadAllSearchEntries());
   const synthesize = options.synthesize ?? synthesizeClarification;
   let latestDraft: StoredClarification | undefined;
 
@@ -90,11 +96,16 @@ export function registerClarificationExtension(pi: ExtensionAPI, options: Clarif
         ctx.ui.notify("Usage: /clarify <rough repository task>", "warning");
         return;
       }
-      ctx.ui.setStatus?.("clarification", "clarifying: indexing repository…");
-      const documents = await collectDocuments(ctx.cwd);
+      ctx.ui.setStatus?.("clarification", "clarifying: indexing repository and saved research…");
+      const [documents, webResearch] = await Promise.all([
+        collectDocuments(ctx.cwd),
+        loadWebResearch().catch(() => []),
+      ]);
+      const analysis = analyzeClarificationRequest(request);
       const evidence = retrieveClarificationEvidence(request, documents, { topK: 8 });
-      ctx.ui.setStatus?.("clarification", `clarifying: synthesizing ${evidence.length} anchors…`);
-      let draft = await synthesize({ request, evidence }, ctx);
+      const webEvidence = retrieveClarificationWebEvidence(request, webResearch, { topK: 3 });
+      ctx.ui.setStatus?.("clarification", `clarifying: synthesizing ${evidence.length} anchors and ${webEvidence.length} research memories…`);
+      let draft = await synthesize({ request, evidence, webEvidence, concepts: analysis.concepts.map(concept => concept.id) }, ctx);
 
       if (ctx.hasUI && ctx.mode === "tui" && typeof ctx.ui.editor === "function") {
         const edited = await ctx.ui.editor("Review clarified prompt (save and close to keep edits)", draft.prompt);
@@ -112,7 +123,7 @@ export function registerClarificationExtension(pi: ExtensionAPI, options: Clarif
       ctx.ui.setStatus?.("clarification", `clarified:${latestDraft.title}`);
       const anchors = latestDraft.evidencePaths.slice(0, 3).join(", ");
       ctx.ui.notify(
-        `Clarified prompt ready: ${latestDraft.title}${anchors ? `\nAnchors: ${anchors}` : ""}\nRun /submit-clarified to use it.`,
+        `Clarified prompt ready (${latestDraft.source}): ${latestDraft.title}${anchors ? `\nAnchors: ${anchors}` : ""}\nRun /submit-clarified to use it.`,
         "info",
       );
     },

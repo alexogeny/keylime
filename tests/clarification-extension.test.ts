@@ -17,6 +17,7 @@ describe("clarification command proof of concept", () => {
     } as any;
     registerClarificationExtension(pi, {
       collectDocuments: async () => [{ path: "extensions/fetch.ts", content: "function detectChallenge() {}" }],
+      loadWebResearch: async () => [],
       synthesize: async packet => {
         synthesisCalls += 1;
         expect(packet.evidence[0]?.path).toBe("extensions/fetch.ts");
@@ -62,6 +63,7 @@ describe("clarification command proof of concept", () => {
     } as any;
     registerClarificationExtension(pi, {
       collectDocuments: async () => [],
+      loadWebResearch: async () => [],
       synthesize: async () => { throw new Error("must not synthesize"); },
     });
     const ctx = {

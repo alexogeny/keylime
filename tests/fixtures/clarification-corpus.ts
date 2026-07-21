@@ -21,6 +21,11 @@ export const CLARIFICATION_EVAL_CORPUS: ClarificationEvalCase[] = [
     expectedPaths: ["extensions/git-checkpoint.ts", "extensions/shared/safety-policy.ts", "tests/git-checkpoint.test.ts"],
   },
   {
+    id: "cross-session-input-token-overhead",
+    request: "i think we are submitting too many ^ up tokens across chat sessions and i want to reduce the repeated prompt overhead",
+    expectedPaths: ["extensions/usage-tracker.ts", "extensions/cache-guard.ts", "extensions/context-health.ts", "extensions/signal-footer.ts", "extensions/shared/context-ledger.ts"],
+  },
+  {
     id: "deferred-tool-activation",
     request: "claude searches for apply code replacements then races the activation and guesses the schema",
     expectedPaths: ["extensions/policy-tools.ts", "extensions/shared/tool-policy.ts", "tests/policy-tools.test.ts"],
