@@ -816,6 +816,7 @@ describe("path and binary safety", () => {
     expect(isProbablyBinary(Buffer.from("plain text"))).toBe(false);
     expect(isProbablyBinary(Buffer.from("const labels = '東京東京東京東京東京';\n"))).toBe(false);
     expect(isProbablyBinary(Buffer.from("// café — résumé 🚀\nexport const ok = true;\n"))).toBe(false);
+    expect(isProbablyBinary(Buffer.from(`// source with one stray NUL: \0${"export const ok = true;\n".repeat(20)}`))).toBe(false);
   });
 });
 

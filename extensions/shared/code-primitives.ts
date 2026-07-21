@@ -371,7 +371,6 @@ export { resolveSafePath } from "./path-policy";
 
 export function isProbablyBinary(buffer: Buffer | Uint8Array): boolean {
   const sample = buffer.subarray(0, Math.min(buffer.length, 8192));
-  if (sample.includes(0)) return true;
   if (sample.length === 0) return false;
 
   let decoded: string;

@@ -614,13 +614,9 @@ export default function (pi: ExtensionAPI) {
   let lastAutoCheckpointAt = 0;
   const writePathsThisTurn = new Set<string>();
 
-  function recordCheckpoint(cp: Checkpoint, ctx: any): void {
+  function recordCheckpoint(cp: Checkpoint): void {
     latestCheckpoint = cp;
     pi.appendEntry("git-checkpoint", cp);
-    const label = cp.hadChanges
-      ? `📍 ${cp.hash.slice(0, 7)} ${cp.subject ?? `(committed ${cp.branch})`}`
-      : `📍 ${cp.hash.slice(0, 7)} (clean)`;
-    ctx.ui.setStatus("checkpoint", label);
   }
 
   // ── Low-noise auto-checkpoint at end of agent turn ───────────────────────
@@ -639,20 +635,12 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", async (_event, ctx) => {
     const now = Date.now();
     const mode = autoCheckpointMode();
-    if (!shouldAutoCheckpointTurn(mutationScoreThisTurn, lastAutoCheckpointAt, now, mode)) {
-      const status = autoCheckpointSkipStatus(mutationScoreThisTurn, mode);
-      if (status) ctx.ui.setStatus("checkpoint", status);
-      return;
-    }
+    if (!shouldAutoCheckpointTurn(mutationScoreThisTurn, lastAutoCheckpointAt, now, mode)) return;
 
     const cwd = ctx.cwd;
     mutationScoreThisTurn = 0;
     const snapshot = collectCheckpointSnapshot(cwd);
-    if (!snapshot?.changed) {
-      ctx.ui.setStatus("checkpoint", "checkpoint clean · no repository changes");
-      return;
-    }
-    ctx.ui.setStatus("checkpoint", "checkpoint preparing…");
+    if (!snapshot?.changed) return;
 
     const scopedPaths = [...writePathsThisTurn];
     writePathsThisTurn.clear();
@@ -661,7 +649,6 @@ export default function (pi: ExtensionAPI) {
     const message = await reviewCheckpointMessage(draft, ctx, false);
     if (!message) {
       lastAutoCheckpointAt = now;
-      ctx.ui.setStatus("checkpoint", "checkpoint skipped · changes left uncommitted");
       ctx.ui.notify("Auto-checkpoint skipped; working changes were left untouched.", "info");
       return;
     }
@@ -669,35 +656,27 @@ export default function (pi: ExtensionAPI) {
     if (!attempt.checkpoint && attempt.reason === "missing-identity") {
       lastAutoCheckpointAt = now;
       const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your commit identity.");
-      if (!configured) {
-        ctx.ui.setStatus("checkpoint", "checkpoint blocked · Git identity missing");
-        return;
-      }
+      if (!configured) return;
       attempt = makeCheckpointAttempt(cwd, paths, message, snapshot);
     }
 
     const cp = attempt.checkpoint;
-    if (!cp?.hadChanges) {
-      ctx.ui.setStatus("checkpoint", "checkpoint clean · no scoped changes");
-      return;
-    }
+    if (!cp?.hadChanges) return;
     lastAutoCheckpointAt = now;
-    recordCheckpoint(cp, ctx);
+    recordCheckpoint(cp);
   });
 
   // ── Restore checkpoint state across session restarts ────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.setStatus("checkpoint", undefined);
     const entries = ctx.sessionManager.getEntries();
     const cpEntries = entries.filter(
       (e: any) => e.type === "custom" && e.customType === "git-checkpoint"
     );
     if (cpEntries.length > 0) {
       latestCheckpoint = (cpEntries[cpEntries.length - 1] as any).data as Checkpoint;
-      if (latestCheckpoint) {
-        lastAutoCheckpointAt = Date.parse(latestCheckpoint.ts) || 0;
-        ctx.ui.setStatus("checkpoint", `📍 ${latestCheckpoint.hash.slice(0, 7)}${latestCheckpoint.subject ? ` ${latestCheckpoint.subject}` : ""}`);
-      }
+      if (latestCheckpoint) lastAutoCheckpointAt = Date.parse(latestCheckpoint.ts) || 0;
     }
   });
 
@@ -962,7 +941,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(attempt.reason === "missing-identity" ? "Checkpoint cancelled: Git commit identity is still missing." : "Failed to create checkpoint.", "error");
         return;
       }
-      recordCheckpoint(cp, ctx);
+      recordCheckpoint(cp);
       ctx.ui.notify(
         `Checkpoint created: ${cp.hash.slice(0, 7)} on ${cp.branch}${cp.hadChanges ? ` — ${cp.subject ?? "changes committed"}` : " (already clean)"}`,
         "info"
@@ -992,7 +971,6 @@ export default function (pi: ExtensionAPI) {
       try {
         execFileSync("git", ["reset", "--hard", validateCheckpointHash(hash)], { cwd });
         ctx.ui.notify(`Restored to checkpoint ${hash.slice(0, 7)} (${branch})`, "info");
-        ctx.ui.setStatus("checkpoint", `↩ restored ${hash.slice(0, 7)}`);
         latestCheckpoint = null; // consumed
       } catch (e) {
         ctx.ui.notify(`Failed to restore: ${String(e)}`, "error");
