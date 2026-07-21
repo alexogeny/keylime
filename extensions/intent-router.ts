@@ -120,12 +120,24 @@ export function modeAdjustedGroups(groups: CapabilityGroup[]): CapabilityGroup[]
   return groups;
 }
 
-function resolveToolsForRoute(pi: ExtensionAPI, groups: CapabilityGroup[]) {
+const MUTATION_REQUEST = /\b(implement|edit|change|fix|update|modify|refactor|replace|rename|remove|delete|add)\b/i;
+
+export function workflowToolNames(route: IntentRoute): string[] {
+  if (!["coding", "refactor"].includes(route.primaryIntent)) return [];
+  if (!MUTATION_REQUEST.test(route.prompt)) return [];
+  return ["apply_code_replacements", "plan_code_replacements", "run_checks"].sort();
+}
+
+function resolveToolsForRoute(pi: ExtensionAPI, groups: CapabilityGroup[], route?: IntentRoute) {
   return resolveActiveToolSet({
     availableToolNames: pi.getAllTools().map(toolName).filter(Boolean) as string[],
     currentActiveToolNames: pi.getActiveTools().map(toolName).filter(Boolean) as string[],
     groups: enabledGroups(modeAdjustedGroups(groups)),
-    continuityToolNames: [...agentOsContinuityToolNames(), ...discoveredToolsForTurn()],
+    continuityToolNames: [
+      ...agentOsContinuityToolNames(),
+      ...discoveredToolsForTurn(),
+      ...(route ? workflowToolNames(route) : []),
+    ],
   });
 }
 
@@ -163,7 +175,7 @@ function sameTools(left: string[], right: string[]): boolean {
 }
 
 export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute, source: RouteSource = "classifier", extras: { stickyFrom?: IntentCorpusMatch; switchFrom?: IntentCorpusMatch } = {}): void {
-  const resolution = resolveToolsForRoute(pi, route.capabilityGroups);
+  const resolution = resolveToolsForRoute(pi, route.capabilityGroups, route);
   const routed = resolution.routed;
   const next = resolution.active;
   const current = sortedToolNames(pi.getActiveTools());
@@ -387,7 +399,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const route = getCurrentRoute();
       const activeGroups = enabledGroups(modeAdjustedGroups(route.capabilityGroups));
-      const resolution = resolveToolsForRoute(pi, route.capabilityGroups);
+      const resolution = resolveToolsForRoute(pi, route.capabilityGroups, route);
       ctx.ui.notify(formatToolPolicyLines({
         alwaysOnTools: resolution.alwaysOn,
         activeGroups,

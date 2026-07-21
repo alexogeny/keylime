@@ -1040,6 +1040,32 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
         maxReplacements: Type.Optional(Type.Number({ description: "Maximum replacements" })),
       }), { description: "Edits" }),
     }),
+    prepareArguments(input: any) {
+      if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+      const normalized = { ...input };
+      let edits = normalized.edits ?? normalized.replacements;
+      if (typeof edits === "string") {
+        try {
+          edits = JSON.parse(edits);
+        } catch {
+          throw new Error("apply_code_replacements: edits was a JSON string but could not be parsed; send a native JSON array.");
+        }
+      }
+      if (!Array.isArray(edits)) {
+        throw new Error("apply_code_replacements: edits must be a native JSON array; top-level alias replacements is also accepted.");
+      }
+      normalized.edits = edits.map((edit: any, index: number) => {
+        if (!edit || typeof edit !== "object" || Array.isArray(edit)) {
+          throw new Error(`apply_code_replacements: edits.${index} must be an object, not a JSON string or scalar.`);
+        }
+        const { find, replace, ...canonical } = edit;
+        if (canonical.oldText === undefined && find !== undefined) canonical.oldText = find;
+        if (canonical.newText === undefined && replace !== undefined) canonical.newText = replace;
+        return canonical;
+      });
+      delete normalized.replacements;
+      return normalized;
+    },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const classification = classifyToolMutation("apply_code_replacements", params);
       if (!classification.allowed) throw new Error(`apply_code_replacements blocked by safety policy: ${classification.reasons.join(", ")}`);

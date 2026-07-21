@@ -49,15 +49,51 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, ch => `\\${ch}`);
 }
 
+type RegisteredTool = {
+  name?: string;
+  description?: string;
+  parameters?: unknown;
+};
+
+const TOOL_CALL_EXAMPLES: Record<string, unknown> = {
+  apply_code_replacements: {
+    edits: [{ path: "extensions/example.ts", oldText: "before", newText: "after" }],
+  },
+};
+
+function comparableToolName(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function policyForRequestedName(name: string) {
+  return toolPolicyFor(name)
+    ?? TOOL_POLICIES.find(policy => comparableToolName(policy.name) === comparableToolName(name));
+}
+
+function registeredTool(allTools: RegisteredTool[], name: string): RegisteredTool | undefined {
+  return allTools.find(tool => tool?.name === name);
+}
+
+function formatToolUsage(name: string, tool?: RegisteredTool): string {
+  const lines = [`Exact name: ${name} (case-sensitive)`];
+  if (tool?.description) lines.push(`Description: ${tool.description}`);
+  if (tool?.parameters) lines.push(`Parameters (native JSON): ${JSON.stringify(tool.parameters)}`);
+  const example = TOOL_CALL_EXAMPLES[name];
+  if (example) lines.push(`Canonical call: ${name}(${JSON.stringify(example)})`);
+  return lines.join("\n");
+}
+
 export default function policyToolsExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "tool_search",
     label: "Tool Search",
-    description: "Search the local Keylime tool policy catalog without loading every tool schema into context.",
-    promptSnippet: "Search available tools",
+    description: "Search and activate tools. Newly activated tools are callable on the next model step, never by a sibling call in the same assistant message.",
+    promptSnippet: "Search and activate deferred tools for the next model step",
     promptGuidelines: [
-      "Use when you need a capability but are unsure which tool to call.",
-      "Keeps prompt pollution low by returning compact tool references; use tool_help for one specific tool.",
+      "Use tool_search when a needed capability is not currently available.",
+      "After tool_search returns, wait for the next assistant continuation before calling a newly activated tool; never batch activation with its dependent call.",
+      "Copy the exact case-sensitive snake_case tool name and send arrays/objects as native JSON, not JSON strings.",
+      "Use always-on tool_help for one tool's exact schema and canonical call.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Capability or tool name to search for" }),
@@ -81,38 +117,81 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
         .filter(policy => !available || available.has(policy.name))
         .filter(policy => !params.group || policy.group === params.group)
         .filter(policy => !params.risk || policy.risk === params.risk);
-      const results = params.query.trim()
-        ? searchToolCatalog(allTools, candidates, params.query, limit).map(match => match.policy)
-        : candidates.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit);
+      const query = params.query.trim();
+      const exact = query
+        ? candidates.find(policy => policy.name === query)
+          ?? candidates.find(policy => comparableToolName(policy.name) === comparableToolName(query))
+        : undefined;
+      const results = exact
+        ? [exact]
+        : query
+          ? searchToolCatalog(allTools, candidates, query, limit).map(match => match.policy)
+          : candidates.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit);
       const current = typeof (pi as any).getActiveTools === "function"
         ? (pi as any).getActiveTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean)
         : [];
       const currentSet = new Set<string>(current);
-      const loaded = results.map(policy => policy.name).filter(name => !currentSet.has(name));
-      if (loaded.length > 0 && typeof (pi as any).setActiveTools === "function") {
-        recordDiscoveredToolsForTurn(loaded);
-        (pi as any).setActiveTools([...new Set([...current, ...loaded])].sort());
+      const pending = results.map(policy => policy.name).filter(name => !currentSet.has(name));
+      const canActivate = typeof (pi as any).setActiveTools === "function";
+      const activated = canActivate ? pending : [];
+      if (activated.length > 0) {
+        recordDiscoveredToolsForTurn(activated);
+        (pi as any).setActiveTools([...new Set([...current, ...activated])].sort());
       }
+      const alreadyActive = results.map(policy => policy.name).filter(name => currentSet.has(name));
+      const callableAfter = activated.length > 0 ? "next_model_step" : alreadyActive.length === results.length && results.length > 0 ? "now" : "unavailable";
       const text = results.length
-        ? results.map(policy => `${policy.name} — group=${policy.group ?? "always-on"} risk=${policy.risk}${policy.alwaysOn ? " always_on" : ""}`).join("\n")
+        ? results.map(policy => {
+          const status = activated.includes(policy.name)
+            ? `ACTIVATED FOR NEXT MODEL STEP: ${policy.name}`
+            : alreadyActive.includes(policy.name)
+              ? `ALREADY ACTIVE: ${policy.name}`
+              : `MATCHED BUT NOT ACTIVATED: ${policy.name}`;
+          const metadata = `group=${policy.group ?? "always-on"} risk=${policy.risk}${policy.alwaysOn ? " always_on" : ""}`;
+          const usage = results.length === 1 ? `\n${formatToolUsage(policy.name, registeredTool(allTools, policy.name))}` : "";
+          return `${status}\n${metadata}${usage}`;
+        }).join("\n\n")
         : "No matching tools found.";
-      return { content: [{ type: "text", text }], details: { results, loaded } };
+      const sequencing = activated.length > 0
+        ? "\n\nWait for this result to return. Do not call it as a sibling of tool_search in the same assistant message."
+        : "";
+      return {
+        content: [{ type: "text", text: text + sequencing }],
+        details: { results, loaded: activated, activated, alreadyActive, callableAfter, exactNames: results.map(policy => policy.name) },
+      };
     },
   });
 
   pi.registerTool({
     name: "tool_help",
     label: "Tool Help",
-    description: "Return compact policy metadata for one known Keylime tool.",
-    promptSnippet: "Inspect one tool policy",
-    promptGuidelines: ["Use after tool_search when you need one specific tool's routing/risk metadata."],
+    description: "Return one tool's exact case-sensitive name, live schema, activation state, policy, and canonical call.",
+    promptSnippet: "Inspect one tool's exact live schema",
+    promptGuidelines: ["Use always-on tool_help before guessing a deferred tool's name or structured arguments."],
     parameters: Type.Object({
       name: Type.String({ description: "Tool name" }),
     }),
     async execute(_id, params) {
-      const policy = toolPolicyFor(params.name);
-      if (!policy) throw new Error(`Unknown tool: ${params.name}`);
-      return { content: [{ type: "text", text: formatJson(policy) }], details: { policy } };
+      const policy = policyForRequestedName(params.name);
+      if (!policy) {
+        const suggestions = TOOL_POLICIES
+          .map(candidate => candidate.name)
+          .filter(name => comparableToolName(name).includes(comparableToolName(params.name)) || comparableToolName(params.name).includes(comparableToolName(name)))
+          .slice(0, 3);
+        throw new Error(`Unknown tool: ${params.name}${suggestions.length ? `. Did you mean ${suggestions.join(", ")}?` : ""} Tool names are case-sensitive snake_case.`);
+      }
+      const allTools: RegisteredTool[] = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
+      const current = typeof (pi as any).getActiveTools === "function"
+        ? (pi as any).getActiveTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean)
+        : [];
+      const active = current.includes(policy.name);
+      const tool = registeredTool(allTools, policy.name);
+      const text = [
+        formatToolUsage(policy.name, tool),
+        `Activation: ${active ? "already active" : "deferred; run tool_search, wait for its result, then call on the next model step"}`,
+        `Policy: ${JSON.stringify(policy)}`,
+      ].join("\n");
+      return { content: [{ type: "text", text }], details: { policy, tool, active, exactName: policy.name } };
     },
   });
 

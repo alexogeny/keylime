@@ -38,7 +38,7 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "inspect_code_structure", domain: true, risk: "safe" },
   { name: "inspect_lines", alwaysOn: true, domain: true, risk: "safe" },
   { name: "tool_search", alwaysOn: true, domain: true, risk: "safe" },
-  { name: "tool_help", domain: true, risk: "safe" },
+  { name: "tool_help", alwaysOn: true, domain: true, risk: "safe" },
   { name: "inspect_file_metadata", domain: true, risk: "safe" },
   { name: "compare_files", domain: true, risk: "safe" },
   { name: "inspect_runtime_environment", domain: true, risk: "safe" },
@@ -238,6 +238,7 @@ const BOOTSTRAP_TOOL_NAMES = [
   "list_files",
   "run_checks",
   "tool_search",
+  "tool_help",
 ].sort();
 const ALWAYS_ON_TOOL_NAMES = BOOTSTRAP_TOOL_NAMES;
 const DOMAIN_TOOL_NAMES = TOOL_POLICIES.filter(policy => policy.domain).map(policy => policy.name).sort();

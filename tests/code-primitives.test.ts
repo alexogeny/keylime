@@ -305,6 +305,18 @@ describe("code primitive extension tools", () => {
     expect(structure.content[0].text).toContain("function outsideThing");
   });
 
+  test("apply_code_replacements normalizes common model argument mistakes before validation", () => {
+    const tools = registeredCodePrimitiveTools();
+    const normalized = tools.apply_code_replacements.prepareArguments({
+      replacements: JSON.stringify([{ path: "x.ts", find: "before", replace: "after" }]),
+    });
+
+    expect(normalized).toEqual({
+      edits: [{ path: "x.ts", oldText: "before", newText: "after" }],
+    });
+    expect(() => tools.apply_code_replacements.prepareArguments({ edits: "not json" })).toThrow("native JSON array");
+  });
+
   test("apply_code_replacements uses colored diff previews", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await writeFile(join(cwd, "x.ts"), "const value = 1;\n", "utf8");

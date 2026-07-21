@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import intentRouterExtension, { activeToolNames } from "../extensions/intent-router";
+import intentRouterExtension, { activeToolNames, workflowToolNames } from "../extensions/intent-router";
 import { classifyIntent, setCurrentRoute } from "../extensions/shared/intent";
 import { clearContextProviders, composeTurnContext } from "../extensions/shared/turn-context";
 import { allKnownTestTools, mockPi } from "./helpers/mock-pi";
@@ -31,7 +31,7 @@ describe("activeToolNames", () => {
     expect(tools).not.toContain("abort_file_write");
     expect(tools).not.toContain("create_directory");
     expect(tools).toContain("tool_search");
-    expect(tools).not.toContain("tool_help");
+    expect(tools).toContain("tool_help");
     expect(tools).not.toContain("read_agent_registers");
     expect(tools).not.toContain("ctx_region_write");
     expect(tools).not.toContain("compile_tool_grammar");
@@ -257,12 +257,12 @@ describe("context rerouting", () => {
   test("context pass does not reset tools when the active schema set is already correct", async () => {
     const { default: intentRouterExtension } = await import("../extensions/intent-router");
     const handlers: Record<string, any> = {};
-    const active = activeToolNames(pi(["custom_safe_tool"]), ["core", "repo", "coding", "project", "safety", "memory-lite"]);
+    let active = activeToolNames(pi(["custom_safe_tool"]), ["core", "repo", "coding", "project", "safety", "memory-lite"]);
     const calls: string[][] = [];
     const mockPi = {
       getAllTools: () => allToolNames.map(name => ({ name })),
       getActiveTools: () => active.map(name => ({ name })),
-      setActiveTools: (names: string[]) => calls.push(names),
+      setActiveTools: (names: string[]) => { active = names; calls.push(names); },
       on: (name: string, handler: any) => { handlers[name] = handler; },
       registerCommand: () => {},
     } as any;
@@ -274,7 +274,9 @@ describe("context rerouting", () => {
     await handlers.context({ messages: [{ role: "user", content: "implement code change" }] }, ctx);
     await handlers.context({ messages: [{ role: "user", content: "implement code change" }] }, ctx);
 
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("plan_code_replacements");
+    expect(calls[0]).toContain("apply_code_replacements");
   });
 });
 
@@ -387,6 +389,17 @@ test("policy evidence ranks corpus docs for prompts without changing determinist
 
   expect(evidence[0].id).toBe("routing.refactor");
   expect(evidence.some(item => item.id === "checks.retrieval")).toBe(true);
+});
+
+test("explicit coding mutations preactivate the guarded replacement workflow", () => {
+  const route = classifyIntent("implement this code change and update the tests");
+
+  expect(workflowToolNames(route)).toEqual([
+    "apply_code_replacements",
+    "plan_code_replacements",
+    "run_checks",
+  ]);
+  expect(workflowToolNames(classifyIntent("explain how this implementation works"))).toEqual([]);
 });
 
 test("coding route starts with bootstrap tools and defers codemods", () => {

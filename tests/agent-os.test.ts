@@ -109,7 +109,8 @@ describe("agent OS extension", () => {
 
     const route = routeForPrompt(harness.pi, "continue");
     expect(["coding", "debugging", "refactor"]).toContain(route.primaryIntent);
-    expect(harness.activeTools).not.toContain("apply_code_replacements");
+    expect(harness.activeTools).toContain("plan_code_replacements");
+    expect(harness.activeTools).toContain("apply_code_replacements");
     expect(harness.activeTools).toContain("tool_search");
     clearContextProviders();
   });

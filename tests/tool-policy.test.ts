@@ -16,6 +16,7 @@ describe("shared tool policy", () => {
       "inspect_text_matches",
       "list_files",
       "run_checks",
+      "tool_help",
       "tool_search",
     ]);
 
@@ -25,6 +26,7 @@ describe("shared tool policy", () => {
       groups: ["coding", "repo"],
     });
     expect(resolution.active).toContain("tool_search");
+    expect(resolution.active).toContain("tool_help");
     expect(resolution.active).toContain("run_checks");
     expect(resolution.active).not.toContain("compare_files");
     expect(resolution.active).not.toContain("create_reporter_document");

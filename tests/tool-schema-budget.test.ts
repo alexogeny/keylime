@@ -26,8 +26,8 @@ describe("tool schema budget", () => {
     const allChars = estimateRegisteredToolChars(all);
     const bootstrapChars = estimateRegisteredToolChars(bootstrap);
 
-    expect(bootstrapToolNames()).toHaveLength(6);
-    expect(bootstrap).toHaveLength(6);
+    expect(bootstrapToolNames()).toHaveLength(7);
+    expect(bootstrap).toHaveLength(7);
     expect(bootstrapChars).toBeLessThan(20_000);
     expect(bootstrapChars / allChars).toBeLessThan(0.25);
   });

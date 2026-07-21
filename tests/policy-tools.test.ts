@@ -67,6 +67,54 @@ describe("policy tools extension", () => {
     }
   });
 
+  test("tool_search reports next-step activation and exposes the registered schema", async () => {
+    const tools: Record<string, any> = {};
+    let active = ["tool_search", "tool_help"];
+    const parameters = {
+      type: "object",
+      properties: {
+        edits: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+              oldText: { type: "string" },
+              newText: { type: "string" },
+            },
+            required: ["newText"],
+          },
+        },
+      },
+      required: ["edits"],
+    };
+    policyToolsExtension({
+      registerTool: (tool: any) => { tools[tool.name] = tool; },
+      getActiveTools: () => active.map(name => ({ name })),
+      getAllTools: () => [
+        { name: "tool_search", description: "search tools", parameters: {} },
+        { name: "tool_help", description: "help", parameters: {} },
+        { name: "apply_code_replacements", description: "Apply replacements", parameters },
+      ],
+      setActiveTools: (names: string[]) => { active = names; },
+    } as any);
+
+    const result = await tools.tool_search.execute("id", { query: "apply_code_replacements", group: "coding" });
+    expect(result.content[0].text).toContain("ACTIVATED FOR NEXT MODEL STEP: apply_code_replacements");
+    expect(result.content[0].text).toContain("Do not call it as a sibling");
+    expect(result.content[0].text).toContain("oldText");
+    expect(result.content[0].text).toContain("newText");
+    expect(result.details.callableAfter).toBe("next_model_step");
+    expect(result.details.activated).toEqual(["apply_code_replacements"]);
+
+    const second = await tools.tool_search.execute("id", { query: "apply_code_replacements", group: "coding" });
+    expect(second.content[0].text).toContain("ALREADY ACTIVE: apply_code_replacements");
+
+    const help = await tools.tool_help.execute("id", { name: "ApplyCodeReplacements" });
+    expect(help.content[0].text).toContain("Exact name: apply_code_replacements");
+    expect(help.content[0].text).toContain("oldText");
+  });
+
   test("tool_search uses registered tool descriptions for capability queries", async () => {
     const tools: Record<string, any> = {};
     let active = ["tool_search"];
