@@ -117,12 +117,48 @@ function compactWhitespace(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+function formatLineRange(startLine: number, endLine: number): string {
+  return startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
+}
+
+function closestSourceLine(text: string, needle: string): { line: number; text: string } | null {
+  const needleLine = needle.split("\n").map(line => compactWhitespace(line)).find(Boolean);
+  if (!needleLine) return null;
+  const needleTokens = new Set(needleLine.toLowerCase().match(/[a-z0-9_$]+/g) ?? []);
+  if (needleTokens.size === 0) return null;
+
+  let best: { line: number; text: string; score: number } | null = null;
+  for (const [index, line] of text.split("\n").entries()) {
+    const compactLine = compactWhitespace(line);
+    if (!compactLine) continue;
+    const lineTokens = new Set(compactLine.toLowerCase().match(/[a-z0-9_$]+/g) ?? []);
+    let shared = 0;
+    for (const token of needleTokens) if (lineTokens.has(token)) shared++;
+    const score = (2 * shared) / (needleTokens.size + lineTokens.size);
+    if (!best || score > best.score) best = { line: index + 1, text: line.trim().slice(0, 160), score };
+  }
+  return best && best.score >= 0.5 ? best : null;
+}
+
 function nearMatchHint(text: string, needle: string): string {
+  const trimmedMatches = findTrimmedLinesMatches(text, needle);
+  if (trimmedMatches.length === 1) {
+    const match = trimmedMatches[0];
+    return ` Found a unique whitespace-equivalent match at lines ${formatLineRange(match.startLine + 1, match.endLine)}; retry with matchMode: "trimmed_lines"`;
+  }
+  if (trimmedMatches.length > 1) {
+    return ` Found ${trimmedMatches.length} whitespace-equivalent matches; include more unique surrounding lines`;
+  }
+
   const compactNeedle = compactWhitespace(needle);
-  if (!compactNeedle || !compactWhitespace(text).includes(compactNeedle)) return "";
-  const firstNeedleToken = compactNeedle.split(" ")[0] ?? "";
-  const nearLine = text.split("\n").find(line => compactWhitespace(line).includes(firstNeedleToken));
-  return ` Possible whitespace/indentation mismatch${nearLine ? ` near: ${nearLine.trim().slice(0, 160)}` : ""}`;
+  if (compactNeedle && compactWhitespace(text).includes(compactNeedle)) {
+    const firstNeedleToken = compactNeedle.split(" ")[0] ?? "";
+    const nearLine = text.split("\n").find(line => compactWhitespace(line).includes(firstNeedleToken));
+    return ` Possible whitespace/indentation mismatch${nearLine ? ` near: ${nearLine.trim().slice(0, 160)}` : ""}`;
+  }
+
+  const closest = closestSourceLine(text, needle);
+  return closest ? ` Closest source line ${closest.line}: ${closest.text}` : "";
 }
 
 function replacementPreviews(before: string, after: string, maxPreviews = 5): ReplacementPreview[] {
@@ -149,14 +185,15 @@ function assertReplacementCount(edit: ReplacementEdit, count: number): void {
   }
 }
 
-function findTrimmedLinesMatch(text: string, oldText: string): { startLine: number; endLine: number } | null {
+function findTrimmedLinesMatches(text: string, oldText: string): Array<{ startLine: number; endLine: number }> {
   const lines = text.split("\n");
   const oldLines = oldText.split("\n").map(line => line.trim());
+  const matches: Array<{ startLine: number; endLine: number }> = [];
   for (let i = 0; i <= lines.length - oldLines.length; i++) {
     const slice = lines.slice(i, i + oldLines.length).map(line => line.trim());
-    if (slice.every((line, idx) => line === oldLines[idx])) return { startLine: i, endLine: i + oldLines.length };
+    if (slice.every((line, idx) => line === oldLines[idx])) matches.push({ startLine: i, endLine: i + oldLines.length });
   }
-  return null;
+  return matches;
 }
 
 function replaceTrimmedLines(text: string, edit: ReplacementEdit): { after: string; count: number } {
@@ -264,7 +301,18 @@ function exactReplacement(text: string, edit: ReplacementEdit): ReplacementPlan 
 
   const occurrences = text.split(edit.oldText).length - 1;
   if (occurrences === 0) throw new Error(`No match for oldText in ${edit.path}.${nearMatchHint(text, edit.oldText)}`);
-  if (occurrences > 1 && !edit.replaceAll) throw new Error(`oldText matched ${occurrences} times in ${edit.path}; set replaceAll=true or use a more specific oldText`);
+  if (occurrences > 1 && !edit.replaceAll) {
+    const starts = lineStarts(text);
+    const matchLines: number[] = [];
+    for (let from = 0; matchLines.length < 5;) {
+      const index = text.indexOf(edit.oldText, from);
+      if (index < 0) break;
+      matchLines.push(lineColumnAt(starts, index).line);
+      from = index + edit.oldText.length;
+    }
+    const locations = `${matchLines.join(", ")}${occurrences > matchLines.length ? ", …" : ""}`;
+    throw new Error(`oldText matched ${occurrences} times in ${edit.path} (matches at lines ${locations}); set replaceAll=true only if every match is intended, otherwise include more unique surrounding lines`);
+  }
   const count = edit.replaceAll ? occurrences : 1;
   assertReplacementCount(edit, count);
   const after = edit.replaceAll ? text.split(edit.oldText).join(edit.newText) : text.replace(edit.oldText, edit.newText);
@@ -325,13 +373,23 @@ export function isProbablyBinary(buffer: Buffer | Uint8Array): boolean {
   const sample = buffer.subarray(0, Math.min(buffer.length, 8192));
   if (sample.includes(0)) return true;
   if (sample.length === 0) return false;
-  let suspicious = 0;
-  for (const byte of sample) {
-    if (byte === 9 || byte === 10 || byte === 13) continue;
-    if (byte >= 32 && byte <= 126) continue;
-    suspicious++;
+
+  let decoded: string;
+  try {
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(sample, { stream: buffer.length > sample.length });
+  } catch {
+    return true;
   }
-  return suspicious / sample.length > 0.3;
+
+  let suspicious = 0;
+  let characters = 0;
+  for (const character of decoded) {
+    characters++;
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint === 9 || codePoint === 10 || codePoint === 13) continue;
+    if (codePoint < 32 || codePoint === 127 || (codePoint >= 128 && codePoint <= 159)) suspicious++;
+  }
+  return characters > 0 && suspicious / characters > 0.3;
 }
 
 export function extensionsForLanguage(language: Language): string[] {

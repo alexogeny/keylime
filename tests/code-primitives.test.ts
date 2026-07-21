@@ -51,8 +51,28 @@ describe("planReplacement", () => {
     expect(summarizePlan(plan)).toContain("x.ts: 1 replacement");
   });
 
-  test("requires specificity for repeated exact matches", () => {
-    expect(() => planReplacement("x x", { path: "x.ts", oldText: "x", newText: "y" })).toThrow("matched 2 times");
+  test("requires specificity for repeated exact matches and reports candidate lines", () => {
+    expect(() => planReplacement("x\ny\nx\ny\nx", {
+      path: "x.ts",
+      oldText: "x",
+      newText: "z",
+    })).toThrow("matches at lines 1, 3, 5");
+  });
+
+  test("suggests a unique trimmed-lines match when exact whitespace differs", () => {
+    expect(() => planReplacement("if (ok) {\n  call();\n}", {
+      path: "x.ts",
+      oldText: "  if (ok) {\n    call();\n  }",
+      newText: "done();",
+    })).toThrow('unique whitespace-equivalent match at lines 1-3; retry with matchMode: "trimmed_lines"');
+  });
+
+  test("reports the closest source line for stale oldText", () => {
+    expect(() => planReplacement("const alpha = 1;\nconst beta = 2;\nconst gamma = 3;", {
+      path: "x.ts",
+      oldText: "const beta = 20;",
+      newText: "const beta = 4;",
+    })).toThrow("Closest source line 2: const beta = 2;");
   });
 
   test("can replace all exact matches", () => {
@@ -365,6 +385,21 @@ describe("code primitive extension tools", () => {
 
     expect(result.details.count).toBe(1);
     expect(result.content[0].text).toContain("foo(bar");
+  });
+
+  test("inspect_text_matches accepts Unicode-heavy UTF-8 source", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await mkdir(join(cwd, "src"));
+    await writeFile(join(cwd, "src", "unicode.ts"), "// 東京東京東京東京東京東京\nexport const auditLabel = '監査記録';\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    const result = await tools.inspect_text_matches.execute("id", {
+      path: "src/unicode.ts",
+      query: "auditLabel",
+    }, undefined, undefined, { cwd });
+
+    expect(result.details.count).toBe(1);
+    expect(result.content[0].text).toContain("auditLabel");
   });
 
   test("always-on code primitive prompt guidelines stay compact", () => {
@@ -747,6 +782,19 @@ describe("code primitive extension tools", () => {
       edits: [{ path: "x.ts", oldText: "alpha", newText: "beta", expectedReplacements: 1, replaceAll: true }],
     }, undefined, undefined, { cwd })).rejects.toThrow("Edit 1 failed for x.ts: Expected 1 replacement");
   });
+
+  test("identifies when an earlier edit in the batch invalidates oldText", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
+    await writeFile(join(cwd, "x.ts"), "const value = 1;\n", "utf8");
+
+    const tools = registeredCodePrimitiveTools();
+    await expect(tools.plan_code_replacements.execute("id", {
+      edits: [
+        { path: "x.ts", oldText: "value = 1", newText: "value = 2" },
+        { path: "x.ts", oldText: "value = 1", newText: "value = 3" },
+      ],
+    }, undefined, undefined, { cwd })).rejects.toThrow("conflicts with an earlier edit in this batch");
+  });
 });
 
 describe("path and binary safety", () => {
@@ -762,9 +810,12 @@ describe("path and binary safety", () => {
     expect(() => resolveSafePath("/repo", "/tmp/secret.txt")).toThrow("outside cwd");
   });
 
-  test("detects binary buffers", () => {
+  test("detects binary buffers without misclassifying valid Unicode source", () => {
     expect(isProbablyBinary(Buffer.from([0x61, 0x00, 0x62]))).toBe(true);
+    expect(isProbablyBinary(Buffer.from([0xc3, 0x28]))).toBe(true);
     expect(isProbablyBinary(Buffer.from("plain text"))).toBe(false);
+    expect(isProbablyBinary(Buffer.from("const labels = '東京東京東京東京東京';\n"))).toBe(false);
+    expect(isProbablyBinary(Buffer.from("// café — résumé 🚀\nexport const ok = true;\n"))).toBe(false);
   });
 });
 

@@ -286,8 +286,8 @@ async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targe
     if (paths.length === 0) throw new Error(`Edit ${index + 1}: no target files; provide path, file_glob, or language`);
     for (const fsPath of paths) {
       const relPath = relativePath(cwd, fsPath);
+      const existing = plannedByPath.get(fsPath);
       try {
-        const existing = plannedByPath.get(fsPath);
         const before = existing?.plan.before ?? await readTextFileSafely(cwd, fsPath);
         const current = existing?.plan.after ?? before;
         const step = planReplacement(current, { ...rawEdit, path: relPath });
@@ -302,7 +302,12 @@ async function planCodeReplacements(cwd: string, edits: ReplacementEdit[], targe
           },
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        let message = error instanceof Error ? error.message : String(error);
+        const oldText = rawEdit.oldText;
+        if (existing && oldText && message.startsWith("No match for oldText")
+          && existing.plan.before.includes(oldText) && !existing.plan.after.includes(oldText)) {
+          message += "; oldText matched the original file but conflicts with an earlier edit in this batch—combine or reorder the overlapping edits";
+        }
         throw new Error(`Edit ${index + 1} failed for ${relPath}: ${message}`);
       }
     }
@@ -977,6 +982,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptSnippet: "Plan batch replacements",
     promptGuidelines: [
       "Use before apply_code_replacements for broad edits.",
+      "Copy oldText verbatim from inspection and include enough surrounding lines to make it unique.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
     parameters: Type.Object({
@@ -1022,6 +1028,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     description: "Apply exact or regex replacements across files. Supports globs, languages, dry-run previews, match modes, and count guards.",
     promptSnippet: "Batch text/regex replacements",
     promptGuidelines: [
+      "Copy oldText verbatim from inspection and include unique surrounding lines; use replaceAll only when every match is intended.",
       "Prefer exact oldText. Use dry_run before broad regex/glob edits.",
       ...SOURCE_MUTATION_GUIDELINES,
     ],
