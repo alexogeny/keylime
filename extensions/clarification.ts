@@ -5,10 +5,12 @@ import { loadAllSearchEntries } from "./shared/web-search-store";
 import type { SearchEntry } from "./shared/web-search-types";
 import {
   analyzeClarificationRequest,
+  buildClarificationResearchPrompt,
   buildClarificationSynthesisPrompt,
   collectClarificationDocuments,
   deterministicClarificationDraft,
   parseClarificationDraft,
+  recommendClarificationResearch,
   retrieveClarificationEvidence,
   retrieveClarificationWebEvidence,
   type ClarificationDocument,
@@ -101,9 +103,31 @@ export function registerClarificationExtension(pi: ExtensionAPI, options: Clarif
         collectDocuments(ctx.cwd),
         loadWebResearch().catch(() => []),
       ]);
-      const analysis = analyzeClarificationRequest(request);
-      const evidence = retrieveClarificationEvidence(request, documents, { topK: 8 });
-      const webEvidence = retrieveClarificationWebEvidence(request, webResearch, { topK: 3 });
+      const preliminaryEvidence = retrieveClarificationEvidence(request, documents, { topK: 5 });
+      const preliminaryWebEvidence = retrieveClarificationWebEvidence(request, webResearch, { topK: 3 });
+      const supportingTexts = [
+        ...preliminaryWebEvidence.flatMap(item => [item.query, item.summary]),
+        ...preliminaryEvidence.map(item => item.excerpt),
+      ];
+      const analysis = analyzeClarificationRequest(request, supportingTexts);
+      const evidence = retrieveClarificationEvidence(request, documents, { topK: 8, analysis });
+      const webEvidence = retrieveClarificationWebEvidence(request, webResearch, { topK: 3, analysis });
+      const research = recommendClarificationResearch(request, analysis, webEvidence);
+      if (research && ctx.hasUI && ctx.mode === "tui" && typeof ctx.ui.confirm === "function") {
+        const approved = await ctx.ui.confirm("Research before clarifying?", `${research.reason}\n\nRun fresh research now and defer the clarified prompt?`);
+        if (approved) {
+          pi.appendEntry("clarification-research-requested", {
+            request,
+            themes: research.themes,
+            evidenceIds: webEvidence.map(item => item.id),
+            requestedAt: new Date().toISOString(),
+          });
+          ctx.ui.setStatus?.("clarification", "clarification deferred · research queued");
+          pi.sendUserMessage(buildClarificationResearchPrompt(request, research, webEvidence), { deliverAs: "followUp" });
+          ctx.ui.notify("Fresh research queued. After it is saved, rerun /clarify with the original request.", "info");
+          return;
+        }
+      }
       ctx.ui.setStatus?.("clarification", `clarifying: synthesizing ${evidence.length} anchors and ${webEvidence.length} research memories…`);
       let draft = await synthesize({ request, evidence, webEvidence, concepts: analysis.concepts.map(concept => concept.id) }, ctx);
 

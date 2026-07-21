@@ -52,6 +52,44 @@ describe("clarification command proof of concept", () => {
     expect(entries.at(-1)?.customType).toBe("clarification-submitted");
   });
 
+  test("offers fresh research and defers synthesis when the user accepts", async () => {
+    const commands: Record<string, any> = {};
+    const entries: any[] = [];
+    const sent: Array<{ text: string; options: any }> = [];
+    const confirmations: string[] = [];
+    const pi = {
+      registerCommand: (name: string, command: any) => { commands[name] = command; },
+      on: () => {},
+      appendEntry: (customType: string, data: any) => { entries.push({ type: "custom", customType, data }); },
+      sendUserMessage: (text: string, options: any) => { sent.push({ text, options }); },
+    } as any;
+    registerClarificationExtension(pi, {
+      collectDocuments: async () => [{ path: "extensions/context-runtime.ts", content: "provider compaction context budget" }],
+      loadWebResearch: async () => [{
+        id: "context", query: "provider context management", provider: "test", timestamp: Date.now(),
+        raw: { results: [{ title: "Compaction", url: "https://example.com", snippet: "Server-side compaction reduces repeated context." }] },
+        distilled: { summary: "Provider context management can reduce repeated input tokens.", keyFacts: ["Prompt caching is complementary."], tags: ["context", "tokens"], categories: ["research"], sources: [] },
+      }],
+      synthesize: async () => { throw new Error("research acceptance must defer synthesis"); },
+    });
+    const ctx = {
+      cwd: process.cwd(), hasUI: true, mode: "tui", sessionManager: { getEntries: () => entries },
+      ui: {
+        setStatus: () => {}, notify: () => {},
+        confirm: async (title: string) => { confirmations.push(title); return true; },
+      },
+    } as any;
+
+    await commands.clarify.handler("too many ^ up tokens across chat sessions", ctx);
+
+    expect(confirmations[0]).toContain("Research before clarifying");
+    expect(entries.at(-1)?.customType).toBe("clarification-research-requested");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("official provider documentation");
+    expect(sent[0].text).toContain("Do not modify repository files");
+    expect(entries.some(entry => entry.customType === "clarification-draft")).toBe(false);
+  });
+
   test("rejects empty clarification requests and missing drafts", async () => {
     const commands: Record<string, any> = {};
     const notifications: string[] = [];

@@ -34,6 +34,12 @@ export type ClarificationAnalysis = {
   concepts: ClarificationConcept[];
 };
 
+export type ClarificationResearchRecommendation = {
+  reason: string;
+  query: string;
+  themes: string[];
+};
+
 export type ClarificationPacket = {
   request: string;
   evidence: ClarificationEvidence[];
@@ -52,103 +58,71 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 const EXCLUDED_DIRECTORIES = new Set([".git", ".pi", "node_modules", "dist", "build", "coverage", "target"]);
 
-type ConceptRule = {
-  id: string;
-  cues: Array<{ pattern: RegExp; weight: number }>;
-  expansion: string[];
-  pathPriors: Array<{ pattern: RegExp; weight: number }>;
-};
+const THEME_STOP_WORDS = new Set([
+  "about", "after", "again", "also", "always", "before", "being", "could", "does", "from", "have", "into", "just", "make", "more", "only", "other", "should", "some", "than", "that", "their", "there", "these", "they", "this", "through", "using", "want", "where", "which", "with", "would",
+  "async", "await", "class", "const", "export", "function", "import", "interface", "return", "string", "type", "undefined",
+]);
 
-const CONCEPT_RULES: ConceptRule[] = [
-  {
-    id: "input-context-cost",
-    cues: [
-      { pattern: /[\^↑]\s*(?:(?:up|input)\s*)?tokens?/i, weight: 6 },
-      { pattern: /\b(?:up|input|prompt|submitted|sending)\s+tokens?\b/i, weight: 5 },
-      { pattern: /\b(?:chat|conversation)\s+sessions?\b/i, weight: 3 },
-      { pattern: /\b(?:context window|context pressure|prompt overhead|cache reuse|cached prefix)\b/i, weight: 4 },
-    ],
-    expansion: ["input tokens", "prompt tokens", "message usage", "cacheRead", "cacheWrite", "context usage", "context ledger", "prompt cache", "session input total"],
-    pathPriors: [
-      { pattern: /usage-tracker/i, weight: 1 },
-      { pattern: /cache-guard/i, weight: 0.98 },
-      { pattern: /context-health|context-ledger|context-runtime/i, weight: 0.94 },
-      { pattern: /signal-footer|structured-compaction|passive-context-telemetry/i, weight: 0.82 },
-    ],
-  },
-  {
-    id: "web-fetch-fallback",
-    cues: [
-      { pattern: /\b(?:fire\s*crawl|firecrawl)\b/i, weight: 5 },
-      { pattern: /\b(?:challenge page|captcha|cloudflare|blocked page)\b/i, weight: 4 },
-      { pattern: /\b(?:fetch url|web fetch|fallback)\b/i, weight: 3 },
-    ],
-    expansion: ["fetch_url", "Firecrawl", "detectChallenge", "challenge_detected", "fallback policy", "scrapeWithFirecrawl"],
-    pathPriors: [
-      { pattern: /(?:^|\/)fetch(?:\.test)?\.ts$/i, weight: 1 },
-      { pattern: /firecrawl-client/i, weight: 0.96 },
-      { pattern: /web-search|web-content/i, weight: 0.75 },
-    ],
-  },
-  {
-    id: "checkpoint-policy",
-    cues: [
-      { pattern: /\bcheckpoint/i, weight: 5 },
-      { pattern: /\b(?:commit|uncommitted|rollback)\b/i, weight: 3 },
-    ],
-    expansion: ["auto checkpoint", "mutation score", "agent_end", "git checkpoint", "uncommitted changes"],
-    pathPriors: [
-      { pattern: /git-checkpoint/i, weight: 1 },
-      { pattern: /safety-policy/i, weight: 0.92 },
-      { pattern: /checkpoint-message/i, weight: 0.85 },
-    ],
-  },
-  {
-    id: "deferred-tool-activation",
-    cues: [
-      { pattern: /\btool[_ -]?search\b/i, weight: 5 },
-      { pattern: /\b(?:activate|activation|schema|tool not found)\b/i, weight: 3 },
-      { pattern: /\bapply code replacements\b/i, weight: 4 },
-    ],
-    expansion: ["tool_search", "tool_help", "setActiveTools", "next model step", "apply_code_replacements", "tool schema"],
-    pathPriors: [
-      { pattern: /policy-tools/i, weight: 1 },
-      { pattern: /tool-policy|tool-catalog/i, weight: 0.94 },
-      { pattern: /intent-router/i, weight: 0.8 },
-    ],
-  },
-];
+function semanticTokens(value: string): string[] {
+  return tokenize(value.replace(/↑/g, " increase ").replace(/↓/g, " decrease "), { preserveCodeTokens: true })
+    .map(token => token.toLowerCase())
+    .filter(token => token.length >= 4 && !THEME_STOP_WORDS.has(token));
+}
 
-export function analyzeClarificationRequest(request: string): ClarificationAnalysis {
+function phraseCandidates(value: string): string[] {
+  const tokens = semanticTokens(value);
+  const phrases = [...tokens];
+  for (let size = 2; size <= 3; size++) {
+    for (let index = 0; index + size <= tokens.length; index++) phrases.push(tokens.slice(index, index + size).join(" "));
+  }
+  return phrases;
+}
+
+export function analyzeClarificationRequest(request: string, supportingTexts: string[] = []): ClarificationAnalysis {
   const normalizedRequest = String(request ?? "")
-    .replace(/\^\s*(?:\(?up\)?\s*)?tokens?/gi, " input tokens ")
-    .replace(/↑\s*tokens?/gi, " input tokens ")
-    .replace(/↓\s*tokens?/gi, " output tokens ")
-    .replace(/\bfethc\b/gi, "fetch")
-    .replace(/\bfire\s+crawl\b/gi, "firecrawl")
+    .replace(/↑/g, " increase ")
+    .replace(/↓/g, " decrease ")
     .replace(/\s+/g, " ")
     .trim();
-  const concepts = CONCEPT_RULES.map(rule => ({
-    id: rule.id,
-    score: rule.cues.reduce((score, cue) => score + (cue.pattern.test(normalizedRequest) ? cue.weight : 0), 0),
-  })).filter(concept => concept.score >= 4).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-  const activeIds = new Set(concepts.slice(0, 3).map(concept => concept.id));
-  const expansion = CONCEPT_RULES.filter(rule => activeIds.has(rule.id)).flatMap(rule => rule.expansion);
+  const requestTokens = new Set(semanticTokens(normalizedRequest));
+  const scores = new Map<string, number>();
+  const documents = supportingTexts.length ? supportingTexts : [normalizedRequest];
+  documents.forEach((text, documentIndex) => {
+    const weight = Math.max(1, 4 - documentIndex * 0.35);
+    const seen = new Set<string>();
+    for (const phrase of phraseCandidates(text)) {
+      if (phrase.length < 4) continue;
+      const words = phrase.split(" ");
+      let score = weight * (words.length === 1 ? 1 : words.length === 2 ? 1.8 : 1.55);
+      if (words.some(word => requestTokens.has(word))) score += 1.2;
+      if (!seen.has(phrase)) score += 1.5;
+      seen.add(phrase);
+      scores.set(phrase, (scores.get(phrase) ?? 0) + score);
+    }
+  });
+  const ranked = [...scores.entries()]
+    .sort((left, right) => right[1] - left[1] || right[0].split(" ").length - left[0].split(" ").length || left[0].localeCompare(right[0]));
+  const selected: Array<[string, number]> = [];
+  for (const candidate of ranked) {
+    if (selected.some(([theme]) => theme.includes(candidate[0]) || candidate[0].includes(theme))) continue;
+    selected.push(candidate);
+    if (selected.length >= 8) break;
+  }
+  const concepts = selected.map(([id, score]) => ({ id, score: Number(score.toFixed(3)) }));
   return {
     normalizedRequest,
-    expandedQuery: [...new Set([normalizedRequest, ...expansion])].join(" "),
+    expandedQuery: [normalizedRequest, ...concepts.map(concept => concept.id)].join(" "),
     concepts,
   };
 }
 
 function conceptPathPrior(path: string, analysis: ClarificationAnalysis): number {
-  const activeIds = new Set(analysis.concepts.slice(0, 3).map(concept => concept.id));
-  let prior = 0;
-  for (const rule of CONCEPT_RULES) {
-    if (!activeIds.has(rule.id)) continue;
-    for (const candidate of rule.pathPriors) if (candidate.pattern.test(path)) prior = Math.max(prior, candidate.weight);
-  }
-  return prior;
+  const pathTokens = new Set(semanticTokens(path));
+  const themeTokens = new Set(analysis.concepts.flatMap(concept => semanticTokens(concept.id)));
+  if (themeTokens.size === 0) return 0;
+  let overlap = 0;
+  for (const token of themeTokens) if (pathTokens.has(token)) overlap++;
+  return Math.min(1, overlap / Math.min(3, themeTokens.size));
 }
 
 export async function collectClarificationDocuments(
@@ -205,6 +179,19 @@ function pathHeuristic(document: SearchDocument, query: string, analysis: Clarif
   return Math.max(conceptPathPrior(path, analysis), lexical * 0.65);
 }
 
+function repositoryRoleBoost(path: string, request: string): number {
+  const normalized = path.replace(/\\/g, "/").toLowerCase();
+  const asksForTests = /\b(?:test|tests|coverage|regression)\b/i.test(request);
+  if (/^(?:extensions|src|lib|app)\//.test(normalized)) return 0.24;
+  if (/^(?:tests?|spec)\//.test(normalized)) return asksForTests ? 0.2 : 0.07;
+  if (/^(?:docs?|plans?)\//.test(normalized)) return 0.02;
+  return 0.08;
+}
+
+function isClarificationSelfEvidence(path: string, request: string): boolean {
+  return /clarification/i.test(path) && !/\bclarif(?:y|ied|ication)\b/i.test(request);
+}
+
 function evidenceExcerpt(content: string, request: string, maxChars = 1_200): string {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   const terms = [...new Set(tokenize(request, { preserveCodeTokens: true }))];
@@ -229,9 +216,9 @@ function evidenceExcerpt(content: string, request: string, maxChars = 1_200): st
 export function retrieveClarificationEvidence(
   request: string,
   documents: ClarificationDocument[],
-  options: { topK?: number } = {},
+  options: { topK?: number; analysis?: ClarificationAnalysis } = {},
 ): ClarificationEvidence[] {
-  const analysis = analyzeClarificationRequest(request);
+  const analysis = options.analysis ?? analyzeClarificationRequest(request);
   const byPath = new Map(documents.map(document => [document.path, document]));
   const searchDocuments: SearchDocument[] = documents.map(document => ({
     id: document.path,
@@ -241,14 +228,18 @@ export function retrieveClarificationEvidence(
     fields: { path: document.path },
   }));
   const index = buildRetrievalIndex(searchDocuments);
+  const topK = Math.max(1, Math.min(options.topK ?? 8, 20));
   const results = index.search(analysis.expandedQuery, {
-    topK: Math.max(1, Math.min(options.topK ?? 8, 20)),
+    topK: Math.min(80, topK * 4),
     bm25Weight: 0.35,
     tfidfWeight: 0.2,
     jmlmWeight: 0.15,
     heuristicWeight: 0.3,
     heuristic: (document, query) => pathHeuristic(document, query, analysis),
-  });
+  }).filter(result => !isClarificationSelfEvidence(result.id, request))
+    .map(result => ({ ...result, score: result.score + repositoryRoleBoost(result.id, request) }))
+    .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))
+    .slice(0, topK);
   return results.flatMap(result => {
     const document = byPath.get(result.id);
     if (!document) return [];
@@ -262,29 +253,22 @@ export function retrieveClarificationEvidence(
 
 function isSemanticallyRelevantWebDocument(document: SearchDocument, analysis: ClarificationAnalysis): boolean {
   if (analysis.concepts.length === 0) return true;
-  const activeIds = new Set(analysis.concepts.slice(0, 3).map(concept => concept.id));
   const text = `${document.title ?? ""}\n${document.body}`.toLowerCase();
-  for (const rule of CONCEPT_RULES) {
-    if (!activeIds.has(rule.id)) continue;
-    const phrases = rule.expansion.map(term => term.toLowerCase());
-    if (phrases.some(phrase => phrase.includes(" ") && text.includes(phrase))) return true;
-    if (phrases.some(phrase => !phrase.includes(" ") && phrase.length >= 8 && text.includes(phrase))) return true;
-    const semanticTokens = new Set(phrases.flatMap(phrase => tokenize(phrase, { preserveCodeTokens: true }))
-      .filter(token => token.length >= 4 && !["tokens", "token", "session"].includes(token)));
-    const documentTokens = new Set(tokenize(text, { preserveCodeTokens: true }));
-    let overlap = 0;
-    for (const token of semanticTokens) if (documentTokens.has(token)) overlap++;
-    if (overlap >= 2) return true;
-  }
-  return false;
+  const themes = analysis.concepts.slice(0, 6).map(concept => concept.id.toLowerCase());
+  if (themes.some(theme => theme.includes(" ") && text.includes(theme))) return true;
+  const themeTokens = new Set(themes.flatMap(theme => semanticTokens(theme)));
+  const documentTokens = new Set(semanticTokens(text));
+  let overlap = 0;
+  for (const token of themeTokens) if (documentTokens.has(token)) overlap++;
+  return overlap >= 2;
 }
 
 export function retrieveClarificationWebEvidence(
   request: string,
   entries: SearchEntry[],
-  options: { topK?: number } = {},
+  options: { topK?: number; analysis?: ClarificationAnalysis } = {},
 ): ClarificationWebEvidence[] {
-  const analysis = analyzeClarificationRequest(request);
+  const analysis = options.analysis ?? analyzeClarificationRequest(request);
   const documents: SearchDocument[] = entries.map(entry => ({
     id: entry.id,
     kind: "saved-web-research",
@@ -301,7 +285,7 @@ export function retrieveClarificationWebEvidence(
   const byId = new Map(entries.map(entry => [entry.id, entry]));
   const results = buildRetrievalIndex(documents).search(analysis.expandedQuery, {
     topK: Math.max(1, Math.min(options.topK ?? 3, 8)),
-    filter: document => isSemanticallyRelevantWebDocument(document, analysis),
+    filter: options.analysis ? document => isSemanticallyRelevantWebDocument(document, analysis) : undefined,
   });
   return results.filter(result => result.score >= 0.08).flatMap(result => {
     const entry = byId.get(result.id);
@@ -310,6 +294,45 @@ export function retrieveClarificationWebEvidence(
       ?? entry.raw.results.slice(0, 3).map(item => `${item.title}: ${item.snippet}`).join(" ");
     return [{ id: entry.id, query: entry.query, score: Number(result.score.toFixed(6)), summary: summary.slice(0, 1_200) }];
   });
+}
+
+export function recommendClarificationResearch(
+  request: string,
+  analysis: ClarificationAnalysis,
+  webEvidence: ClarificationWebEvidence[],
+): ClarificationResearchRecommendation | null {
+  if (webEvidence.length === 0 || analysis.concepts.length === 0) return null;
+  const exploratory = /\b(?:i think|maybe|might|seems?|unclear|not sure|too many|reduce|improve|optimi[sz]e|best|strategy|approach|design|should|want)\b/i.test(request);
+  if (!exploratory) return null;
+  const themes = analysis.concepts.slice(0, 4).map(concept => concept.id);
+  const themeText = themes.length === 1 ? themes[0] : `${themes.slice(0, -1).join(", ")}, and ${themes.at(-1)}`;
+  return {
+    themes,
+    reason: `Saved research suggests the task may be better framed around ${themeText} than the original wording alone. Fresh external behavior or guidance may change the right implementation target.`,
+    query: `${request}\n\nClarification themes: ${themes.join(", ")}\nValidate current behavior and recommendations using official primary sources.`,
+  };
+}
+
+export function buildClarificationResearchPrompt(
+  request: string,
+  recommendation: ClarificationResearchRecommendation,
+  webEvidence: ClarificationWebEvidence[],
+): string {
+  return [
+    "Research this clarification question before turning it into an implementation task.",
+    "Do not modify repository files.",
+    "Check recall_web_knowledge first, then use fresh web search where needed.",
+    "Prioritize official provider documentation and primary sources; save distilled findings with save_search_knowledge.",
+    "Separate current external facts from repository behavior and implementation suggestions.",
+    "When finished, summarize the findings and tell the user to rerun /clarify with the original request.",
+    "",
+    `Original request: ${request}`,
+    `Why research is recommended: ${recommendation.reason}`,
+    `Research query: ${recommendation.query}`,
+    "",
+    "Relevant saved research:",
+    ...webEvidence.slice(0, 3).map(item => `- ${item.query}: ${item.summary}`),
+  ].join("\n");
 }
 
 function cleanPrompt(value: string): string {
@@ -333,12 +356,12 @@ export function parseClarificationDraft(text: string): ClarificationDraft | null
   }
 }
 
-const CONCEPT_TITLES: Record<string, string> = {
-  "input-context-cost": "Reduce cross-session input-token overhead",
-  "web-fetch-fallback": "Harden challenged-page fetch fallback",
-  "checkpoint-policy": "Align automatic checkpoint behavior",
-  "deferred-tool-activation": "Make deferred tool activation reliable",
-};
+function deterministicClarificationTitle(request: string, concepts: string[]): string {
+  if (concepts.length === 0) return request.replace(/\s+/g, " ").slice(0, 80) || "Clarified repository task";
+  const themes = concepts.slice(0, 3);
+  const joined = themes.length === 1 ? themes[0] : `${themes.slice(0, -1).join(", ")} and ${themes.at(-1)}`;
+  return `Clarify ${joined}`.slice(0, 120);
+}
 
 export function deterministicClarificationDraft(packet: ClarificationPacket): ClarificationDraft {
   const request = cleanPrompt(packet.request);
@@ -351,9 +374,7 @@ export function deterministicClarificationDraft(packet: ClarificationPacket): Cl
     : "- No relevant saved web research was found.";
   const concepts = packet.concepts?.length ? packet.concepts.join(", ") : "none inferred";
   return {
-    title: packet.concepts?.map(concept => CONCEPT_TITLES[concept]).find(Boolean)
-      ?? request.replace(/\s+/g, " ").slice(0, 80)
-      ?? "Clarified repository task",
+    title: deterministicClarificationTitle(request, packet.concepts ?? []),
     source: "deterministic",
     prompt: [
       "# Task",
