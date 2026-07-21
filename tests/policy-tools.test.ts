@@ -49,9 +49,9 @@ describe("policy tools extension", () => {
     const loaded = await tools.tool_search.execute("id", { query: "compare files", limit: 3 });
     expect(active).toContain("tool_search");
     expect(active).toContain("code_search");
-    expect(active).not.toContain("compare_files");
+    expect(active).toContain("compare_files");
     expect(loaded.details.loaded).toEqual(["compare_files"]);
-    expect(loaded.details.callableAfter).toBe("next_session");
+    expect(loaded.details.callableAfter).toBe("next_model_request");
 
     await tools.tool_search.execute("id", { query: "write edit", limit: 5 });
     expect(active).not.toContain("write");
@@ -68,7 +68,7 @@ describe("policy tools extension", () => {
     }
   });
 
-  test("tool_search reports next-step activation and exposes the registered schema", async () => {
+  test("tool_search activates for the next model step and repeated searches report already active", async () => {
     const tools: Record<string, any> = {};
     let active = ["tool_search", "tool_help"];
     const parameters = {
@@ -101,15 +101,17 @@ describe("policy tools extension", () => {
     } as any);
 
     const result = await tools.tool_search.execute("id", { query: "apply_code_replacements", group: "coding" });
-    expect(result.content[0].text).toContain("QUEUED FOR NEXT SESSION: apply_code_replacements");
-    expect(result.content[0].text).toContain("queued for the next session boundary");
+    expect(result.content[0].text).toContain("ACTIVATED FOR NEXT MODEL REQUEST: apply_code_replacements");
+    expect(result.content[0].text).toContain("immediately following model request");
     expect(result.content[0].text).toContain("oldText");
     expect(result.content[0].text).toContain("newText");
-    expect(result.details.callableAfter).toBe("next_session");
+    expect(active).toEqual(["tool_search", "tool_help", "apply_code_replacements"]);
+    expect(result.details.callableAfter).toBe("next_model_request");
     expect(result.details.activated).toEqual(["apply_code_replacements"]);
 
     const second = await tools.tool_search.execute("id", { query: "apply_code_replacements", group: "coding" });
-    expect(second.content[0].text).toContain("ALREADY QUEUED: apply_code_replacements");
+    expect(second.content[0].text).toContain("ALREADY ACTIVE: apply_code_replacements");
+    expect(second.details).toMatchObject({ activated: [], alreadyActive: ["apply_code_replacements"], callableAfter: "now" });
 
     const help = await tools.tool_help.execute("id", { name: "ApplyCodeReplacements" });
     expect(help.content[0].text).toContain("Exact name: apply_code_replacements");
@@ -131,8 +133,8 @@ describe("policy tools extension", () => {
 
     const result = await tools.tool_search.execute("id", { query: "diff repository", limit: 3 });
     expect(result.details.loaded).toEqual(["compare_files"]);
-    expect(active).not.toContain("compare_files");
-    expect(result.details.callableAfter).toBe("next_session");
+    expect(active).toContain("compare_files");
+    expect(result.details.callableAfter).toBe("next_model_request");
   });
 
   test("retrieve_policy returns kind-filtered corpus evidence", async () => {

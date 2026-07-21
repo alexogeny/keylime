@@ -11,10 +11,12 @@ describe("shared tool policy", () => {
 
   test("uses a small deterministic bootstrap and defers other safe tools", () => {
     expect(bootstrapToolNames()).toEqual([
+      "apply_code_replacements",
       "code_search",
       "inspect_lines",
       "inspect_text_matches",
       "list_files",
+      "plan_code_replacements",
       "run_checks",
       "tool_help",
       "tool_search",
@@ -52,8 +54,9 @@ describe("shared tool policy", () => {
     expect(capabilityToolMap().coding).not.toContain("bash");
   });
 
-  test("safe file mutation tools are searchable while only the small bootstrap is always on", () => {
-    expect(alwaysOnToolNames()).not.toContain("apply_code_replacements");
+  test("replacement primitives are always active while other mutation tools stay deferred", () => {
+    expect(alwaysOnToolNames()).toContain("apply_code_replacements");
+    expect(alwaysOnToolNames()).toContain("plan_code_replacements");
     expect(alwaysOnToolNames()).not.toContain("create_file");
     expect(alwaysOnToolNames()).not.toContain("begin_file_write");
     expect(alwaysOnToolNames()).toContain("run_checks");

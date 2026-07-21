@@ -51,8 +51,8 @@ export const TOOL_POLICIES: ToolPolicy[] = [
   { name: "analyze_csv", domain: true, risk: "safe" },
   { name: "extract_citations", domain: true, risk: "safe" },
 
-  { name: "plan_code_replacements", group: "coding", domain: true, risk: "safe" },
-  { name: "apply_code_replacements", group: "coding", domain: true, risk: "safe" },
+  { name: "plan_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
+  { name: "apply_code_replacements", group: "coding", alwaysOn: true, domain: true, risk: "safe" },
   { name: "create_file", group: "coding", domain: true, risk: "safe" },
   { name: "begin_file_write", group: "coding", domain: true, risk: "safe" },
   { name: "append_file_chunk", group: "coding", domain: true, risk: "safe" },
@@ -244,10 +244,12 @@ export const TOOL_POLICIES: ToolPolicy[] = [
 const TOOL_POLICY_BY_NAME = new Map(TOOL_POLICIES.map(policy => [policy.name, policy]));
 const KNOWN_TOOL_NAMES = new Set(TOOL_POLICY_BY_NAME.keys());
 const BOOTSTRAP_TOOL_NAMES = [
+  "apply_code_replacements",
   "code_search",
   "inspect_lines",
   "inspect_text_matches",
   "list_files",
+  "plan_code_replacements",
   "run_checks",
   "tool_search",
   "tool_help",
