@@ -95,9 +95,10 @@ export function selectContextObjectText(
   if (!range) return content;
   validateSection(range);
   const lines = content.split("\n");
-  if (range.endLine > lines.length) throw new Error(`Line range exceeds context object length: ${range.endLine} > ${lines.length}`);
+  if (range.startLine > lines.length) return `[requested start line ${range.startLine}; context object has ${lines.length} lines]`;
+  const endLine = Math.min(range.endLine, lines.length);
   return lines
-    .slice(range.startLine - 1, range.endLine)
+    .slice(range.startLine - 1, endLine)
     .map((line, index) => `${range!.startLine + index} | ${line}`)
     .join("\n");
 }

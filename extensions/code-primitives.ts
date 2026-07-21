@@ -493,7 +493,7 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
     promptGuidelines: [
       "Use after search/match/structure when context is insufficient.",
       "Request the smallest useful line window; never dump whole files.",
-      "inspect_lines is capped at 200 lines; request a focused window.",
+      "inspect_lines is capped at 200 lines. Keep end-start+1 plus context within max_lines (default 80). Oversized or out-of-range windows are clamped, so use the returned range instead of retrying bounds.",
       "Set allow_outside_cwd=true only for explicit read-only file inspection outside cwd.",
       "If blocked, ask to update Keylime; never fall back to head/tail/grep/cat/sed.",
       "Do not use read for source files; use inspect_lines as the bounded fallback.",
@@ -514,16 +514,19 @@ export default function codePrimitivesExtension(pi: ExtensionAPI) {
       const lines = text.split("\n");
       const context = Math.max(0, params.context ?? 0);
       const maxLines = Math.max(1, Math.min(params.max_lines ?? 80, 200));
-      const start = Math.max(1, Math.floor(params.start) - context);
-      const end = Math.min(lines.length, Math.floor(params.end ?? params.start) + context);
-      const requested = end - start + 1;
-      if (requested > maxLines) throw new Error(`Requested line window exceeds max_lines (${requested} > ${maxLines})`);
+      const requestedStart = Math.max(1, Math.floor(params.start) - context);
+      const requestedEnd = Math.max(requestedStart, Math.floor(params.end ?? params.start) + context);
+      const start = Math.min(requestedStart, Math.max(1, lines.length));
+      const availableEnd = Math.min(lines.length, requestedEnd);
+      const end = Math.min(availableEnd, start + maxLines - 1);
+      const returnedLines = Math.max(0, end - start + 1);
+      const clamped = start !== requestedStart || end !== requestedEnd;
 
       const rel = relativePath(ctx.cwd, path);
       const body = lines.slice(start - 1, end).map((line, index) => `${start + index} | ${line}`).join("\n");
       return {
-        content: [{ type: "text", text: `${rel}:${start}-${end}\n${body}` }],
-        details: { path: rel, start, end, lines: requested },
+        content: [{ type: "text", text: `${rel}:${start}-${end}${clamped ? ` (requested ${requestedStart}-${requestedEnd}; clamped to ${maxLines} lines/file bounds)` : ""}\n${body}` }],
+        details: { path: rel, start, end, lines: returnedLines, clamped, requestedStart, requestedEnd },
       };
     },
   });

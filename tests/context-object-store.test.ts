@@ -235,6 +235,7 @@ describe("context object contracts", () => {
 
     expect(() => selectContextObjectText(object, content, { section: "missing" })).toThrow("Unknown context object section");
     expect(() => selectContextObjectText(object, content, { lines: { start: 0, end: 2 } })).toThrow("Line range");
+    expect(selectContextObjectText(object, content, { lines: { start: 2, end: 200 } })).toBe("2 | beta failure\n3 | gamma detail\n4 | omega");
     expect(() => selectContextObjectText(object, `${content}!`, { lines: { start: 1, end: 1 } })).toThrow("hash mismatch");
   });
 });

@@ -90,10 +90,10 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
     description: "Search and activate tools. Newly activated tools are callable on the next model step, never by a sibling call in the same assistant message.",
     promptSnippet: "Search and activate deferred tools for the next model step",
     promptGuidelines: [
-      "Use tool_search when a needed capability is not currently available.",
+      "Use tool_search only when a needed capability is not currently available. Batch related capability needs into one specific search; repeated searches change active schemas and can invalidate the prompt cache.",
       "After tool_search returns, wait for the next assistant continuation before calling a newly activated tool; never batch activation with its dependent call.",
       "Copy the exact case-sensitive snake_case tool name and send arrays/objects as native JSON, not JSON strings.",
-      "Use always-on tool_help for one tool's exact schema and canonical call.",
+      "The search result already includes each activated tool's live schema. Use tool_help only when that schema is absent or still ambiguous; do not add a redundant help call.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Capability or tool name to search for" }),

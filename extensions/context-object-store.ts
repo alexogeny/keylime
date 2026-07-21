@@ -172,23 +172,33 @@ export default function contextObjectStoreExtension(pi: ExtensionAPI) {
     label: "Inspect Context Object",
     description: "Recover a verified context-object section or exact line range with a bounded output cap.",
     promptSnippet: "Inspect a stored context object",
-    promptGuidelines: ["Use inspect_context_object for exact partial recovery instead of reloading a full stored tool payload."],
+    promptGuidelines: [
+      "Use inspect_context_object for exact partial recovery instead of reloading a full stored tool payload.",
+      "When the object line count is unknown, provide start_line only for an automatic bounded window; oversized end_line values are clamped, so do not spend another call correcting bounds.",
+    ],
     parameters: Type.Object({
       object_id: Type.String({ description: "Context object id" }),
       section: Type.Optional(Type.String({ description: "Named section to recover" })),
-      start_line: Type.Optional(Type.Number({ minimum: 1, description: "First original line" })),
-      end_line: Type.Optional(Type.Number({ minimum: 1, description: "Last original line" })),
+      start_line: Type.Optional(Type.Number({ minimum: 1, description: "First original line; omit end_line for an automatic bounded window" })),
+      end_line: Type.Optional(Type.Number({ minimum: 1, description: "Last original line; values beyond the object are clamped" })),
       max_chars: Type.Optional(Type.Number({ minimum: 100, maximum: 50_000, description: "Maximum returned characters" })),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      if ((params.start_line === undefined) !== (params.end_line === undefined)) {
-        throw new Error("start_line and end_line must be supplied together");
-      }
+      if (params.start_line === undefined && params.end_line !== undefined) throw new Error("end_line requires start_line");
       if (params.section && params.start_line !== undefined) throw new Error("Choose section or line range, not both");
       const payload = await readStoredContextObject(ctx?.cwd ?? process.cwd(), params.object_id);
+      const totalLines = payload.content.split("\n").length;
+      const requestedLines = params.start_line === undefined ? undefined : {
+        start: params.start_line,
+        end: params.end_line ?? params.start_line + 79,
+      };
+      const actualLines = requestedLines === undefined ? undefined : {
+        start: requestedLines.start,
+        end: Math.min(requestedLines.end, totalLines),
+      };
       const selected = selectContextObjectText(payload.object, payload.content, {
         section: params.section,
-        lines: params.start_line === undefined ? undefined : { start: params.start_line, end: params.end_line! },
+        lines: actualLines,
       });
       const maxChars = Math.max(100, Math.min(50_000, params.max_chars ?? 4_000));
       return {
@@ -196,7 +206,10 @@ export default function contextObjectStoreExtension(pi: ExtensionAPI) {
         details: {
           objectId: payload.object.id,
           section: params.section,
-          lines: params.start_line === undefined ? undefined : { start: params.start_line, end: params.end_line },
+          lines: actualLines,
+          requestedLines,
+          totalLines,
+          clamped: Boolean(requestedLines && actualLines && requestedLines.end !== actualLines.end),
           selectedChars: selected.length,
           originalChars: payload.object.originalChars,
           verified: true,

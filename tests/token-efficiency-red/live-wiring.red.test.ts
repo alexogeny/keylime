@@ -34,7 +34,7 @@ describe("RED: production Pi hooks use token-efficiency policies", () => {
     const context = ctx();
     await host.handlers.session_start({ reason: "new" }, context);
     await host.handlers.tool_result({ toolCallId: "c1", toolName: "inspect_lines", content: [{ type: "text", text: "large result".repeat(500) }], details: { contextObjectId: "ctx-1" }, isError: false });
-    for (let index = 0; index < 10; index++) await host.handlers.turn_end({}, context);
+    for (let index = 0; index < 16; index++) await host.handlers.input({ text: `user request ${index}` }, context);
     const result = await host.handlers.context({ messages: [{ role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "large result".repeat(500) }], details: { contextObjectId: "ctx-1" } }] }, context);
     expect(result.messages[0].details.contextRuntimeReducer).toBe("trajectory-reducer");
     expect(JSON.stringify(result.messages[0].content)).toContain("ctx-1");

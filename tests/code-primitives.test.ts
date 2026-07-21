@@ -628,17 +628,19 @@ describe("code primitive extension tools", () => {
     expect(result.content[0].text).not.toContain("1 | one");
   });
 
-  test("inspect_lines rejects overly large windows", async () => {
+  test("inspect_lines clamps overly large windows instead of wasting a retry", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "code-primitives-"));
     await writeFile(join(cwd, "x.ts"), "one\ntwo\nthree\n", "utf8");
 
     const tools = registeredCodePrimitiveTools();
-    await expect(tools.inspect_lines.execute("id", {
+    const result = await tools.inspect_lines.execute("id", {
       path: "x.ts",
       start: 1,
       end: 100,
       max_lines: 2,
-    }, undefined, undefined, { cwd })).rejects.toThrow("Requested line window exceeds max_lines");
+    }, undefined, undefined, { cwd });
+    expect(result.content[0].text).toContain("x.ts:1-2");
+    expect(result.details).toMatchObject({ start: 1, end: 2, lines: 2, clamped: true, requestedEnd: 100 });
   });
 
   test("inspect_lines can explicitly inspect read-only files outside cwd", async () => {

@@ -5,6 +5,8 @@ import type { explainContextSelection } from "./context-debugger";
 
 export type ContextRuntimeTelemetrySnapshot = {
   turn: number;
+  maskCommitTurn: number;
+  maskCommitInterval: number;
   observations: number;
   maskedObservations: number;
   cacheFingerprint: string;
