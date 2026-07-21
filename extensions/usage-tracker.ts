@@ -66,7 +66,7 @@ export function buildUsageSpendSnapshot(
 	});
 }
 
-export function migrateUsageRecord(record: Record<string, any>) {
+export function migrateUsageRecord(record: Record<string, any>): Record<string, any> {
 	const spend = record.spend ?? buildSpendSnapshot({
 		activeContext: { chars: Number(record.context?.totalChars ?? 0) },
 		currentTurn: {

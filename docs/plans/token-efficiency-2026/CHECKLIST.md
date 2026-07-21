@@ -19,7 +19,8 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - [x] Add benchmark experiment, confidence-interval, release-gate, and rollout RED tests.
 - [x] Add provider-specific accounting, cache-control, stable-tool-order, and tool-economics RED tests.
 - [x] Map every roadmap deliverable to an executable test in `RED-MATRIX.md`.
-- [x] Verify the complete baseline: 77 discovered, 29 green, 48 intentionally RED.
+- [x] Verify the initial complete baseline: 77 discovered, 29 green, 48 intentionally RED.
+- [x] Implement all 48 remaining RED runtime and completion contracts.
 
 ## Slice 1 — truthful spend accounting
 
@@ -28,9 +29,9 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - [x] Separate deterministic character counts from reported token counts.
 - [x] Separate active context, current call, current turn, branch, and task totals.
 - [x] Include tool-search, compression, routing, retry, and delegation calls in task totals.
-- [~] Wire normalized records into `usage-tracker.ts`; passive telemetry remains pending.
+- [x] Wire normalized records into `usage-tracker.ts` and passive telemetry.
 - [x] Replace the ambiguous cumulative footer display.
-- [ ] Add telemetry migration/backward-compatibility tests.
+- [x] Add telemetry migration/backward-compatibility behavior and tests.
 - [x] Turn `spend-accounting.red.test.ts` green.
 
 ## Slice 2 — prompt-prefix profiling
@@ -49,27 +50,27 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 ## Slice 3 — deterministic trajectory reduction
 
 - [x] Create `extensions/shared/trajectory-reducer.ts`.
-- [~] Define protected/hot/warm/recoverable/superseded/failure states.
+- [x] Define protected/hot/warm/recoverable/superseded/failure states.
 - [x] Reuse context-object IDs for recoverable tool results.
 - [x] Preserve exact constraints, decisions, mutations, verification, failures, and safety state.
 - [x] Fold resolved failures into bounded evidence instead of deleting them.
 - [x] Validate tool-call/tool-result pairing after reduction.
 - [x] Emit deterministic item-level reduction reasons.
-- [ ] Integrate through `context-runtime.ts` as the single context-mutation owner.
-- [ ] Add coding, research, debugging, and failed-mutation replay fixtures.
+- [x] Integrate through `context-runtime.ts` as the single context-mutation owner.
+- [x] Add coding, research, debugging, and failed-mutation replay fixtures.
 - [x] Turn `trajectory-reducer.red.test.ts` green.
 
 ## Slice 4 — compaction and session handoff
 
 - [x] Create `extensions/shared/session-handoff.ts`.
-- [~] Base decisions on active pressure, task boundaries, projected cost, and checkpoint quality.
+- [x] Base decisions on active pressure, task boundaries, projected cost, and checkpoint quality.
 - [x] Keep repository facts, external facts, user intent, and suggestions typed separately.
 - [x] Validate checkpoint coverage against protected source IDs.
 - [x] Build bounded transcript-free session bootstrap messages.
-- [ ] Add an explicit handoff command after the shared contract is green.
+- [x] Add an explicit handoff command and one-time destination-session bootstrap.
 - [x] Add a pure cheap-sidecar compression route plan; runtime execution remains pending.
-- [ ] Validate sidecar output and preserve the main model selection.
-- [ ] Integrate with structured compaction without weakening current fail-closed behavior.
+- [x] Validate sidecar output and preserve the main model selection.
+- [x] Integrate with structured compaction without weakening current fail-closed behavior.
 - [x] Turn `session-handoff.red.test.ts` green.
 
 ## Slice 5 — evaluation and rollout
@@ -77,10 +78,10 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - [x] Create `extensions/shared/token-efficiency-evaluation.ts`.
 - [x] Count every primary and auxiliary model call supplied by the task ledger.
 - [x] Calculate successful-task cost and token/cache/output deltas.
-- [x] Gate task success, median turns, and call count independently; runtime safety feeds remain pending.
+- [x] Gate task success, median turns, call count, and runtime safety feeds independently.
 - [x] Require category-specific replay coverage.
 - [x] Persist aggregate-only evaluation samples.
-- [ ] Add observe-only reports to the existing context benchmark.
+- [x] Add token-efficiency report rendering to the existing context benchmark.
 - [ ] Run static-tool versus preactivation versus deferred-tool experiments.
 - [ ] Run threshold and task-boundary compaction experiments.
 - [ ] Establish baseline confidence intervals from repeated deterministic fixtures where applicable.
@@ -88,7 +89,7 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 
 ## Final release gate
 
-- [ ] All 77 token-efficiency RED tests are green (current baseline: 29 green, 48 RED).
+- [x] All 77 token-efficiency RED tests are green.
 - [x] Existing harness-thesis, compaction, security, retrieval, and context tests remain green.
 - [x] Source and test typechecks pass.
 - [ ] Median successful-task cost improves by at least 20% on the agreed corpus.

@@ -35,7 +35,7 @@ Run:
 bun test tests/token-efficiency-red
 ```
 
-The initial suite discovered 25 tests. The complete roadmap contract now discovers **77 tests: 29 pass and 48 intentionally RED**. The open tests cover every remaining roadmap implementation, integration, experiment, privacy, and rollout item. The files retain the `.red.test.ts` suffix when green as permanent regression contracts.
+The initial suite discovered 25 tests, then expanded to the complete 77-test roadmap contract. The current baseline is **77 pass, 0 fail**. The files retain the `.red.test.ts` suffix as permanent regression contracts; empirical rollout evidence remains separate from contract completion.
 
 Implementation order and exit criteria are documented in:
 

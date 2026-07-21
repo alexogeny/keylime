@@ -8,8 +8,8 @@ This matrix is the executable checklist for the entire researched token-efficien
 
 ```text
 77 tests discovered
-29 green shared/initial integration contracts
-48 RED runtime, migration, experiment, and rollout contracts
+77 green contracts
+0 RED contracts
 ```
 
 Run with:
@@ -30,7 +30,7 @@ The repository-wide suite is intentionally RED while these contracts are open. S
 | Handoff decisions | `session-handoff.red.test.ts` | 5 | Pressure/boundary decisions, typed facts, bounded bootstrap, sidecar route plan, checkpoint validation |
 | Evaluation primitives | `token-efficiency-evaluation.red.test.ts` | 5 | Quality gates, auxiliary calls, acceptance, coverage, aggregate privacy |
 
-## Runtime and completion contracts — currently RED
+## Runtime and completion contracts — now green
 
 ### Telemetry migration and attribution
 

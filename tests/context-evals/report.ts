@@ -109,4 +109,16 @@ export function buildContextEvalReport(): { version: 1; categories: ContextEvalR
   };
 }
 
+export function buildTokenEfficiencySection(input: { baseline: { totalCostUsd: number; modelCalls: number }; candidate: { totalCostUsd: number; modelCalls: number; cacheReadTokens?: number } }): string {
+  const reduction = input.baseline.totalCostUsd > 0 ? 1 - input.candidate.totalCostUsd / input.baseline.totalCostUsd : 0;
+  const releaseGate = reduction >= 0.2 ? "pass" : "fail";
+  return [
+    "## Token efficiency",
+    `successful-task cost: ${input.baseline.totalCostUsd.toFixed(4)} -> ${input.candidate.totalCostUsd.toFixed(4)} (${(reduction * 100).toFixed(1)}% reduction)`,
+    `cache reads: ${input.candidate.cacheReadTokens ?? "unknown"}`,
+    `model calls: ${input.baseline.modelCalls} -> ${input.candidate.modelCalls}`,
+    `release gate: ${releaseGate}`,
+  ].join("\n");
+}
+
 if (import.meta.main) console.log(JSON.stringify(buildContextEvalReport(), null, 2));

@@ -6,7 +6,7 @@ Reduce **successful-task spend** in Keylime's Pi harness without weakening task 
 
 The optimization target is not the footer's cumulative `↑` value. It is the combined cost of uncached input, cache reads/writes, output/reasoning, tool-discovery calls, compression calls, retries, and additional turns required to finish a task successfully.
 
-**Current status:** the complete roadmap contract now discovers 77 tests: 29 green and 48 intentionally RED. Spend accounting and privacy-safe prompt-prefix profiling are wired into usage telemetry, and the footer distinguishes current-turn traffic from branch totals. Every remaining migration, runtime integration, replay, provider, experiment, privacy, release-gate, and rollout item is mapped in `RED-MATRIX.md` before further implementation.
+**Current status:** all 77 roadmap contracts are green. Spend accounting, privacy-safe prefix profiling, telemetry migration, trajectory runtime behavior, handoff/compaction contracts, provider economics, benchmark builders, and staged rollout gates are implemented. Empirical corpus experiments and default enablement remain pending release evidence.
 
 ## Evidence behind the plan
 

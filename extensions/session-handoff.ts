@@ -12,6 +12,17 @@ export default function sessionHandoffExtension(pi: ExtensionAPI) {
       const plan = buildHandoffCommandPlan({ goal, pendingActions: [goal], sessionId });
       const entry = plan.entries[0];
       pi.appendEntry("token-efficiency-handoff", { ...(entry.data as Record<string, unknown>), bootstrap: plan.bootstrap });
+      if (typeof ctx.newSession === "function") {
+        await ctx.waitForIdle?.();
+        const result = await ctx.newSession({
+          parentSession: ctx.sessionManager?.getSessionFile?.(),
+          setup: async (sessionManager: any) => {
+            sessionManager.appendMessage({ role: "user", content: [{ type: "text", text: plan.bootstrap }], timestamp: Date.now() });
+          },
+        });
+        if (result?.cancelled) ctx.ui?.notify?.("Handoff checkpoint saved, but session replacement was cancelled.", "warning");
+        return;
+      }
       ctx.ui?.notify?.("Handoff checkpoint saved. Start a fresh session to consume the bounded bootstrap.", "info");
     },
   });

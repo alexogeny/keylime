@@ -92,6 +92,13 @@ export function diffPromptPrefixes(previous: PromptPayload, current: PromptPaylo
   return { cacheBust: previousHash !== currentHash, changedCategories, firstChangedPath, addedTools, removedTools, previousHash, currentHash };
 }
 
+export function stabilizeToolOrder(activeTools: string[], canonicalOrder: string[]): string[] {
+  const active = new Set(activeTools);
+  const known = canonicalOrder.filter(name => active.has(name));
+  const unknown = activeTools.filter(name => !canonicalOrder.includes(name)).sort();
+  return [...known, ...unknown];
+}
+
 export function compareToolExposureStrategies<T extends {
   strategy: string;
   taskSucceeded: boolean;
