@@ -44,7 +44,8 @@ describe("linux operations tools", () => {
       "systemd_status", "systemd_logs", "systemd_plan_restart",
       "inspect_system_file", "plan_system_file_patch", "apply_system_file_patch",
       "inspect_kernel", "inspect_cpu", "inspect_memory", "inspect_disks", "inspect_mounts", "inspect_gpu", "inspect_network_interfaces",
-      "inspect_journal", "inspect_log_file", "search_logs",
+      "inspect_thermal_power", "inspect_hardware_crash_evidence",
+      "inspect_journal", "list_boot_sessions", "diagnose_shutdowns", "inspect_log_file", "search_logs",
       "inspect_ports", "dns_lookup", "http_probe", "ping_probe", "firewall_status",
       "disk_usage_summary", "find_large_files", "plan_delete", "safe_delete",
       "inspect_user", "inspect_groups", "inspect_permissions", "plan_chmod", "apply_permissions_change",
@@ -54,6 +55,42 @@ describe("linux operations tools", () => {
       "inspect_routes", "inspect_resolver", "plan_archive_path", "apply_ownership_change",
       "inspect_boot", "inspect_pressure", "inspect_disk_health", "inspect_open_deleted_files", "inspect_containers", "inspect_kernel_modules", "inspect_time_sync", "inspect_security_updates",
     ]));
+  });
+
+  test("journal tools expose bounded boot and filter schemas", () => {
+    const { tools } = registerAll();
+    const journal = tools.inspect_journal.parameters.properties;
+    expect(Object.keys(journal)).toEqual(expect.arrayContaining(["boot", "until", "grep", "reverse", "lines", "since", "priority", "unit"]));
+    expect(journal.lines.minimum).toBe(1);
+    expect(journal.lines.maximum).toBe(1000);
+    expect(journal.boot.anyOf).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "integer", minimum: -1000, maximum: 0 }),
+      expect.objectContaining({ type: "string", pattern: "^[0-9a-fA-F]{32}$" }),
+    ]));
+    expect(tools.list_boot_sessions.parameters.properties.count.maximum).toBe(100);
+    expect(tools.diagnose_shutdowns.parameters.properties.boots.maximum).toBe(10);
+    expect(tools.diagnose_shutdowns.parameters.properties.lines.maximum).toBe(1000);
+  });
+
+  test("new Linux inspection tools do not accept arbitrary commands or args", () => {
+    const { tools } = registerAll();
+    for (const name of ["inspect_journal", "list_boot_sessions", "diagnose_shutdowns", "inspect_thermal_power", "inspect_hardware_crash_evidence"]) {
+      const properties = tools[name].parameters.properties;
+      expect(properties.command).toBeUndefined();
+      expect(properties.args).toBeUndefined();
+    }
+  });
+
+  test("thermal sampling and crash evidence counts are bounded", () => {
+    const { tools } = registerAll();
+    const thermal = tools.inspect_thermal_power.parameters.properties;
+    expect(thermal.duration_seconds.minimum).toBe(0);
+    expect(thermal.duration_seconds.maximum).toBe(30);
+    expect(thermal.sample_count.minimum).toBe(1);
+    expect(thermal.sample_count.maximum).toBe(30);
+    const crash = tools.inspect_hardware_crash_evidence.parameters.properties;
+    expect(crash.max_files.maximum).toBe(20);
+    expect(crash.max_chars.maximum).toBe(20000);
   });
 
   test("shared safety helpers reject broad or critical targets", () => {
