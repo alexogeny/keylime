@@ -4,11 +4,13 @@ This suite turns `docs/plans/agentic-augmentation-2026.md` into an intentionally
 
 ## Status
 
-Initial verified baseline:
+Initial verified baseline: **0 pass / 53 fail**.
+
+Current verified status:
 
 ```text
-53 fail
-0 pass
+10 pass (AA-001–AA-010)
+43 fail (AA-011–AA-053)
 bun run typecheck: pass
 bun run typecheck:tests: pass
 ```

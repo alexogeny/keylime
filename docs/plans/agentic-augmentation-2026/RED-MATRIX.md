@@ -6,6 +6,8 @@ The tests intentionally describe desired production behavior before implementati
 
 ## Slice 1 — settled task outcomes
 
+**Status: GREEN — AA-001 through AA-010 pass.**
+
 | ID | Acceptance condition | Test |
 |---|---|---|
 | AA-001 | A task settles exactly once. | `task-outcomes.red.test.ts` |
