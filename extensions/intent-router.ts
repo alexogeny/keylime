@@ -202,8 +202,14 @@ export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute, source: Ro
   };
   // Tool definitions precede message history in provider payloads. Once the
   // extension has established a branch prefix, later intent changes must not
-  // replace it and force a full uncached replay.
-  if (branchToolPrefixLocked) return;
+  // replace it and force a full uncached replay. Explicit tool_search results
+  // may be appended for the next provider request without reordering the prefix.
+  if (branchToolPrefixLocked) {
+    const additions = discoveredToolsForTurn().filter(name => !current.includes(name));
+    if (additions.length > 0) pi.setActiveTools([...current, ...additions.sort()]);
+    clearDiscoveredToolsForTurn();
+    return;
+  }
   if (sameTools(current, next)) return;
   pi.setActiveTools(next);
 }
@@ -305,12 +311,13 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
   });
 
   pi.on("input", async (event, ctx) => {
-    // A new user turn starts a new provider request boundary, so its routed
-    // schema may replace the previous turn's prefix. Context/tool-result passes
-    // remain locked below until the next input event.
-    branchToolPrefixLocked = false;
+    // Keep the provider-visible tool prefix stable for ordinary intent changes.
+    // Explicit research/freshness requests may expand the branch at a user-turn
+    // boundary because answering them safely requires the research capability.
+    const text = event.text ?? "";
+    if (/\b(search|web search|look up|look online|research|current sources|latest sources|browse|verify online)\b/i.test(text)) branchToolPrefixLocked = false;
     clearDiscoveredToolsForTurn();
-    const route = routeForPrompt(pi, event.text ?? "");
+    const route = routeForPrompt(pi, text);
     branchToolPrefixLocked = true;
 
     ctx.ui.setStatus(

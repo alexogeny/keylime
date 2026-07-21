@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import policyToolsExtension from "../extensions/policy-tools";
-import { clearDiscoveredToolsForTurn } from "../extensions/shared/tool-catalog";
+import { clearDiscoveredToolsForTurn, discoveredToolsForTurn } from "../extensions/shared/tool-catalog";
 
 describe("policy tools extension", () => {
   afterEach(() => clearDiscoveredToolsForTurn());
@@ -35,7 +35,7 @@ describe("policy tools extension", () => {
     expect(help.details.policy.group).toBe("coding");
   });
 
-  test("tool_search additively loads bounded available matches without locked built-ins", async () => {
+  test("tool_search queues bounded available matches without synchronously changing the active prefix", async () => {
     const tools: Record<string, any> = {};
     let active = ["tool_search", "code_search"];
     const available = ["tool_search", "code_search", "compare_files", "inspect_lines", "web_search", "write", "edit"];
@@ -47,9 +47,8 @@ describe("policy tools extension", () => {
     } as any);
 
     const loaded = await tools.tool_search.execute("id", { query: "compare files", limit: 3 });
-    expect(active).toContain("tool_search");
-    expect(active).toContain("code_search");
-    expect(active).toContain("compare_files");
+    expect(active).toEqual(["tool_search", "code_search"]);
+    expect(discoveredToolsForTurn()).toEqual(["compare_files"]);
     expect(loaded.details.loaded).toEqual(["compare_files"]);
     expect(loaded.details.callableAfter).toBe("next_model_request");
 
@@ -68,7 +67,7 @@ describe("policy tools extension", () => {
     }
   });
 
-  test("tool_search activates for the next model step and repeated searches report already active", async () => {
+  test("tool_search queues activation for the next model step and then reports host-activated tools", async () => {
     const tools: Record<string, any> = {};
     let active = ["tool_search", "tool_help"];
     const parameters = {
@@ -105,10 +104,13 @@ describe("policy tools extension", () => {
     expect(result.content[0].text).toContain("immediately following model request");
     expect(result.content[0].text).toContain("oldText");
     expect(result.content[0].text).toContain("newText");
-    expect(active).toEqual(["tool_search", "tool_help", "apply_code_replacements"]);
+    expect(active).toEqual(["tool_search", "tool_help"]);
+    expect(discoveredToolsForTurn()).toEqual(["apply_code_replacements"]);
     expect(result.details.callableAfter).toBe("next_model_request");
     expect(result.details.activated).toEqual(["apply_code_replacements"]);
 
+    active = [...active, ...discoveredToolsForTurn()];
+    clearDiscoveredToolsForTurn();
     const second = await tools.tool_search.execute("id", { query: "apply_code_replacements", group: "coding" });
     expect(second.content[0].text).toContain("ALREADY ACTIVE: apply_code_replacements");
     expect(second.details).toMatchObject({ activated: [], alreadyActive: ["apply_code_replacements"], callableAfter: "now" });
@@ -133,7 +135,8 @@ describe("policy tools extension", () => {
 
     const result = await tools.tool_search.execute("id", { query: "diff repository", limit: 3 });
     expect(result.details.loaded).toEqual(["compare_files"]);
-    expect(active).toContain("compare_files");
+    expect(active).toEqual(["tool_search"]);
+    expect(discoveredToolsForTurn()).toEqual(["compare_files"]);
     expect(result.details.callableAfter).toBe("next_model_request");
   });
 

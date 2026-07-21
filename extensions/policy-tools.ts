@@ -134,10 +134,7 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
       const inactive = results.map(policy => policy.name).filter(name => !actualActive.has(name));
       const canActivate = typeof (pi as any).setActiveTools === "function";
       const activated = canActivate ? inactive : [];
-      if (activated.length > 0) {
-        recordDiscoveredToolsForTurn(activated);
-        (pi as any).setActiveTools([...new Set([...current, ...activated])]);
-      }
+      if (activated.length > 0) recordDiscoveredToolsForTurn(activated);
       const alreadyActive = results.map(policy => policy.name).filter(name => actualActive.has(name));
       const callableAfter = activated.length > 0 ? "next_model_request" : alreadyActive.length === results.length && results.length > 0 ? "now" : "unavailable";
       const text = results.length
