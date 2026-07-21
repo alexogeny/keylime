@@ -21,8 +21,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { buildCheckpointPrompt, checkpointApprovalMode, checkpointGenerationMode, deterministicCheckpointMessage, formatCheckpointMessage, parseCheckpointMessage, parseEditedCheckpointMessage, type CheckpointMessage, type CheckpointMessageContext } from "./shared/checkpoint-message";
-import { autoCheckpointMode, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, writePathsForToolResult } from "./shared/safety-policy";
-export { autoCheckpointMode, classifyToolMutation, classifyToolResultMutation, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
+import { autoCheckpointMode, autoCheckpointSkipStatus, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn, writePathsForToolResult } from "./shared/safety-policy";
+export { autoCheckpointMode, autoCheckpointSkipStatus, classifyToolMutation, classifyToolResultMutation, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, shouldAutoCheckpointTurn } from "./shared/safety-policy";
 
 const CHECKPOINT_EXCLUDED_PATHS = [".pi"];
 const PI_IGNORE_ENTRY = ".pi/";
@@ -638,12 +638,21 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", async (_event, ctx) => {
     const now = Date.now();
-    if (!shouldAutoCheckpointTurn(mutationScoreThisTurn, lastAutoCheckpointAt, now, autoCheckpointMode())) return;
+    const mode = autoCheckpointMode();
+    if (!shouldAutoCheckpointTurn(mutationScoreThisTurn, lastAutoCheckpointAt, now, mode)) {
+      const status = autoCheckpointSkipStatus(mutationScoreThisTurn, mode);
+      if (status) ctx.ui.setStatus("checkpoint", status);
+      return;
+    }
 
     const cwd = ctx.cwd;
     mutationScoreThisTurn = 0;
     const snapshot = collectCheckpointSnapshot(cwd);
-    if (!snapshot?.changed) return;
+    if (!snapshot?.changed) {
+      ctx.ui.setStatus("checkpoint", "checkpoint clean · no repository changes");
+      return;
+    }
+    ctx.ui.setStatus("checkpoint", "checkpoint preparing…");
 
     const scopedPaths = [...writePathsThisTurn];
     writePathsThisTurn.clear();
@@ -652,6 +661,7 @@ export default function (pi: ExtensionAPI) {
     const message = await reviewCheckpointMessage(draft, ctx, false);
     if (!message) {
       lastAutoCheckpointAt = now;
+      ctx.ui.setStatus("checkpoint", "checkpoint skipped · changes left uncommitted");
       ctx.ui.notify("Auto-checkpoint skipped; working changes were left untouched.", "info");
       return;
     }
@@ -659,12 +669,18 @@ export default function (pi: ExtensionAPI) {
     if (!attempt.checkpoint && attempt.reason === "missing-identity") {
       lastAutoCheckpointAt = now;
       const configured = await configureGitIdentityWithUserGate(cwd, ctx, "Auto-checkpoint could not create a commit because Git does not know your commit identity.");
-      if (!configured) return;
+      if (!configured) {
+        ctx.ui.setStatus("checkpoint", "checkpoint blocked · Git identity missing");
+        return;
+      }
       attempt = makeCheckpointAttempt(cwd, paths, message, snapshot);
     }
 
     const cp = attempt.checkpoint;
-    if (!cp?.hadChanges) return;
+    if (!cp?.hadChanges) {
+      ctx.ui.setStatus("checkpoint", "checkpoint clean · no scoped changes");
+      return;
+    }
     lastAutoCheckpointAt = now;
     recordCheckpoint(cp, ctx);
   });

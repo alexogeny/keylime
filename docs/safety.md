@@ -63,11 +63,11 @@ Use read-only git inspection tools instead:
 
 Auto-checkpoint modes:
 
+- `KEYLIME_AUTO_CHECKPOINT=any` — default; checkpoint after every successful mutating turn, including minor edits.
+- `KEYLIME_AUTO_CHECKPOINT=major` — lower-noise mode; checkpoint only major mutating turns or small changes after a long interval.
 - `KEYLIME_AUTO_CHECKPOINT=off` — manual only.
-- `KEYLIME_AUTO_CHECKPOINT=major` — default; checkpoint only major mutating turns or small changes after a long interval.
-- `KEYLIME_AUTO_CHECKPOINT=any` — checkpoint after any mutating turn.
 
-Auto-checkpoints happen at `agent_end` based on successful tool results and mutation scores. Local `.pi` state is excluded from checkpoint staging.
+Auto-checkpoints happen at `agent_end` based on successful tool results and mutation scores. Footer status reports whether a checkpoint is preparing, committed, skipped, blocked, clean, or deferred by `major`/`off` policy. Local `.pi` state is excluded from checkpoint staging.
 
 Checkpoint messages default to `KEYLIME_CHECKPOINT_MESSAGES=metadata-only`: the active Pi model receives bounded, redacted conversation and change metadata but no source patch. Use `semantic` to opt into a bounded redacted diff excerpt or `deterministic` to disable the provider request. Model output is redacted again before commit; errors and timeouts fall back locally.
 

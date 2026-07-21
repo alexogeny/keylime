@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import gitCheckpointExtension, { autoCheckpointMode, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, gitAuthSshKeyPath, gitAuthSshRemoteUrl, gitAuthSshTestCommand, isGitPushAuthError, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, normalizeGitAuthProvider, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitAuthHost, validateGitRemoteName } from "../extensions/git-checkpoint";
+import gitCheckpointExtension, { autoCheckpointMode, autoCheckpointSkipStatus, checkpointAddArgs, checkpointAddCommand, checkpointPathspecs, gitAuthSshKeyPath, gitAuthSshRemoteUrl, gitAuthSshTestCommand, isGitPushAuthError, isMissingGitIdentityError, looksSideEffectfulBash, mutationScoreForTool, mutationScoreForToolResult, normalizeGitAuthProvider, shouldAutoCheckpointTurn, shouldCheckpointTool, stageCheckpointChangesForTest, validateGitAuthHost, validateGitRemoteName } from "../extensions/git-checkpoint";
 
 describe("git checkpoint tool gating", () => {
   test("checkpoints file-writing tools", () => {
@@ -119,13 +119,20 @@ describe("git checkpoint tool gating", () => {
     expect(mutationScoreForTool("code_search", { query: "x" })).toBe(0);
   });
 
-  test("auto-checkpoint mode defaults to major and supports overrides", () => {
-    expect(autoCheckpointMode(undefined)).toBe("major");
+  test("auto-checkpoint mode defaults to any and supports quieter overrides", () => {
+    expect(autoCheckpointMode(undefined)).toBe("any");
     expect(autoCheckpointMode("off")).toBe("off");
+    expect(autoCheckpointMode("major")).toBe("major");
     expect(autoCheckpointMode("any")).toBe("any");
   });
 
-  test("auto-checkpoint turn policy is low noise by default", () => {
+  test("describes mutating turns that intentionally remain uncommitted", () => {
+    expect(autoCheckpointSkipStatus(0, "any")).toBeUndefined();
+    expect(autoCheckpointSkipStatus(3, "off")).toBe("checkpoint off · 3 mutation points left uncommitted");
+    expect(autoCheckpointSkipStatus(6, "major")).toBe("checkpoint deferred · score 6/8");
+  });
+
+  test("auto-checkpoint turn policy supports any, major, and off modes", () => {
     const now = 1_000_000;
     expect(shouldAutoCheckpointTurn(0, 0, now, "major")).toBe(false);
     expect(shouldAutoCheckpointTurn(2, now - 1_000, now, "major")).toBe(false);

@@ -328,7 +328,14 @@ export function writePathsForToolResult(event: { toolName: string; input?: any; 
 
 export function autoCheckpointMode(value = process.env.KEYLIME_AUTO_CHECKPOINT): AutoCheckpointMode {
   if (value === "off" || value === "any" || value === "major") return value;
-  return "major";
+  return "any";
+}
+
+export function autoCheckpointSkipStatus(score: number, mode: AutoCheckpointMode): string | undefined {
+  if (score <= 0) return undefined;
+  if (mode === "off") return `checkpoint off · ${score} mutation points left uncommitted`;
+  if (mode === "major") return `checkpoint deferred · score ${score}/8`;
+  return undefined;
 }
 
 export function shouldAutoCheckpointTurn(score: number, lastCheckpointAt: number, now: number, mode: AutoCheckpointMode): boolean {
