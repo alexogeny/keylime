@@ -24,6 +24,7 @@ The short version: less prompt sludge, fewer unsafe shortcuts, more deliciously 
 - [Agentic programming model](agentic-programming.html) — context/harness engineering principles behind Keylime.
 - [Token-efficiency roadmap](plans/token-efficiency-2026/00-roadmap.html) — RED contracts and staged plans for successful-task spend reduction.
 - [Token-efficiency checklist](plans/token-efficiency-2026/CHECKLIST.html) — implementation and release-gate checklist.
+- [Token-efficiency RED matrix](plans/token-efficiency-2026/RED-MATRIX.html) — complete mapping from roadmap deliverables to 77 executable contracts.
 
 ## Core workflow
 

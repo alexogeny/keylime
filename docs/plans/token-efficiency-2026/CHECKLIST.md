@@ -12,7 +12,14 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 - [x] Add RED trajectory-reduction contracts.
 - [x] Add RED compaction and cross-session handoff contracts.
 - [x] Add RED successful-task evaluation contracts.
-- [x] Verify all 25 tests are discovered and fail for missing production modules.
+- [x] Preserve the historical 25-test shared-contract RED baseline.
+- [x] Add telemetry migration and runtime-attribution RED tests.
+- [x] Add context-runtime integration and four-domain replay RED tests.
+- [x] Add economic compaction, sidecar, structured-compaction, and Pi handoff RED tests.
+- [x] Add benchmark experiment, confidence-interval, release-gate, and rollout RED tests.
+- [x] Add provider-specific accounting, cache-control, stable-tool-order, and tool-economics RED tests.
+- [x] Map every roadmap deliverable to an executable test in `RED-MATRIX.md`.
+- [x] Verify the complete baseline: 77 discovered, 29 green, 48 intentionally RED.
 
 ## Slice 1 — truthful spend accounting
 
@@ -81,7 +88,7 @@ Status key: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocke
 
 ## Final release gate
 
-- [x] All 29 token-efficiency RED tests are green.
+- [ ] All 77 token-efficiency RED tests are green (current baseline: 29 green, 48 RED).
 - [x] Existing harness-thesis, compaction, security, retrieval, and context tests remain green.
 - [x] Source and test typechecks pass.
 - [ ] Median successful-task cost improves by at least 20% on the agreed corpus.

@@ -4,7 +4,7 @@ This directory is the intentionally failing acceptance contract for the July 202
 
 ## Rules
 
-- Tests exercise production module contracts; fixture constructors are data only.
+- Tests exercise production module contracts; fixture constructors are data only. The handoff extension tests use a minimal in-memory Pi event recorder but do not implement production behavior.
 - Missing production modules are loaded dynamically so every RED test is independently discoverable.
 - Do not make a test green by weakening its assertion, embedding a replacement implementation in the test, or treating missing provider data as zero.
 - Character accounting remains the deterministic provider-independent baseline. Provider token and cost fields remain nullable when not reported.
@@ -20,6 +20,12 @@ This directory is the intentionally failing acceptance contract for the July 202
 | `trajectory-reducer.red.test.ts` | `extensions/shared/trajectory-reducer.ts` | Deterministic role-aware reduction with recoverable references, protected state, valid tool pairs, and audit reasons |
 | `session-handoff.red.test.ts` | `extensions/shared/session-handoff.ts` | Pressure/boundary compaction decisions, typed checkpoints, bounded cross-session bootstrap, and validated sidecar compression |
 | `token-efficiency-evaluation.red.test.ts` | `extensions/shared/token-efficiency-evaluation.ts` | Release gates based on successful-task cost, quality, model calls, category coverage, and privacy |
+| `telemetry-runtime-integration.red.test.ts` | `usage-tracker.ts`, passive telemetry | Migrations, shared normalization, full task attribution, privacy, and restoration |
+| `trajectory-runtime-integration.red.test.ts` | `context-runtime.ts` | Single-owner runtime reduction plus coding, research, debugging, and mutation replays |
+| `handoff-compaction-runtime.red.test.ts` | handoff and structured compaction | Projected economics, checkpoint quality, sidecar validation/fallback, and fail-closed continuation |
+| `handoff-extension.red.test.ts` | `extensions/session-handoff.ts` | Actual `/handoff` registration, persistence, and one-time bootstrap consumption |
+| `evaluation-rollout-runtime.red.test.ts` | evaluator and context report | Observe-only reports, experiments, confidence intervals, release gates, and rollout stages |
+| `provider-tool-economics.red.test.ts` | provider economics and prefix profiler | Anthropic/OpenAI/Gemini accounting, cache controls, canonical tool order, and net economics |
 
 ## Expected initial result
 
@@ -29,9 +35,10 @@ Run:
 bun test tests/token-efficiency-red
 ```
 
-The initial suite discovered **25 tests** and failed because the five production modules did not exist. Integration contracts were then added as each slice reached runtime wiring. The current baseline is **29 pass, 0 fail**. The files retain the `.red.test.ts` suffix as permanent regression contracts, matching `tests/harness-theses-red/`. Extension wiring and rollout gates remain tracked in the checklist.
+The initial suite discovered 25 tests. The complete roadmap contract now discovers **77 tests: 29 pass and 48 intentionally RED**. The open tests cover every remaining roadmap implementation, integration, experiment, privacy, and rollout item. The files retain the `.red.test.ts` suffix when green as permanent regression contracts.
 
 Implementation order and exit criteria are documented in:
 
 - `docs/plans/token-efficiency-2026/00-roadmap.md`
 - `docs/plans/token-efficiency-2026/CHECKLIST.md`
+- `docs/plans/token-efficiency-2026/RED-MATRIX.md`
