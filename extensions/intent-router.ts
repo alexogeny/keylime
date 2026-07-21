@@ -37,6 +37,7 @@ export type ActiveToolSetDiagnostics = {
 let intentOverride: IntentOverride | null = null;
 let lastPolicyEvidence: Array<{ id: string; score: number; kind?: string }> = [];
 let lastFingerprint = "";
+let branchToolPrefixLocked = false;
 let lastToolSetDiagnostics: ActiveToolSetDiagnostics = {
   intent: "chat",
   source: "classifier",
@@ -80,6 +81,7 @@ export function resetIntentRoutingForTests(): void {
   clearDiscoveredToolsForTurn();
   lastPolicyEvidence = [];
   lastFingerprint = "";
+  branchToolPrefixLocked = false;
   lastToolSetDiagnostics = {
     intent: "chat",
     source: "classifier",
@@ -196,6 +198,10 @@ export function applyRouteTools(pi: ExtensionAPI, route: IntentRoute, source: Ro
     manualOverride: intentOverride,
     ...extras,
   };
+  // Tool definitions precede message history in provider payloads. Once the
+  // extension has established a branch prefix, later intent changes must not
+  // replace it and force a full uncached replay.
+  if (branchToolPrefixLocked) return;
   if (sameTools(current, next)) return;
   pi.setActiveTools(next);
 }
@@ -283,21 +289,15 @@ export function reminderText(): string {
 }
 
 export default function intentRouterExtension(pi: ExtensionAPI) {
-  let lastInjectedReminder = "";
   registerContextProvider({
     id: "intent-router",
     priority: 100,
     maxChars: 520,
-    build: () => {
-      const text = reminderText();
-      if (text === lastInjectedReminder) return null;
-      lastInjectedReminder = text;
-      return text;
-    },
+    build: () => reminderText(),
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    lastInjectedReminder = "";
+    branchToolPrefixLocked = false;
     clearDiscoveredToolsForTurn();
     ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "intent:—"));
   });
@@ -305,6 +305,7 @@ export default function intentRouterExtension(pi: ExtensionAPI) {
   pi.on("input", async (event, ctx) => {
     clearDiscoveredToolsForTurn();
     const route = routeForPrompt(pi, event.text ?? "");
+    branchToolPrefixLocked = true;
 
     ctx.ui.setStatus(
       STATUS_KEY,

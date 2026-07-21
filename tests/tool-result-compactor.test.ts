@@ -138,7 +138,7 @@ describe("tool result compaction", () => {
     await expect(handlers.tool_result({ toolName: "apply_code_replacements", content: [{ type: "text", text: "x".repeat(8000) }], isError: false }, { cwd: process.cwd() })).resolves.toBeUndefined();
   });
 
-  test("folds repeated small file reads through verified context objects", async () => {
+  test("leaves repeated bounded inspect_lines reads exact", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "tool-result-dedupe-"));
     const handlers: Record<string, any> = {};
     toolResultCompactorExtension({
@@ -152,9 +152,7 @@ describe("tool result compaction", () => {
         isError: false,
       };
       await expect(handlers.tool_result(event, { cwd })).resolves.toBeUndefined();
-      const folded = await handlers.tool_result(event, { cwd });
-      expect(folded.content[0].text).toContain("duplicate file read folded");
-      expect(folded.details.contextObjectId).toBeString();
+      await expect(handlers.tool_result(event, { cwd })).resolves.toBeUndefined();
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

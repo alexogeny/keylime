@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "./shared/json-store";
-import { registerContextProvider } from "./shared/turn-context";
+import { clearTurnContextCache, registerContextProvider } from "./shared/turn-context";
 import { truncateWithMarker } from "./shared/output-preview";
 import { stringEnum } from "./shared/schema";
 import { existsSync } from "node:fs";
@@ -324,6 +324,7 @@ export default function agentOsExtension(pi: ExtensionAPI) {
       if (!ctx.hasUI || !(await ctx.ui.confirm("Adopt agent OS state?", `Bind ${path} to the current repository. A backup will be retained.`))) return;
       await writeJsonFile(`${path}.backup-${Date.now()}`, raw, { finalNewline: true });
       await saveState(ctx.cwd, normalizeState(candidate));
+      clearTurnContextCache();
       ctx.ui.notify("Agent OS state adopted for this repository.", "info");
     },
   });

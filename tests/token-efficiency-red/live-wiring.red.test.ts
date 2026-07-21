@@ -28,7 +28,7 @@ const ctx = () => ({
 });
 
 describe("RED: production Pi hooks use token-efficiency policies", () => {
-  test("TE-090 live context hook invokes trajectory reducer for cold recoverable results", async () => {
+  test("TE-090 live context hook preserves historical results when selective clearing is disabled", async () => {
     const host = extensionHost();
     contextRuntimeExtension(host.api as any);
     const context = ctx();
@@ -36,8 +36,8 @@ describe("RED: production Pi hooks use token-efficiency policies", () => {
     await host.handlers.tool_result({ toolCallId: "c1", toolName: "inspect_lines", content: [{ type: "text", text: "large result".repeat(500) }], details: { contextObjectId: "ctx-1" }, isError: false });
     for (let index = 0; index < 16; index++) await host.handlers.input({ text: `user request ${index}` }, context);
     const result = await host.handlers.context({ messages: [{ role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "large result".repeat(500) }], details: { contextObjectId: "ctx-1" } }] }, context);
-    expect(result.messages[0].details.contextRuntimeReducer).toBe("trajectory-reducer");
-    expect(JSON.stringify(result.messages[0].content)).toContain("ctx-1");
+    expect(result.messages[0].details.contextRuntimeReducer).toBeUndefined();
+    expect(JSON.stringify(result.messages[0].content)).toContain("large result");
   });
 
   test("TE-091 before_provider_request applies Anthropic cache controls in production", async () => {

@@ -224,7 +224,7 @@ describe("RED: cache-prefix regressions", () => {
       } as any),
       getEntityStore: () => ({ version: 1, entities: [] } as any),
       hybridSearch: async () => [],
-      pendingHints,
+      pendingHints: pendingHints as any,
       pendingClarifications: [],
     });
     const messages = [{ role: "user", content: "How should this be phrased?" }];

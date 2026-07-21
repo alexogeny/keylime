@@ -158,6 +158,7 @@ type SafePrefixComponents = {
   toolOrderHash: string;
   toolSchemaHash: string;
   stableHistoryHash: string;
+  stableMessageCount: number;
 };
 
 export type PromptPrefixDiagnostic = {
@@ -182,6 +183,7 @@ function safeComponents(payload: PromptPayload): SafePrefixComponents {
     toolOrderHash: valueHash(tools.map(tool => tool.name)),
     toolSchemaHash: valueHash([...tools].sort((left, right) => left.name.localeCompare(right.name))),
     stableHistoryHash: valueHash(stable.messages),
+    stableMessageCount: stable.messages.length,
   };
 }
 
@@ -196,12 +198,21 @@ export function buildPromptPrefixDiagnostic(previous: PromptPrefixDiagnostic | u
     if (previous.components.toolSetHash !== components.toolSetHash) { changedCategories.push("tool_set"); firstChangedPath ||= "tools"; }
     else if (previous.components.toolOrderHash !== components.toolOrderHash) { changedCategories.push("tool_order"); firstChangedPath ||= "tools[0]"; }
     if (previous.components.toolSchemaHash !== components.toolSchemaHash) { changedCategories.push("tool_schema"); firstChangedPath ||= "tools"; }
-    if (previous.components.stableHistoryHash !== components.stableHistoryHash) { changedCategories.push("stable_history"); firstChangedPath ||= "messages"; }
+
+    const currentStableMessages = stablePrefix(currentAdapted).messages;
+    const previousStableCount = previous.components.stableMessageCount;
+    const appendOnlyHistory = Number.isInteger(previousStableCount)
+      && previousStableCount <= currentStableMessages.length
+      && valueHash(currentStableMessages.slice(0, previousStableCount)) === previous.components.stableHistoryHash;
+    if (previous.components.stableHistoryHash !== components.stableHistoryHash && !appendOnlyHistory) {
+      changedCategories.push("stable_history");
+      firstChangedPath ||= "messages";
+    }
   }
   return {
     current: profile.prefix,
     profile: { categories: profile.categories, totalChars: profile.totalChars },
     components,
-    diff: previous ? { cacheBust: previous.current.hash !== profile.prefix.hash, changedCategories, firstChangedPath } : undefined,
+    diff: previous ? { cacheBust: changedCategories.length > 0, changedCategories, firstChangedPath } : undefined,
   };
 }

@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCurrentRoute, type IntentRoute } from "./intent";
-import { promptFromMessages } from "./message-content";
+import { promptFromMessages, textFromContent } from "./message-content";
 import { truncateWithMarker } from "./output-preview";
 import { contextFingerprint } from "./context-ledger";
 import { allocateContextBudget } from "./context-value-allocator";
@@ -47,15 +47,22 @@ export type TurnContextDiagnostics = {
 
 const providers = new Map<string, ContextProvider>();
 const stableProviderCache = new Map<string, { dependency: string; value: string | null | undefined }>();
+const turnProviderCache = new Map<string, { turnKey: string; value: string | null | undefined }>();
 
 export function registerContextProvider(provider: ContextProvider): void {
   providers.set(provider.id, provider);
   stableProviderCache.delete(provider.id);
+  turnProviderCache.delete(provider.id);
 }
 
 export function clearContextProviders(): void {
   providers.clear();
   stableProviderCache.clear();
+  turnProviderCache.clear();
+}
+
+export function clearTurnContextCache(): void {
+  turnProviderCache.clear();
 }
 
 function stabilityRank(stability: ContextProviderStability | undefined): number {
@@ -92,26 +99,30 @@ function trimTo(text: string, maxChars: number): string {
 
 function appendReminder(messages: any[], text: string): any[] {
   const result = [...messages];
-  for (let i = result.length - 1; i >= 0; i--) {
-    if (result[i]?.role !== "user") continue;
-    const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
-    const msg = result[i];
-    if (typeof msg.content === "string") {
-      result[i] = { ...msg, content: msg.content + suffix };
+  const suffix = `\n\n<system-reminder>\n${text}\n</system-reminder>`;
+  const lastIndex = result.length - 1;
+  const last = result[lastIndex];
+
+  // Only rewrite the newest user message. Once assistant/tool traffic follows it,
+  // changing that old message destroys the provider's cached history prefix.
+  if (last?.role === "user") {
+    if (typeof last.content === "string") {
+      result[lastIndex] = { ...last, content: last.content + suffix };
       return result;
     }
-    if (Array.isArray(msg.content)) {
-      const blocks = [...msg.content];
+    if (Array.isArray(last.content)) {
+      const blocks = [...last.content];
       const lastText = blocks.findLastIndex((block: any) => block?.type === "text");
-      if (lastText >= 0) {
-        blocks[lastText] = { ...blocks[lastText], text: `${blocks[lastText].text}${suffix}` };
-      } else {
-        blocks.push({ type: "text", text: suffix });
-      }
-      result[i] = { ...msg, content: blocks };
+      if (lastText >= 0) blocks[lastText] = { ...blocks[lastText], text: `${blocks[lastText].text}${suffix}` };
+      else blocks.push({ type: "text", text: suffix.trimStart() });
+      result[lastIndex] = { ...last, content: blocks };
       return result;
     }
   }
+
+  // Tool loops must keep all existing messages byte-stable. Put volatile context
+  // in a new tail message instead of editing the user request behind the loop.
+  result.push({ role: "user", content: `<system-reminder>\n${text}\n</system-reminder>` });
   return result;
 }
 
@@ -119,11 +130,25 @@ function normalizeForDedupe(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function logicalTurnKey(messages: any[]): string {
+  let userCount = 0;
+  let latestUser = "";
+  for (const message of messages) {
+    if (message?.role !== "user") continue;
+    const text = textFromContent(message.content);
+    if (!text.trim()) continue;
+    userCount++;
+    latestUser = text;
+  }
+  return `${userCount}:${latestUser}`;
+}
+
 export async function composeTurnContext(ctx: ExtensionContext, messages: any[]): Promise<{ messages: any[]; providerIds: string[]; diagnostics: TurnContextDiagnostics }> {
   const pressure = contextPressure(ctx);
   const route = getCurrentRoute();
   const prompt = promptFromMessages(messages);
   const baseArgs = { ctx, messages, prompt, route, pressure };
+  const turnKey = logicalTurnKey(messages);
   const sections: string[] = [];
   const providerIds: string[] = [];
   const diagnostics: ContextProviderDiagnostic[] = [];
@@ -166,7 +191,14 @@ export async function composeTurnContext(ctx: ExtensionContext, messages: any[])
     }
 
     let raw: string | null | undefined;
-    if (stability !== "turn" && provider.dependencyFingerprint) {
+    if (stability === "turn") {
+      const cached = turnProviderCache.get(provider.id);
+      if (cached?.turnKey === turnKey) raw = cached.value;
+      else {
+        raw = await provider.build(args);
+        turnProviderCache.set(provider.id, { turnKey, value: raw });
+      }
+    } else if (provider.dependencyFingerprint) {
       const dependency = await provider.dependencyFingerprint(args);
       const cached = stableProviderCache.get(provider.id);
       if (cached?.dependency === dependency) raw = cached.value;

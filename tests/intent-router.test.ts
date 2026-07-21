@@ -145,7 +145,7 @@ describe("research gating", () => {
 });
 
 describe("router reminders", () => {
-  test("intent reminder is injected only when reminder content changes", async () => {
+  test("intent reminder remains byte-stable across repeated context rebuilds", async () => {
     clearContextProviders();
     const handlers: Record<string, any> = {};
     intentRouterExtension({
@@ -163,7 +163,8 @@ describe("router reminders", () => {
     const third = await composeTurnContext({ getContextUsage: () => ({ percent: 10 }) } as any, [{ role: "user", content: "research this online" }]);
 
     expect(first.providerIds).toContain("intent-router");
-    expect(second.providerIds).not.toContain("intent-router");
+    expect(second.providerIds).toContain("intent-router");
+    expect(second.messages).toEqual(first.messages);
     expect(third.providerIds).toContain("intent-router");
   });
 

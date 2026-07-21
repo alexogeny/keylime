@@ -55,6 +55,7 @@ export type RecordedToolResult = { toolCallId: string; toolName: string; text: s
 type RuntimeOptions = {
   hotTurns?: number;
   warmTurns?: number;
+  maskCommitInterval?: number;
   provider?: ProviderContextCapabilities;
   maxObservationEntries?: number;
   maxObservationChars?: number;
@@ -75,6 +76,8 @@ export type RuntimeMemoryStats = {
 };
 export type RuntimeSnapshot = {
   turn: number;
+  maskCommitTurn: number;
+  maskCommitInterval: number;
   observations: number;
   maskedObservations: number;
   cacheFingerprint: string;
@@ -108,6 +111,7 @@ function replaceTextContent(content: unknown, text: string): unknown {
 
 export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
   let turn = 0;
+  let maskCommitTurn = 0;
   let observations = new Map<string, Observation>();
   let trajectory: TrajectoryEvent[] = [];
   const durableConstraints = new Map<string, TrajectoryEvent>();
@@ -124,6 +128,11 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
   let maskedObservations = 0;
   let lastContextSelection: ReturnType<typeof explainContextSelection> | undefined;
   const provider = options.provider ?? { serverCompaction: false, selectiveToolClearing: false, promptCaching: false, opaqueCompaction: false };
+  const maskCommitInterval = Math.max(1, Math.floor(options.maskCommitInterval ?? 1));
+  const advanceTurn = (): void => {
+    turn++;
+    maskCommitTurn = Math.floor(turn / maskCommitInterval) * maskCommitInterval;
+  };
   const maxObservationEntries = Math.max(1, options.maxObservationEntries ?? 200);
   const maxObservationChars = Math.max(100, options.maxObservationChars ?? 250_000);
   const maxTrajectoryEvents = Math.max(10, options.maxTrajectoryEvents ?? 500);
@@ -160,10 +169,12 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
 
   return {
     reset(): void {
-      turn = 0; observations = new Map(); trajectory = []; durableConstraints.clear(); durablePlans.clear(); durableFailures.clear(); retrievals = []; retrievalUsage = {}; retrievalHistory = [];
+      turn = 0; maskCommitTurn = 0; observations = new Map(); trajectory = []; durableConstraints.clear(); durablePlans.clear(); durableFailures.clear(); retrievals = []; retrievalUsage = {}; retrievalHistory = [];
       retrievalBudget = { maxPackets: 6, maxChars: 3_000 }; experiences = []; lastFold = undefined; lastCompaction = undefined; cacheFingerprint = ""; maskedObservations = 0;
       resetContextRuntimeTelemetry();
     },
+
+    advanceUserTurn(): void { advanceTurn(); },
 
     recordToolResult(result: RecordedToolResult): void {
       const supersedes = !result.isError && /(?:run_checks|test|typecheck|lint)/i.test(result.toolName)
@@ -197,8 +208,15 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
           }];
         }
       }
+      if (!provider.selectiveToolClearing) {
+        maskedObservations = 0;
+        const stable = assembleCacheStableContext([{ id: "runtime-policy", stability: "static", content: "keylime-context-runtime-v1" }]);
+        cacheFingerprint = stable.fingerprint;
+        return { messages, transforms: [], cacheFingerprint };
+      }
+
       const lifecycle = applyObservationLifecycle([...observations.values()], {
-        currentTurn: turn,
+        currentTurn: maskCommitTurn,
         hotTurns: options.hotTurns ?? 2,
         warmTurns: options.warmTurns ?? 8,
       });
@@ -214,7 +232,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
           role: "tool",
           kind: item.kind === "failure" ? "failure" : "tool_result",
           text: before,
-          ageTurns: Math.max(0, turn - item.turn),
+          ageTurns: Math.max(0, maskCommitTurn - item.turn),
           protected: item.kind === "failure" || item.kind === "constraint" || item.kind === "safety",
           toolCallId: item.id,
           recoverableObjectId: item.objectId,
@@ -282,8 +300,8 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
     recordExperiences(items: RepositoryExperience[]): void { experiences.push(...items); if (experiences.length > maxExperiences) experiences = experiences.slice(-maxExperiences); },
     retrieveExperiences(query: ExperienceQuery): ExperienceMatch[] { return retrieveRepositoryExperiences(query, experiences, { maxResults: 5, minConfidence: .5 }); },
 
-    endTurn(input: { contextPercent: number; boundary?: string }): { fold?: TrajectoryFold; contextBudget: { maxChars: number }; retrievalBudget: { maxPackets: number; maxChars: number } } {
-      turn++;
+    endTurn(input: { contextPercent: number; boundary?: string; advanceTurn?: boolean }): { fold?: TrajectoryFold; contextBudget: { maxChars: number }; retrievalBudget: { maxPackets: number; maxChars: number } } {
+      if (input.advanceTurn !== false) advanceTurn();
       if (trajectory.length && shouldFoldTrajectory({ kind: input.boundary ?? "ordinary_turn", contextPercent: input.contextPercent })) {
         const durable = [...durableConstraints.values(), ...durablePlans.values(), ...durableFailures.values()];
         const byId = new Map([...durable, ...trajectory].map(event => [event.id, event]));
@@ -324,7 +342,7 @@ export function createContextRuntimeCoordinator(options: RuntimeOptions = {}) {
         controlChars: [...durableConstraints.values(), ...durablePlans.values(), ...durableFailures.values()].reduce((sum, event) => sum + event.text.length, 0),
         experienceEntries: experiences.length,
       };
-      const snapshot = { turn, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction, controlState, contextSelection: lastContextSelection, memoryStats };
+      const snapshot = { turn, maskCommitTurn, maskCommitInterval, observations: observations.size, maskedObservations, cacheFingerprint, retrieval: retrievalCredit(), retrievalBudget: { ...retrievalBudget }, lastFold, compaction: lastCompaction, controlState, contextSelection: lastContextSelection, memoryStats };
       publishContextRuntimeTelemetry(snapshot);
       return snapshot;
     },
@@ -339,6 +357,7 @@ export default function contextRuntimeExtension(pi: ExtensionAPI) {
       promptCaching: process.env.PI_CONTEXT_PROMPT_CACHING === "1",
       opaqueCompaction: process.env.PI_CONTEXT_OPAQUE_COMPACTION === "1",
     },
+    maskCommitInterval: Number(process.env.PI_CONTEXT_MASK_COMMIT_INTERVAL ?? 8),
   });
   let runtimeEventSequence = 0;
   const status = (ctx: any) => {
@@ -347,6 +366,7 @@ export default function contextRuntimeExtension(pi: ExtensionAPI) {
   };
 
   pi.on("session_start", async (event, ctx) => { if (event.reason === "new" || event.reason === "startup") { runtime.reset(); runtimeEventSequence = 0; } status(ctx); });
+  pi.on("input", async (_event: any, ctx: any) => { runtime.advanceUserTurn(); status(ctx); });
   pi.on("tool_result", async (event: any) => {
     const toolName = String(event.toolName ?? "tool");
     const text = textFromContent(event.content);
@@ -382,7 +402,7 @@ export default function contextRuntimeExtension(pi: ExtensionAPI) {
   });
   pi.on("turn_end", async (_event: any, ctx: any) => {
     const percent = ctx.getContextUsage?.()?.percent ?? 0;
-    const result = runtime.endTurn({ contextPercent: percent });
+    const result = runtime.endTurn({ contextPercent: percent, advanceTurn: false });
     pi.appendEntry?.("context-runtime-v1", { version: 1, ...runtime.snapshot(), fold: result.fold });
     status(ctx);
   });

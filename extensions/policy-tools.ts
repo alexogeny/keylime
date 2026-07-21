@@ -84,14 +84,23 @@ function formatToolUsage(name: string, tool?: RegisteredTool): string {
 }
 
 export default function policyToolsExtension(pi: ExtensionAPI) {
+  const pendingActivations = new Set<string>();
+  (pi as any).on?.("session_start", async () => {
+    if (pendingActivations.size === 0 || typeof (pi as any).setActiveTools !== "function") return;
+    const current = typeof (pi as any).getActiveTools === "function"
+      ? (pi as any).getActiveTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean)
+      : [];
+    (pi as any).setActiveTools([...new Set([...current, ...pendingActivations])]);
+    pendingActivations.clear();
+  });
   pi.registerTool({
     name: "tool_search",
     label: "Tool Search",
-    description: "Search and activate tools. Newly activated tools are callable on the next model step, never by a sibling call in the same assistant message.",
-    promptSnippet: "Search and activate deferred tools for the next model step",
+    description: "Search deferred tools and queue matches for activation at the next cache-safe session boundary.",
+    promptSnippet: "Search deferred tools and queue matches for the next session",
     promptGuidelines: [
-      "Use tool_search only when a needed capability is not currently available. Batch related capability needs into one specific search; repeated searches change active schemas and can invalidate the prompt cache.",
-      "After tool_search returns, wait for the next assistant continuation before calling a newly activated tool; never batch activation with its dependent call.",
+      "Use tool_search only when a needed capability is not currently available. Batch related capability needs into one specific search.",
+      "Queued tools activate at the next session boundary; do not assume they are callable in the current branch.",
       "Copy the exact case-sensitive snake_case tool name and send arrays/objects as native JSON, not JSON strings.",
       "The search result already includes each activated tool's live schema. Use tool_help only when that schema is absent or still ambiguous; do not add a redundant help call.",
     ],
@@ -130,34 +139,41 @@ export default function policyToolsExtension(pi: ExtensionAPI) {
       const current = typeof (pi as any).getActiveTools === "function"
         ? (pi as any).getActiveTools().map((tool: any) => typeof tool === "string" ? tool : tool?.name).filter(Boolean)
         : [];
-      const currentSet = new Set<string>(current);
+      const actualActive = new Set<string>(current);
+      const currentSet = new Set<string>([...current, ...pendingActivations]);
       const pending = results.map(policy => policy.name).filter(name => !currentSet.has(name));
       const canActivate = typeof (pi as any).setActiveTools === "function";
       const activated = canActivate ? pending : [];
       if (activated.length > 0) {
         recordDiscoveredToolsForTurn(activated);
-        (pi as any).setActiveTools([...new Set([...current, ...activated])].sort());
+        // Do not mutate the provider-visible tool prefix during a branch. The
+        // discovery remains queued/advisory and can be incorporated at a safe
+        // session boundary without invalidating cached history.
+        for (const name of activated) pendingActivations.add(name);
       }
-      const alreadyActive = results.map(policy => policy.name).filter(name => currentSet.has(name));
-      const callableAfter = activated.length > 0 ? "next_model_step" : alreadyActive.length === results.length && results.length > 0 ? "now" : "unavailable";
+      const alreadyActive = results.map(policy => policy.name).filter(name => actualActive.has(name));
+      const queued = results.map(policy => policy.name).filter(name => pendingActivations.has(name) && !actualActive.has(name));
+      const callableAfter = activated.length > 0 || queued.length > 0 ? "next_session" : alreadyActive.length === results.length && results.length > 0 ? "now" : "unavailable";
       const text = results.length
         ? results.map(policy => {
           const status = activated.includes(policy.name)
-            ? `ACTIVATED FOR NEXT MODEL STEP: ${policy.name}`
-            : alreadyActive.includes(policy.name)
-              ? `ALREADY ACTIVE: ${policy.name}`
-              : `MATCHED BUT NOT ACTIVATED: ${policy.name}`;
+            ? `QUEUED FOR NEXT SESSION: ${policy.name}`
+            : queued.includes(policy.name)
+              ? `ALREADY QUEUED: ${policy.name}`
+              : alreadyActive.includes(policy.name)
+                ? `ALREADY ACTIVE: ${policy.name}`
+                : `MATCHED BUT NOT ACTIVATED: ${policy.name}`;
           const metadata = `group=${policy.group ?? "always-on"} risk=${policy.risk}${policy.alwaysOn ? " always_on" : ""}`;
           const usage = results.length === 1 ? `\n${formatToolUsage(policy.name, registeredTool(allTools, policy.name))}` : "";
           return `${status}\n${metadata}${usage}`;
         }).join("\n\n")
         : "No matching tools found.";
       const sequencing = activated.length > 0
-        ? "\n\nWait for this result to return. Do not call it as a sibling of tool_search in the same assistant message."
+        ? "\n\nThis tool is queued for the next session boundary and is not callable in the current branch."
         : "";
       return {
         content: [{ type: "text", text: text + sequencing }],
-        details: { results, loaded: activated, activated, alreadyActive, callableAfter, exactNames: results.map(policy => policy.name) },
+        details: { results, loaded: activated, activated, queued, alreadyActive, callableAfter, exactNames: results.map(policy => policy.name) },
       };
     },
   });

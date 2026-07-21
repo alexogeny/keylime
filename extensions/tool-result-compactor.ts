@@ -221,6 +221,9 @@ export default function toolResultCompactor(pi: ExtensionAPI) {
     })) return;
     const cwd = ctx.cwd ?? process.cwd();
     const toolName = (event as any).toolName;
+    // inspect_lines already enforces a strict line window. Recompacting it makes
+    // the caller spend another model/tool round trip to recover the exact range.
+    if (toolName === "inspect_lines") return;
     const originalText = textFromContent((event as any).content);
     const kind = contextObjectKindForTool(toolName);
     const reduced = reduceToolResultText(toolName, originalText, { maxChars: DEFAULT_PREVIEW, query: currentTaskText });

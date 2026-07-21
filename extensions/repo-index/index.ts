@@ -403,25 +403,10 @@ export default async function repoIndexExtension(pi: ExtensionAPI) {
     }
   });
 
-  // ── Inject skeleton into system prompt (STATIC — cached prefix) ─────────────
-  // Runs once per agent turn but the content is stable, so it contributes to
-  // the cached system prompt prefix. We skip re-injection if the skeleton hasn't
-  // changed to avoid marking the system prompt as dirty unnecessarily.
-
-  let lastInjectedSkeleton = "";
-
-  pi.on("before_agent_start", async (event, ctx) => {
-    if (!shouldInjectRepoSkeleton()) return;
-    if (ctx.cwd !== state.cwd || state.dirty) await rebuildIndex(ctx.cwd);
-    if (!state.skeleton)       return;
-    if (state.skeleton === lastInjectedSkeleton) {
-      // Content is identical — inject anyway (system prompt is rebuilt every turn
-      // by pi, so we must always append; but since the text is the same, the
-      // assembled system prompt string will be identical → cache hit)
-    }
-    lastInjectedSkeleton = state.skeleton;
-    return { systemPrompt: event.systemPrompt + "\n\n" + state.skeleton };
-  });
+  // Keep the repository index retrieval-only. Injecting the skeleton into the
+  // system prompt made every source write and intent transition invalidate the
+  // earliest provider-cache prefix and replay the full branch as new input.
+  pi.on("before_agent_start", async () => undefined);
 
   // ── Invalidate index after source file writes ──────────────────────────────
 

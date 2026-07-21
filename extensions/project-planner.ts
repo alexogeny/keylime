@@ -31,7 +31,7 @@ import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { isCapabilityActive } from "./shared/intent";
-import { registerContextProvider } from "./shared/turn-context";
+import { clearTurnContextCache, registerContextProvider } from "./shared/turn-context";
 import { bindRepositoryState, loadBoundRepositoryState, resolveRepositoryIdentity } from "./shared/repository-identity";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -294,6 +294,7 @@ export default function projectPlannerExtension(pi: ExtensionAPI) {
       if (!ctx.hasUI || !(await ctx.ui.confirm("Adopt project state?", `Bind ${file} to the current repository. A backup will be retained.`))) return;
       await writeJsonFile(`${file}.backup-${Date.now()}`, raw, { finalNewline: true });
       await writeJsonFile(file, bindRepositoryState(identity, candidate), { finalNewline: true });
+      clearTurnContextCache();
       ctx.ui.notify("Project state adopted for this repository.", "info");
     },
   });

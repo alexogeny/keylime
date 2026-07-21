@@ -1,11 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { composeTurnContext, listContextProviders } from "./shared/turn-context";
+import { clearTurnContextCache, composeTurnContext, listContextProviders } from "./shared/turn-context";
 import { buildContextLedgerRecord, setPendingContextLedgerRecord } from "./shared/context-ledger";
 
 const STATUS_KEY = "turnctx";
 
 export default function turnContextComposerExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
+    clearTurnContextCache();
     ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", `ctxp:${listContextProviders().length}`));
   });
 

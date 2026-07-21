@@ -49,8 +49,9 @@ describe("policy tools extension", () => {
     const loaded = await tools.tool_search.execute("id", { query: "compare files", limit: 3 });
     expect(active).toContain("tool_search");
     expect(active).toContain("code_search");
-    expect(active).toContain("compare_files");
+    expect(active).not.toContain("compare_files");
     expect(loaded.details.loaded).toEqual(["compare_files"]);
+    expect(loaded.details.callableAfter).toBe("next_session");
 
     await tools.tool_search.execute("id", { query: "write edit", limit: 5 });
     expect(active).not.toContain("write");
@@ -100,15 +101,15 @@ describe("policy tools extension", () => {
     } as any);
 
     const result = await tools.tool_search.execute("id", { query: "apply_code_replacements", group: "coding" });
-    expect(result.content[0].text).toContain("ACTIVATED FOR NEXT MODEL STEP: apply_code_replacements");
-    expect(result.content[0].text).toContain("Do not call it as a sibling");
+    expect(result.content[0].text).toContain("QUEUED FOR NEXT SESSION: apply_code_replacements");
+    expect(result.content[0].text).toContain("queued for the next session boundary");
     expect(result.content[0].text).toContain("oldText");
     expect(result.content[0].text).toContain("newText");
-    expect(result.details.callableAfter).toBe("next_model_step");
+    expect(result.details.callableAfter).toBe("next_session");
     expect(result.details.activated).toEqual(["apply_code_replacements"]);
 
     const second = await tools.tool_search.execute("id", { query: "apply_code_replacements", group: "coding" });
-    expect(second.content[0].text).toContain("ALREADY ACTIVE: apply_code_replacements");
+    expect(second.content[0].text).toContain("ALREADY QUEUED: apply_code_replacements");
 
     const help = await tools.tool_help.execute("id", { name: "ApplyCodeReplacements" });
     expect(help.content[0].text).toContain("Exact name: apply_code_replacements");
@@ -130,7 +131,8 @@ describe("policy tools extension", () => {
 
     const result = await tools.tool_search.execute("id", { query: "diff repository", limit: 3 });
     expect(result.details.loaded).toEqual(["compare_files"]);
-    expect(active).toContain("compare_files");
+    expect(active).not.toContain("compare_files");
+    expect(result.details.callableAfter).toBe("next_session");
   });
 
   test("retrieve_policy returns kind-filtered corpus evidence", async () => {

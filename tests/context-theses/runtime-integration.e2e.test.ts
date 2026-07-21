@@ -9,7 +9,7 @@ const toolMessage = (id: string, text: string, details: Record<string, unknown> 
 
 describe("context runtime end-to-end wiring", () => {
   test("ages recoverable tool observations across turns and masks them in the context event", () => {
-    const runtime = createContextRuntimeCoordinator({ hotTurns: 1, warmTurns: 2 });
+    const runtime = createContextRuntimeCoordinator({ hotTurns: 1, warmTurns: 2, provider: { serverCompaction: false, selectiveToolClearing: true, promptCaching: false, opaqueCompaction: false } });
     runtime.recordToolResult({ toolCallId: "old", toolName: "inspect_lines", text: "old exact payload ".repeat(200), objectId: "ctx-old", isError: false });
     runtime.endTurn({ contextPercent: 20 });
     runtime.endTurn({ contextPercent: 20 });
@@ -24,7 +24,7 @@ describe("context runtime end-to-end wiring", () => {
   });
 
   test("adopts recoverability metadata added by a later tool-result compactor", () => {
-    const runtime = createContextRuntimeCoordinator({ hotTurns: 0, warmTurns: 0 });
+    const runtime = createContextRuntimeCoordinator({ hotTurns: 0, warmTurns: 0, provider: { serverCompaction: false, selectiveToolClearing: true, promptCaching: false, opaqueCompaction: false } });
     runtime.recordToolResult({ toolCallId: "late-sidecar", toolName: "inspect_lines", text: "large raw output ".repeat(100), isError: false });
     runtime.endTurn({ contextPercent: 20 });
     const result = runtime.transformContext([toolMessage("late-sidecar", "large raw output ".repeat(100), { contextObjectId: "ctx-late" })]);
@@ -40,7 +40,7 @@ describe("context runtime end-to-end wiring", () => {
   });
 
   test("keeps unresolved errors exact even when old", () => {
-    const runtime = createContextRuntimeCoordinator({ hotTurns: 0, warmTurns: 0 });
+    const runtime = createContextRuntimeCoordinator({ hotTurns: 0, warmTurns: 0, provider: { serverCompaction: false, selectiveToolClearing: true, promptCaching: false, opaqueCompaction: false } });
     runtime.recordToolResult({ toolCallId: "failure", toolName: "run_checks", text: "AssertionError: expected 2 received 1", objectId: "ctx-failure", isError: true });
     for (let index = 0; index < 10; index++) runtime.endTurn({ contextPercent: 20 });
     const message = { ...toolMessage("failure", "AssertionError: expected 2 received 1", { contextObjectId: "ctx-failure" }), isError: true };
@@ -161,5 +161,26 @@ describe("context runtime end-to-end wiring", () => {
 
     await harness.handlers.session_start[0]({ reason: "new" }, harness.ctx);
     expect(harness.status["context-runtime"]).toContain("ctxrt:");
+  });
+  test("does not rewrite cache-affecting observations when selective clearing is disabled", async () => {
+    const harness = mockPiFixture();
+    contextRuntimeExtension(harness.pi);
+    await harness.handlers.session_start[0]({ reason: "new" }, harness.ctx);
+    await harness.handlers.tool_result[0]({ toolCallId: "cache-stable", toolName: "inspect_lines", content: [{ type: "text", text: "stable payload ".repeat(200) }], details: { contextObjectId: "ctx-stable" }, isError: false }, harness.ctx);
+
+    for (let index = 0; index < 12; index++) await harness.handlers.turn_end[0]({}, harness.ctx);
+    const before = await harness.handlers.context[0]({ messages: [toolMessage("cache-stable", "stable payload ".repeat(200), { contextObjectId: "ctx-stable" })] }, harness.ctx);
+    const beforeStatus = await harness.tools.context_runtime_status.execute("id", {}, undefined, undefined, harness.ctx);
+    expect(beforeStatus.details.turn).toBe(0);
+    expect(beforeStatus.details.maskedObservations).toBe(0);
+    expect(JSON.stringify(before.messages)).toContain("stable payload stable payload");
+
+    for (let index = 0; index < 16; index++) await harness.handlers.input[0]({ text: `user request ${index}` }, harness.ctx);
+    const after = await harness.handlers.context[0]({ messages: [toolMessage("cache-stable", "stable payload ".repeat(200), { contextObjectId: "ctx-stable" })] }, harness.ctx);
+    const afterStatus = await harness.tools.context_runtime_status.execute("id", {}, undefined, undefined, harness.ctx);
+    expect(afterStatus.details).toMatchObject({ turn: 16, maskCommitTurn: 16, maskCommitInterval: 8 });
+    expect(afterStatus.details.maskedObservations).toBe(0);
+    expect(JSON.stringify(after.messages)).toContain("ctx-stable");
+    expect(JSON.stringify(after.messages)).toContain("stable payload stable payload");
   });
 });
