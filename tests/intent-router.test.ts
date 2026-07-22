@@ -24,12 +24,12 @@ describe("activeToolNames", () => {
     expect(tools).toContain("list_files");
     expect(tools).not.toContain("inspect_json");
     expect(tools).toContain("inspect_lines");
-    expect(tools).not.toContain("create_file");
+    expect(tools).toContain("create_file");
     expect(tools).not.toContain("begin_file_write");
     expect(tools).not.toContain("append_file_chunk");
     expect(tools).not.toContain("finish_file_write");
     expect(tools).not.toContain("abort_file_write");
-    expect(tools).not.toContain("create_directory");
+    expect(tools).toContain("create_directory");
     expect(tools).toContain("tool_search");
     expect(tools).toContain("tool_help");
     expect(tools).toContain("plan_code_replacements");
@@ -60,7 +60,8 @@ describe("activeToolNames", () => {
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("apply_code_replacements");
     expect(tools).toContain("plan_code_replacements");
-    expect(tools).not.toContain("create_file");
+    expect(tools).toContain("create_file");
+    expect(tools).toContain("create_directory");
     expect(tools).toContain("run_checks");
     expect(tools).not.toContain("read");
     expect(tools).not.toContain("bash");
@@ -81,7 +82,8 @@ describe("activeToolNames", () => {
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("apply_code_replacements");
     expect(tools).toContain("plan_code_replacements");
-    expect(tools).not.toContain("create_file");
+    expect(tools).toContain("create_file");
+    expect(tools).toContain("create_directory");
     expect(tools).toContain("fetch_url");
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("read");
@@ -97,7 +99,7 @@ describe("research gating", () => {
     expect(tools).toContain("inspect_lines");
     expect(tools).toContain("apply_code_replacements");
     expect(tools).toContain("plan_code_replacements");
-    expect(tools).not.toContain("create_file");
+    expect(tools).toContain("create_file");
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("read");
     expect(tools).not.toContain("write");
@@ -452,15 +454,17 @@ test("explicit coding mutations preactivate the guarded replacement workflow", (
   expect(workflowToolNames(classifyIntent("explain how this implementation works"))).toEqual([]);
 });
 
-test("coding route starts with bootstrap tools and defers codemods", () => {
+test("coding route starts with common file tools and defers specialized helpers", () => {
   const tools = activeToolNames(pi(["custom_safe_tool"]), ["coding", "repo"]);
 
   expect(tools).toContain("inspect_text_matches");
   expect(tools).toContain("inspect_lines");
   expect(tools).toContain("plan_code_replacements");
   expect(tools).toContain("apply_code_replacements");
-  expect(tools).not.toContain("create_file");
-  expect(tools).not.toContain("create_directory");
+  expect(tools).toContain("create_file");
+  expect(tools).toContain("create_directory");
+  expect(tools).toContain("move_file");
+  expect(tools).toContain("delete_file");
   expect(tools).toContain("run_checks");
   expect(tools).not.toContain("retrieve_policy");
   expect(tools).not.toContain("suggest_checks");
@@ -492,7 +496,7 @@ test("review mode keeps safe file primitives but removes unrelated domain tools"
   expect(tools).not.toContain("inspect_code_structure");
   expect(tools).toContain("apply_code_replacements");
   expect(tools).toContain("plan_code_replacements");
-  expect(tools).not.toContain("create_file");
+  expect(tools).toContain("create_file");
   expect(tools).toContain("custom_safe_tool");
   expect(tools).not.toContain("edit");
   expect(tools).not.toContain("web_search");
@@ -540,7 +544,7 @@ test("tool-policy command reports always-on and locked tools", async () => {
   });
 
   expect(notification).toContain("always-on code tools");
-  expect(notification).not.toContain("create_directory");
+  expect(notification).toContain("create_directory");
   expect(notification).not.toContain("retrieve_policy");
   expect(notification).not.toContain("codemod_plan");
   expect(notification).not.toContain("inspect_tool_result");

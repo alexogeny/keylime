@@ -13,10 +13,16 @@ describe("shared tool policy", () => {
     expect(bootstrapToolNames()).toEqual([
       "apply_code_replacements",
       "code_search",
+      "copy_file",
+      "create_directory",
+      "create_file",
+      "delete_file",
       "inspect_lines",
       "inspect_text_matches",
       "list_files",
+      "move_file",
       "plan_code_replacements",
+      "replace_file",
       "run_checks",
       "tool_help",
       "tool_search",
@@ -54,10 +60,10 @@ describe("shared tool policy", () => {
     expect(capabilityToolMap().coding).not.toContain("bash");
   });
 
-  test("replacement primitives are always active while other mutation tools stay deferred", () => {
+  test("common file mutation primitives are always active while specialized mutation tools stay deferred", () => {
     expect(alwaysOnToolNames()).toContain("apply_code_replacements");
     expect(alwaysOnToolNames()).toContain("plan_code_replacements");
-    expect(alwaysOnToolNames()).not.toContain("create_file");
+    expect(alwaysOnToolNames()).toEqual(expect.arrayContaining(["copy_file", "create_directory", "create_file", "delete_file", "move_file", "replace_file"]));
     expect(alwaysOnToolNames()).not.toContain("begin_file_write");
     expect(alwaysOnToolNames()).toContain("run_checks");
     expect(alwaysOnToolNames()).not.toContain("commit_history");
